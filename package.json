@@ -1,0 +1,34 @@
+{
+  "name": "regimex",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @regimex/api --filter @regimex/worker dev",
+    "dev:api": "pnpm --filter @regimex/api dev",
+    "dev:worker": "pnpm --filter @regimex/worker dev",
+    "dev:mobile": "pnpm --filter @regimex/mobile start",
+    "build": "pnpm -r --filter '!@regimex/mobile' build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --filter '!@regimex/mobile' test",
+    "lint": "pnpm -r --filter '!@regimex/mobile' lint",
+    "db:generate": "pnpm --filter @regimex/database generate",
+    "db:migrate": "pnpm --filter @regimex/database migrate:dev",
+    "db:deploy": "pnpm --filter @regimex/database migrate:deploy",
+    "db:seed": "pnpm --filter @regimex/database seed",
+    "db:push": "pnpm --filter @regimex/database push",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "ioredis": "5.10.1"
+    }
+  }
+}

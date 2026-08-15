@@ -1,0 +1,4 @@
+{
+  "extends": "@regimex/tsconfig/base.json",
+  "include": ["src"]
+}

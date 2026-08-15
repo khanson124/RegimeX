@@ -1,0 +1,723 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Auth & identity
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  status       String    @default("ACTIVE") // ACTIVE | LOCKED | DELETED
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  refreshTokens    RefreshToken[]
+  derivCredentials DerivCredential[]
+  tradingAccounts  TradingAccount[]
+  backtests        Backtest[]
+  researchRuns     ResearchRun[]
+  optimizationRuns OptimizationRun[]
+  liveEngines      LiveEngine[]
+  signals          Signal[]
+  demoTrades       DemoTrade[]
+  riskProfiles     RiskProfile[]
+  decisionLogs     DecisionLog[]
+  tradeCandidates  TradeCandidate[]
+  notifications    Notification[]
+  strategies       StrategyDefinition[]
+
+  @@index([status])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  familyId   String // rotation family; whole family revoked on reuse
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([familyId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Deriv integration
+// ─────────────────────────────────────────────────────────────
+
+model DerivCredential {
+  id             String    @id @default(cuid())
+  userId         String
+  /// AES-256-GCM ciphertext (iv:tag:data, base64). Never returned to clients.
+  encryptedToken String
+  status         String    @default("ACTIVE") // ACTIVE | REVOKED
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tradingAccounts TradingAccount[]
+
+  @@index([userId, status])
+}
+
+model TradingAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  derivCredentialId String
+  derivLoginId      String // e.g. VRTC1234567
+  isVirtual         Boolean // MVP requires true
+  currency          String
+  lastKnownBalance  Decimal? @db.Decimal(18, 2)
+  balanceUpdatedAt  DateTime?
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  derivCredential DerivCredential @relation(fields: [derivCredentialId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, derivLoginId])
+  @@index([userId, status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Market data
+// ─────────────────────────────────────────────────────────────
+
+model Symbol {
+  id              String   @id @default(cuid())
+  derivSymbol     String   @unique // e.g. R_10
+  displayName     String
+  enabled         Boolean  @default(true)
+  pricePrecision  Int      @default(3)
+  /// Supported candle intervals, e.g. ["1m","5m"]
+  candleIntervals Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  candles Candle[]
+
+  @@index([enabled])
+}
+
+model Candle {
+  id         String   @id @default(cuid())
+  symbolId   String
+  interval   String // "1m" | "5m"
+  openTime   DateTime
+  closeTime  DateTime
+  open       Decimal  @db.Decimal(18, 5)
+  high       Decimal  @db.Decimal(18, 5)
+  low        Decimal  @db.Decimal(18, 5)
+  close      Decimal  @db.Decimal(18, 5)
+  tickCount  Int      @default(0)
+  isComplete Boolean  @default(false)
+  source     String // LIVE_TICKS | HISTORY_API | SEED
+  createdAt  DateTime @default(now())
+
+  symbol Symbol @relation(fields: [symbolId], references: [id], onDelete: Cascade)
+
+  @@unique([symbolId, interval, openTime])
+  @@index([symbolId, interval, openTime(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Strategies
+// ─────────────────────────────────────────────────────────────
+
+model StrategyDefinition {
+  id          String    @id @default(cuid())
+  userId      String? // null = system-provided
+  kind        String // breakout-momentum | ema-pullback | bollinger-reversion | squeeze-breakout
+  name        String
+  description String    @default("")
+  enabled     Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user     User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  versions StrategyVersion[]
+
+  @@index([userId, enabled])
+  @@index([kind])
+}
+
+model StrategyVersion {
+  id           String   @id @default(cuid())
+  definitionId String
+  version      String // semver-ish, e.g. "1"
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  definition    StrategyDefinition     @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  parameterSets StrategyParameterSet[]
+
+  @@unique([definitionId, version])
+}
+
+model StrategyParameterSet {
+  id                String   @id @default(cuid())
+  strategyVersionId String
+  /// Safe typed configuration values only — never code.
+  parameters        Json
+  isActive          Boolean  @default(true)
+  /// Where these parameters came from: MANUAL | OPTIMIZER | SEED
+  origin            String   @default("MANUAL")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  strategyVersion StrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Cascade)
+
+  @@index([strategyVersionId, isActive])
+}
+
+model RegimeConfiguration {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  classifierVersion String
+  /// Threshold configuration consumed by the rule-based classifier.
+  thresholds        Json
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────
+// Backtesting
+// ─────────────────────────────────────────────────────────────
+
+model Backtest {
+  id                      String    @id @default(cuid())
+  userId                  String
+  symbol                  String
+  interval                String
+  fromDate                DateTime
+  toDate                  DateTime
+  startingBalance         Decimal   @db.Decimal(18, 2)
+  stakeType               String    @default("FIXED")
+  stakeAmount             Decimal   @db.Decimal(18, 2)
+  strategyIds             Json // string[]
+  selectionMode           String    @default("AUTO")
+  contractDurationCandles Int       @default(5)
+  assumedPayoutRatio      Decimal   @db.Decimal(6, 4)
+  testSplit               Decimal   @db.Decimal(4, 2)
+  regimeClassifierVersion String
+  status                  String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
+  progress                Int       @default(0)
+  error                   String?
+  /// Aggregate result metrics (BacktestSummary JSON).
+  summary                 Json?
+  /// Per-regime and per-strategy breakdowns.
+  regimeResults           Json?
+  strategyResults         Json?
+  /// Train vs test split results when testSplit > 0.
+  validation              Json?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs         BacktestJob[]
+  trades       BacktestTrade[]
+  equityPoints BacktestEquityPoint[]
+
+  @@index([userId, status, createdAt(sort: Desc)])
+}
+
+model BacktestJob {
+  id         String    @id @default(cuid())
+  backtestId String
+  queueJobId String?
+  status     String    @default("QUEUED")
+  attempts   Int       @default(0)
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  backtest Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
+
+  @@index([backtestId])
+}
+
+model BacktestTrade {
+  id               String   @id @default(cuid())
+  backtestId       String
+  strategyId       String
+  strategyVersion  String
+  regime           String
+  regimeConfidence Decimal  @db.Decimal(4, 3)
+  action           String // BUY | SELL
+  entryTime        DateTime
+  exitTime         DateTime
+  entryPrice       Decimal  @db.Decimal(18, 5)
+  exitPrice        Decimal  @db.Decimal(18, 5)
+  stake            Decimal  @db.Decimal(18, 2)
+  payout           Decimal  @db.Decimal(18, 2)
+  profit           Decimal  @db.Decimal(18, 2)
+  outcome          String // WIN | LOSS | PUSH
+  confidence       Decimal  @db.Decimal(4, 3)
+  entryReason      Json
+  /// True when trade fell in the out-of-sample (test) segment.
+  isOutOfSample    Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  backtest Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
+
+  @@index([backtestId, entryTime])
+  @@index([strategyId, regime])
+}
+
+model BacktestEquityPoint {
+  id         String   @id @default(cuid())
+  backtestId String
+  time       DateTime
+  balance    Decimal  @db.Decimal(18, 2)
+  equity     Decimal  @db.Decimal(18, 2)
+  drawdown   Decimal  @db.Decimal(8, 4)
+  createdAt  DateTime @default(now())
+
+  backtest Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
+
+  @@index([backtestId, time])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Research & validation
+// ─────────────────────────────────────────────────────────────
+
+model ResearchRun {
+  id                      String    @id @default(cuid())
+  userId                  String
+  symbol                  String
+  interval                String
+  fromDate                DateTime
+  toDate                  DateTime
+  mode                    String    @default("WALK_FORWARD") // SIMPLE | WALK_FORWARD | EXPERIMENT
+  status                  String    @default("QUEUED")
+  progress                Int       @default(0)
+  error                   String?
+  startingBalance         Decimal   @db.Decimal(18, 2)
+  stakeAmount             Decimal   @db.Decimal(18, 2)
+  strategyIds             Json
+  selectionMode           String    @default("AUTO")
+  contractDurationCandles Int       @default(5)
+  assumedPayoutRatio      Decimal   @db.Decimal(6, 4)
+  holdoutPercent          Decimal   @db.Decimal(4, 2)
+  /// Walk-forward + sample requirement configuration JSON.
+  config                  Json
+  developmentCandleCount  Int?
+  holdoutCandleCount      Int?
+  holdoutStartIndex       Int?
+  /// Aggregate summaries JSON (overall, walk-forward combined, holdout).
+  summary                 Json?
+  walkForwardSummary      Json?
+  holdoutSummary          Json?
+  trainSummary            Json?
+  /// INSUFFICIENT_EVIDENCE | NO_EDGE_DETECTED | PROMISING | ROBUST | DEGRADING
+  verdict                 String?
+  verdictReasons          Json?
+  researchConfidence      Int?
+  baselineResults         Json?
+  degradationAnalysis     Json?
+  parameterStability      Json?
+  /// Reproducibility metadata: seeds, parameter spaces, code versions, etc.
+  reproducibility         Json?
+  experimentSeed          Int?
+  holdoutEvaluationCount  Int       @default(0)
+  lastHoldoutEvaluationAt DateTime?
+  holdoutConsumedAt       DateTime?
+  regimeClassifierVersion String
+  startedAt               DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  windows         WalkForwardWindowResult[]
+  metrics         StrategyRegimeMetric[]
+  tradeCandidates TradeCandidate[]
+
+  @@index([userId, status, createdAt(sort: Desc)])
+  @@index([symbol, interval])
+}
+
+model WalkForwardWindowResult {
+  id               String   @id @default(cuid())
+  researchRunId    String
+  windowIndex      Int
+  trainStartIndex  Int
+  trainEndIndex    Int
+  testStartIndex   Int
+  testEndIndex     Int
+  /// Parameters frozen before evaluating the test window.
+  frozenParameters Json?
+  trainSummary     Json
+  testSummary      Json
+  createdAt        DateTime @default(now())
+
+  researchRun ResearchRun @relation(fields: [researchRunId], references: [id], onDelete: Cascade)
+
+  @@unique([researchRunId, windowIndex])
+  @@index([researchRunId])
+}
+
+model StrategyRegimeMetric {
+  id                      String   @id @default(cuid())
+  researchRunId           String?
+  userId                  String
+  symbol                  String
+  interval                String
+  strategyId              String
+  regime                  String
+  /// OVERALL | TRAIN | TEST | WALK_FORWARD | HOLDOUT | DEMO_FORWARD
+  segment                 String
+  evaluationStatus        String   @default("INSUFFICIENT_SAMPLE")
+  totalTrades             Int      @default(0)
+  wins                    Int      @default(0)
+  losses                  Int      @default(0)
+  pushes                  Int      @default(0)
+  winRate                 Decimal  @db.Decimal(8, 6)
+  profitFactor            Decimal? @db.Decimal(10, 4)
+  expectancy              Decimal  @db.Decimal(12, 4)
+  averageWin              Decimal  @db.Decimal(18, 2)
+  averageLoss             Decimal  @db.Decimal(18, 2)
+  netProfit               Decimal  @db.Decimal(18, 2)
+  returnPercent           Decimal  @db.Decimal(10, 4)
+  maxDrawdown             Decimal  @db.Decimal(18, 2)
+  maxDrawdownPercent      Decimal  @db.Decimal(8, 4)
+  longestWinStreak        Int      @default(0)
+  longestLossStreak       Int      @default(0)
+  riskAdjustedReturn      Decimal? @db.Decimal(10, 4)
+  parameterStabilityScore Decimal? @db.Decimal(6, 4)
+  parameterStabilityLevel String?
+  researchConfidence      Int?
+  researchConfidenceReasons Json?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  researchRun ResearchRun? @relation(fields: [researchRunId], references: [id], onDelete: Cascade)
+
+  @@index([userId, symbol, interval, strategyId, regime])
+  @@index([researchRunId, segment])
+  @@index([strategyId, regime, segment])
+}
+
+model TradeCandidate {
+  id                      String    @id @default(cuid())
+  userId                  String
+  /// LIVE | BACKTEST | WALK_FORWARD_TEST | FINAL_HOLDOUT | DEMO_FORWARD
+  source                  String
+  researchRunId           String?
+  backtestId              String?
+  timestamp               DateTime
+  symbol                  String
+  interval                String
+  regime                  String?
+  regimeConfidence        Decimal?  @db.Decimal(4, 3)
+  strategyId              String?
+  strategyVersion         String?
+  direction               String?
+  /// Full MarketFeatureSnapshot JSON at decision time.
+  features                Json
+  strategyScore           Decimal?  @db.Decimal(10, 4)
+  /// TRADE | NO_STRATEGY | REJECT_RISK | ...
+  decisionCode            String
+  /// RiskRejectionCode or strategy-specific code when applicable.
+  rejectionCode           String?
+  reasons                 Json
+  riskChecks              Json?
+  demoTradeId             String?
+  backtestTradeId         String?
+  actualOutcome           String?
+  hypotheticalOutcome     String?
+  hypotheticalEvaluatedAt DateTime?
+  outcomeWindowEnd        DateTime?
+  correlationId           String
+  candleIndex             Int?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  researchRun ResearchRun? @relation(fields: [researchRunId], references: [id], onDelete: SetNull)
+
+  @@index([userId, timestamp(sort: Desc)])
+  @@index([source, decisionCode])
+  @@index([strategyId, regime])
+  @@index([rejectionCode])
+  @@index([hypotheticalOutcome])
+  @@index([researchRunId])
+  @@index([backtestId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Optimization
+// ─────────────────────────────────────────────────────────────
+
+model OptimizationRun {
+  id                String    @id @default(cuid())
+  userId            String
+  strategyKind      String
+  symbol            String
+  interval          String
+  fromDate          DateTime
+  toDate            DateTime
+  parameterSpace    Json
+  totalCombinations Int
+  completedCount    Int       @default(0)
+  testSplit         Decimal   @db.Decimal(4, 2)
+  status            String    @default("QUEUED")
+  error             String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidates OptimizationCandidate[]
+
+  @@index([userId, status, createdAt(sort: Desc)])
+}
+
+model OptimizationCandidate {
+  id               String   @id @default(cuid())
+  runId            String
+  parameters       Json
+  trainSummary     Json?
+  testSummary      Json?
+  score            Decimal? @db.Decimal(10, 4)
+  stabilityScore   Decimal? @db.Decimal(10, 4)
+  overfitWarning   Boolean  @default(false)
+  status           String   @default("PENDING")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  run OptimizationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, score(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Live engine & trading
+// ─────────────────────────────────────────────────────────────
+
+model LiveEngine {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  state           String    @default("STOPPED")
+  stateReason     String?
+  emergencyStop   Boolean   @default(false)
+  lastTickAt      DateTime?
+  lastCandleAt    DateTime?
+  lastHeartbeatAt DateTime?
+  reconnectCount  Int       @default(0)
+  engineVersion   String    @default("0.1.0")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configurations LiveEngineConfiguration[]
+
+  @@index([state])
+}
+
+model LiveEngineConfiguration {
+  id                        String   @id @default(cuid())
+  liveEngineId              String
+  symbol                    String
+  interval                  String
+  mode                      String   @default("ANALYSIS_ONLY")
+  selectionMode             String   @default("AUTO")
+  fixedStrategyId           String?
+  riskProfileId             String?
+  resumeTradingAfterRestart Boolean  @default(false)
+  isActive                  Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  liveEngine LiveEngine @relation(fields: [liveEngineId], references: [id], onDelete: Cascade)
+
+  @@index([liveEngineId, isActive])
+}
+
+model Signal {
+  id               String   @id @default(cuid())
+  userId           String
+  symbol           String
+  interval         String
+  strategyId       String
+  strategyVersion  String
+  regime           String
+  regimeConfidence Decimal  @db.Decimal(4, 3)
+  action           String // BUY | SELL | HOLD
+  confidence       Decimal  @db.Decimal(4, 3)
+  entryReason      Json
+  signalTime       DateTime
+  status           String   @default("PRODUCED") // PRODUCED | RISK_REJECTED | EXECUTED | EXPIRED | SKIPPED
+  correlationId    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  demoTrades DemoTrade[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([symbol, signalTime])
+}
+
+model DemoTrade {
+  id            String    @id @default(cuid())
+  userId        String
+  signalId      String?
+  symbol        String
+  strategyId    String
+  regime        String
+  direction     String // CALL | PUT
+  stake         Decimal   @db.Decimal(18, 2)
+  proposedPayout Decimal? @db.Decimal(18, 2)
+  finalPayout   Decimal?  @db.Decimal(18, 2)
+  profit        Decimal?  @db.Decimal(18, 2)
+  status        String    @default("PROPOSED") // PROPOSED | OPEN | WON | LOST | CANCELLED | ERROR
+  riskSnapshot  Json
+  correlationId String
+  openedAt      DateTime?
+  settledAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signal    Signal?    @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  contracts Contract[]
+
+  @@index([userId, status, createdAt(sort: Desc)])
+}
+
+model Contract {
+  id              String    @id @default(cuid())
+  demoTradeId     String
+  derivContractId String    @unique
+  contractType    String // CALL | PUT
+  entrySpot       Decimal?  @db.Decimal(18, 5)
+  exitSpot        Decimal?  @db.Decimal(18, 5)
+  buyPrice        Decimal   @db.Decimal(18, 2)
+  payout          Decimal?  @db.Decimal(18, 2)
+  profit          Decimal?  @db.Decimal(18, 2)
+  status          String    @default("OPEN") // OPEN | WON | LOST | SOLD | CANCELLED
+  startTime       DateTime?
+  expiryTime      DateTime?
+  settledAt       DateTime?
+  rawSnapshot     Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  demoTrade DemoTrade @relation(fields: [demoTradeId], references: [id], onDelete: Cascade)
+
+  @@index([demoTradeId])
+  @@index([status])
+}
+
+model RiskProfile {
+  id                       String   @id @default(cuid())
+  userId                   String
+  name                     String
+  isActive                 Boolean  @default(true)
+  demoOnly                 Boolean  @default(true)
+  fixedStake               Decimal  @db.Decimal(18, 2)
+  maxStakePerTrade         Decimal  @db.Decimal(18, 2)
+  maxDailyLoss             Decimal  @db.Decimal(18, 2)
+  maxDailyTrades           Int
+  maxConsecutiveLosses     Int
+  maxSimultaneousContracts Int
+  minCooldownSeconds       Int
+  maxDrawdownPercent       Decimal  @db.Decimal(6, 2)
+  minBalance               Decimal  @db.Decimal(18, 2)
+  sessionStartHourUtc      Int?
+  sessionEndHourUtc        Int?
+  maxDataAgeSeconds        Int      @default(30)
+  maxSignalAgeSeconds      Int      @default(30)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, isActive])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Audit & system
+// ─────────────────────────────────────────────────────────────
+
+model DecisionLog {
+  id               String   @id @default(cuid())
+  userId           String?
+  eventType        String
+  symbol           String?
+  interval         String?
+  regime           String?
+  regimeConfidence Decimal? @db.Decimal(4, 3)
+  strategyId       String?
+  action           String?
+  signalConfidence Decimal? @db.Decimal(4, 3)
+  riskApproved     Boolean?
+  reasons          Json
+  featureSummary   Json?
+  correlationId    String
+  engineVersion    String   @default("0.1.0")
+  createdAt        DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([eventType, createdAt(sort: Desc)])
+  @@index([strategyId, regime])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model SystemEvent {
+  id        String   @id @default(cuid())
+  level     String // INFO | WARNING | ERROR
+  source    String // api | worker | engine | deriv
+  eventType String
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt(sort: Desc)])
+  @@index([level, createdAt(sort: Desc)])
+}

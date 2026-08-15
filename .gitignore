@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+coverage/
+.expo/
+.expo-shared/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+prisma/*.db
+.turbo/
+android/
+ios/

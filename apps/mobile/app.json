@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "RegimeX",
+    "slug": "regimex",
+    "version": "0.1.0",
+    "scheme": "regimex",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "backgroundColor": "#0B0F14",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.regimex.app"
+    },
+    "android": {
+      "package": "com.regimex.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0F14"
+      }
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

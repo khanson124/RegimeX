@@ -1,0 +1,42 @@
+{
+  "name": "@regimex/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/helmet": "^13.0.1",
+    "@fastify/rate-limit": "^10.2.2",
+    "@fastify/websocket": "^11.0.2",
+    "@regimex/config": "workspace:*",
+    "@regimex/database": "workspace:*",
+    "@regimex/shared": "workspace:*",
+    "@regimex/trading-engine": "workspace:*",
+    "argon2": "^0.41.1",
+    "bullmq": "^5.34.10",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@regimex/eslint-config": "workspace:*",
+    "@regimex/tsconfig": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.7",
+    "eslint": "^9.18.0",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

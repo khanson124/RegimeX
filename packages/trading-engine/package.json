@@ -1,0 +1,30 @@
+{
+  "name": "@regimex/trading-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "build": "true"
+  },
+  "dependencies": {
+    "@regimex/indicators": "workspace:*",
+    "@regimex/shared": "workspace:*",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@regimex/eslint-config": "workspace:*",
+    "@regimex/tsconfig": "workspace:*",
+    "@types/node": "^22.10.7",
+    "@types/ws": "^8.5.13",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

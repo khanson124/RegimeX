@@ -1,0 +1,17 @@
+{
+  "name": "@regimex/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "scripts": {
+    "typecheck": "true",
+    "lint": "true",
+    "test": "true",
+    "build": "true"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.18.0",
+    "typescript-eslint": "^8.20.0"
+  }
+}
