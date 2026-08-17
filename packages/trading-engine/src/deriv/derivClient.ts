@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { DerivAuthenticationError, DerivConnectionError } from "@regimex/shared";
+import { parseContractUpdate } from "./contractUpdate.js";
+import { fetchOtpWebSocketUrl, fetchOptionsAccounts, verifyOptionsPatToken } from "./derivRest.js";
+import { fromDerivApiSymbol, isOptionsAppId, toDerivApiSymbol } from "./derivSymbols.js";
 import {
   type DerivAuthorizeInfo,
   type DerivBuyResult,
@@ -15,6 +18,8 @@ import {
 export interface DerivClientOptions {
   wsUrl: string;
   appId: string;
+  /** Deriv REST base URL (Options API). */
+  restUrl?: string;
   /** Deriv API token; omit for public (market data only) connections. */
   apiToken?: string;
   /** Milliseconds between pings. Deriv drops idle connections around 2 min. */
@@ -58,6 +63,7 @@ export class DerivClient extends EventEmitter {
   private lastSendAt = 0;
   private sendQueue: Promise<void> = Promise.resolve();
   private authorizeInfo: DerivAuthorizeInfo | null = null;
+  private optionsAccountId: string | null = null;
 
   constructor(private readonly options: DerivClientOptions) {
     super();
@@ -80,8 +86,9 @@ export class DerivClient extends EventEmitter {
       return;
     }
     this.closedByUser = false;
-    await this.openSocket();
-    if (this.options.apiToken) {
+    const url = await this.resolveWebSocketUrl();
+    await this.openSocket(url);
+    if (this.options.apiToken && !this.isOptionsApi()) {
       await this.authorize(this.options.apiToken);
     }
   }
@@ -122,15 +129,15 @@ export class DerivClient extends EventEmitter {
   /** Subscribe to live ticks for a symbol. Restored automatically on reconnect. */
   async subscribeTicks(symbol: string, onTick: TickCallback): Promise<void> {
     this.tickSubscriptions.set(symbol, onTick);
-    await this.send({ ticks: symbol, subscribe: 1 });
+    const apiSymbol = toDerivApiSymbol(symbol, this.options.appId);
+    await this.send({ ticks: apiSymbol, subscribe: 1 });
   }
 
   async unsubscribeTicks(symbol: string): Promise<void> {
     this.tickSubscriptions.delete(symbol);
     await this.send({ forget_all: "ticks" }).catch(() => undefined);
-    // Re-subscribe remaining symbols (forget_all drops everything).
     for (const s of this.tickSubscriptions.keys()) {
-      await this.send({ ticks: s, subscribe: 1 });
+      await this.send({ ticks: toDerivApiSymbol(s, this.options.appId), subscribe: 1 });
     }
   }
 
@@ -142,8 +149,9 @@ export class DerivClient extends EventEmitter {
     endEpochSec: number,
     count = 5000
   ): Promise<DerivHistoricalCandle[]> {
+    const apiSymbol = toDerivApiSymbol(symbol, this.options.appId);
     const res = await this.send({
-      ticks_history: symbol,
+      ticks_history: apiSymbol,
       style: "candles",
       granularity: granularitySeconds,
       start: startEpochSec,
@@ -169,16 +177,8 @@ export class DerivClient extends EventEmitter {
     durationUnit: "t" | "s" | "m";
     currency: string;
   }): Promise<DerivProposal> {
-    const res = await this.send({
-      proposal: 1,
-      amount: params.stake,
-      basis: "stake",
-      contract_type: params.contractType,
-      currency: params.currency,
-      duration: params.duration,
-      duration_unit: params.durationUnit,
-      symbol: params.symbol
-    });
+    const apiSymbol = toDerivApiSymbol(params.symbol, this.options.appId);
+    const res = await this.send(buildProposalRequest(apiSymbol, params, this.isOptionsApi()));
     const p = res.proposal as Record<string, unknown>;
     return {
       proposalId: String(p.id),
@@ -209,6 +209,16 @@ export class DerivClient extends EventEmitter {
     await this.send({ proposal_open_contract: 1, contract_id: Number(contractId), subscribe: 1 });
   }
 
+  /** Fetch current contract state once (no subscription). */
+  async getOpenContract(contractId: string): Promise<DerivContractUpdate> {
+    const res = await this.send({ proposal_open_contract: 1, contract_id: Number(contractId) });
+    const c = res.proposal_open_contract as Record<string, unknown> | undefined;
+    if (!c) {
+      throw new DerivConnectionError(`Deriv did not return contract ${contractId}`);
+    }
+    return parseContractUpdate(c);
+  }
+
   async getBalance(): Promise<{ balance: number; currency: string }> {
     const res = await this.send({ balance: 1 });
     const b = res.balance as Record<string, unknown>;
@@ -217,10 +227,56 @@ export class DerivClient extends EventEmitter {
 
   // ── internals ────────────────────────────────────────────────
 
-  private openSocket(): Promise<void> {
+  private isOptionsApi(): boolean {
+    return isOptionsAppId(this.options.appId);
+  }
+
+  private async resolveWebSocketUrl(): Promise<string> {
+    if (!this.isOptionsApi()) {
+      return `${this.options.wsUrl}?app_id=${encodeURIComponent(this.options.appId)}`;
+    }
+
+    if (!this.options.apiToken) {
+      return this.options.wsUrl;
+    }
+
+    const accounts = await fetchOptionsAccounts(
+      this.options.appId,
+      this.options.apiToken,
+      this.options.restUrl
+    );
+    const account =
+      accounts.find((a) => a.isVirtual) ??
+      accounts.find((a) => a.accountId === this.optionsAccountId) ??
+      accounts[0];
+    if (!account) {
+      throw new DerivAuthenticationError("No Deriv accounts found for this token");
+    }
+    if (!account.isVirtual) {
+      throw new DerivAuthenticationError("Only demo (virtual) account tokens are accepted");
+    }
+
+    this.optionsAccountId = account.accountId;
+    this.authorizeInfo = {
+      loginId: account.accountId,
+      isVirtual: account.isVirtual,
+      currency: account.currency,
+      balance: account.balance,
+      email: null,
+      landingCompany: null
+    };
+
+    return fetchOtpWebSocketUrl(
+      this.options.appId,
+      this.options.apiToken,
+      account.accountId,
+      this.options.restUrl
+    );
+  }
+
+  private openSocket(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.setState(this.reconnectAttempts > 0 ? "RECONNECTING" : "CONNECTING");
-      const url = `${this.options.wsUrl}?app_id=${this.options.appId}`;
       const ws = new WebSocket(url);
       this.ws = ws;
 
@@ -232,7 +288,7 @@ export class DerivClient extends EventEmitter {
       ws.once("open", () => {
         ws.removeListener("error", onOpenError);
         this.reconnectAttempts = 0;
-        this.setState("CONNECTED");
+        this.setState(this.authorizeInfo ? "AUTHENTICATED" : "CONNECTED");
         this.startPing();
         resolve();
       });
@@ -276,13 +332,13 @@ export class DerivClient extends EventEmitter {
   private async reconnect(): Promise<void> {
     if (this.closedByUser) return;
     try {
-      await this.openSocket();
-      if (this.options.apiToken) {
+      const url = await this.resolveWebSocketUrl();
+      await this.openSocket(url);
+      if (this.options.apiToken && !this.isOptionsApi()) {
         await this.authorize(this.options.apiToken);
       }
-      // Restore subscriptions.
       for (const symbol of this.tickSubscriptions.keys()) {
-        await this.send({ ticks: symbol, subscribe: 1 });
+        await this.send({ ticks: toDerivApiSymbol(symbol, this.options.appId), subscribe: 1 });
       }
       for (const contractId of this.contractSubscriptions) {
         await this.send({ proposal_open_contract: 1, contract_id: Number(contractId), subscribe: 1 });
@@ -307,8 +363,9 @@ export class DerivClient extends EventEmitter {
     const msgType = msg.msg_type as string | undefined;
     if (msgType === "tick" && msg.tick) {
       const t = msg.tick as Record<string, unknown>;
+      const apiSymbol = String(t.symbol);
       const tick: DerivTick = {
-        symbol: String(t.symbol),
+        symbol: fromDerivApiSymbol(apiSymbol, this.options.appId),
         epochMs: Number(t.epoch) * 1000,
         quote: Number(t.quote)
       };
@@ -317,20 +374,7 @@ export class DerivClient extends EventEmitter {
       // Streaming messages can still carry a req_id for the initial response.
     }
     if (msgType === "proposal_open_contract" && msg.proposal_open_contract) {
-      const c = msg.proposal_open_contract as Record<string, unknown>;
-      const update: DerivContractUpdate = {
-        contractId: String(c.contract_id),
-        status: (c.status as DerivContractUpdate["status"]) ?? "open",
-        entrySpot: c.entry_spot !== undefined ? Number(c.entry_spot) : null,
-        exitSpot: c.exit_tick !== undefined ? Number(c.exit_tick) : null,
-        currentSpot: c.current_spot !== undefined ? Number(c.current_spot) : null,
-        buyPrice: Number(c.buy_price ?? 0),
-        payout: c.payout !== undefined ? Number(c.payout) : null,
-        profit: c.profit !== undefined ? Number(c.profit) : null,
-        isSettled: Boolean(c.is_settleable === 0 && c.is_sold === 1) || ["won", "lost", "sold"].includes(String(c.status)),
-        expiryTimeMs: c.date_expiry !== undefined ? Number(c.date_expiry) * 1000 : null,
-        raw: c
-      };
+      const update = parseContractUpdate(msg.proposal_open_contract as Record<string, unknown>);
       if (update.isSettled) this.contractSubscriptions.delete(update.contractId);
       this.emit("contractUpdate", update);
     }
@@ -422,6 +466,30 @@ export class DerivClient extends EventEmitter {
   }
 }
 
+/** Build a Deriv proposal request — Options API uses `underlying_symbol`, legacy uses `symbol`. */
+export function buildProposalRequest(
+  apiSymbol: string,
+  params: {
+    contractType: "CALL" | "PUT";
+    stake: number;
+    duration: number;
+    durationUnit: "t" | "s" | "m";
+    currency: string;
+  },
+  optionsApi: boolean
+): Record<string, unknown> {
+  const base = {
+    proposal: 1,
+    amount: params.stake,
+    basis: "stake",
+    contract_type: params.contractType,
+    currency: params.currency,
+    duration: params.duration,
+    duration_unit: params.durationUnit
+  };
+  return optionsApi ? { ...base, underlying_symbol: apiSymbol } : { ...base, symbol: apiSymbol };
+}
+
 /**
  * One-shot token verification: connects, authorizes, and disconnects.
  * Used by the API's /deriv/connect and /deriv/test-connection endpoints.
@@ -429,8 +497,13 @@ export class DerivClient extends EventEmitter {
 export async function verifyDerivToken(
   wsUrl: string,
   appId: string,
-  apiToken: string
+  apiToken: string,
+  restUrl?: string
 ): Promise<DerivAuthorizeInfo> {
+  if (isOptionsAppId(appId)) {
+    return verifyOptionsPatToken(appId, apiToken, restUrl);
+  }
+
   const client = new DerivClient({ wsUrl, appId, apiToken });
   try {
     await client.connect();

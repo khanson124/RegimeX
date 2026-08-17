@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { View, ActivityIndicator } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuthStore } from "../src/stores/auth";
+import { useApiConfigStore } from "../src/stores/apiConfig";
 import { colors } from "../src/theme";
 
 const queryClient = new QueryClient({
@@ -15,12 +16,13 @@ const queryClient = new QueryClient({
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { accessToken, hydrated, hydrate } = useAuthStore();
+  const hydrateApi = useApiConfigStore((s) => s.hydrate);
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+    void Promise.all([hydrate(), hydrateApi()]);
+  }, [hydrate, hydrateApi]);
 
   useEffect(() => {
     if (!hydrated) return;

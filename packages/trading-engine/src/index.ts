@@ -57,6 +57,7 @@ export * from "./export/datasetExport.js";
 
 // Deriv integration
 export * from "./deriv/types.js";
+export * from "./deriv/contractUpdate.js";
 export * from "./deriv/derivClient.js";
 
 // Test fixtures (deterministic synthetic data)

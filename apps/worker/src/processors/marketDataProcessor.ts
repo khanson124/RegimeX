@@ -41,7 +41,8 @@ export function createMarketDataProcessor(deps: Deps) {
 
     const client = new DerivClient({
       wsUrl: config.DERIV_WS_URL,
-      appId: config.DERIV_APP_ID
+      appId: config.DERIV_APP_ID,
+      restUrl: config.DERIV_REST_URL
     });
 
     try {

@@ -71,7 +71,7 @@ PUT /risk-profile
 GET /risk-status
 ```
 
-`PUT` returns warnings for aggressive settings (stake > 5, daily loss > 50, etc.).
+`PUT` returns optional heads-up warnings only at unusually high limits (e.g. fixed stake > 25, daily loss > 200). Settings always save — warnings do not block trading.
 
 ## Environment gate
 

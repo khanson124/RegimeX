@@ -1,16 +1,47 @@
-import React from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text } from "react-native";
+import React, { useState } from "react";
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text } from "react-native";
 import { useRouter } from "expo-router";
-import { useDashboard, useEngineAction } from "../../src/api/hooks";
+import { ApiError, configuredApiUrl } from "../../src/api/client";
+import { useDashboard, useEngineAction, useStrategies } from "../../src/api/hooks";
 import { useLiveEvents } from "../../src/ws/useLiveEvents";
 import { Badge, Button, Card, ErrorView, Metric, RegimeBadge, Row, SectionTitle, Skeleton } from "../../src/components/ui";
 import { colors, font, spacing } from "../../src/theme";
 
 export default function DashboardScreen() {
   const { data, isLoading, isError, error, refetch, isRefetching } = useDashboard();
+  const { data: strategiesData } = useStrategies();
   const engineAction = useEngineAction();
   const { connected } = useLiveEvents();
   const router = useRouter();
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  function strategyLabel(strategyId: string | null | undefined): string {
+    if (!strategyId) return "None selected";
+    const match = strategiesData?.strategies.find((s) => s.id === strategyId);
+    return match?.name ?? strategyId;
+  }
+
+  function confirmEmergencyStop(): void {
+    Alert.alert(
+      "Emergency stop?",
+      "This halts the live engine immediately and latches the stop until you clear it from Live Engine.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Stop now",
+          style: "destructive",
+          onPress: () => {
+            setActionError(null);
+            engineAction.mutate("emergency-stop", {
+              onSuccess: () => Alert.alert("Emergency stop active", "The engine has been halted."),
+              onError: (err) =>
+                setActionError(err instanceof ApiError ? err.message : "Emergency stop failed")
+            });
+          }
+        }
+      ]
+    );
+  }
 
   if (isLoading) {
     return (
@@ -22,7 +53,14 @@ export default function DashboardScreen() {
     );
   }
   if (isError || !data) {
-    return <ErrorView message={error instanceof Error ? error.message : "Failed to load"} onRetry={() => void refetch()} />;
+    const detail = error instanceof Error ? error.message : "Failed to load";
+    const api = configuredApiUrl();
+    return (
+      <ErrorView
+        message={`${detail}\n\nAPI: ${api}`}
+        onRetry={() => void refetch()}
+      />
+    );
   }
 
   const s = data.summary;
@@ -72,7 +110,10 @@ export default function DashboardScreen() {
       <Card>
         <RegimeBadge regime={s.currentRegime} confidence={s.regimeConfidence} />
         <Row style={{ marginTop: spacing.md }}>
-          <Metric label="Active strategy" value={s.activeStrategy ?? "None selected"} />
+          <Metric
+            label="Active strategy"
+            value={strategyLabel(s.activeStrategy ?? s.latestSignal?.strategyId)}
+          />
         </Row>
         {s.latestSignal ? (
           <Row>
@@ -92,9 +133,10 @@ export default function DashboardScreen() {
       <Button
         title="EMERGENCY STOP"
         variant="danger"
-        onPress={() => engineAction.mutate("emergency-stop")}
+        onPress={confirmEmergencyStop}
         loading={engineAction.isPending}
       />
+      {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
       <Text style={styles.disclaimer}>
         Experimental system for demo accounts. Backtest results are not guarantees of future performance.
       </Text>
@@ -105,5 +147,6 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   dim: { color: colors.textDim, fontSize: font.body, marginTop: spacing.sm },
+  actionError: { color: colors.down, fontSize: font.caption, textAlign: "center", marginTop: spacing.sm },
   disclaimer: { color: colors.textFaint, fontSize: font.caption, textAlign: "center", marginTop: spacing.lg }
 });

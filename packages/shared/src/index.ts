@@ -17,4 +17,5 @@ export * from "./schemas/backtest.js";
 export * from "./schemas/engine.js";
 export * from "./schemas/pagination.js";
 export * from "./schemas/research.js";
+export * from "./schemas/trades.js";
 export * from "./backend.js";

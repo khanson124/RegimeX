@@ -42,10 +42,18 @@ export function registerRiskRoutes(app: FastifyInstance, ctx: AppContext): void 
     }
 
     const warnings: string[] = [];
-    if (body.fixedStake > 5) warnings.push("Stake above 5 is aggressive for a demo experiment");
-    if (body.maxDailyLoss > 50) warnings.push("Daily loss limit above 50 is aggressive");
-    if (body.maxConsecutiveLosses > 5) warnings.push("Allowing more than 5 consecutive losses is aggressive");
-    if (body.maxDrawdownPercent > 20) warnings.push("Drawdown limit above 20% is aggressive");
+    if (body.fixedStake > 25) {
+      warnings.push("Fixed stake above $25 — fine for demo, but confirm it matches what you intend per trade.");
+    }
+    if (body.maxDailyLoss > 200) {
+      warnings.push("Daily loss limit above $200 — consider whether that cap fits your demo experiment.");
+    }
+    if (body.maxConsecutiveLosses > 10) {
+      warnings.push("More than 10 consecutive losses allowed before the engine pauses trading.");
+    }
+    if (body.maxDrawdownPercent > 40) {
+      warnings.push("Drawdown limit above 40% — unusually loose for risk control.");
+    }
 
     const existing = await activeProfile(request.userId);
     const profile = await prisma.riskProfile.update({

@@ -8,16 +8,28 @@ interface TradeRow {
   id: string;
   status: string;
   direction: string;
-  stake: number;
-  payout: number | null;
-  profit: number | null;
+  stake: number | string;
+  proposedPayout?: number | string | null;
+  finalPayout?: number | string | null;
+  profit: number | string | null;
   symbol: string;
   strategyId: string | null;
   regime: string | null;
-  signalConfidence: number | null;
-  entryReason: string | null;
-  openedAt: string;
+  signalConfidence?: number | null;
+  entryReason?: string | null;
+  openedAt: string | null;
   settledAt: string | null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatMoney(value: unknown): string {
+  const n = asNumber(value);
+  return n != null ? n.toFixed(2) : "—";
 }
 
 export default function TradesScreen() {
@@ -52,7 +64,10 @@ export default function TradesScreen() {
       }
       renderItem={({ item }) => {
         const settled = item.status === "WON" || item.status === "LOST";
-        const profit = item.profit;
+        const stake = asNumber(item.stake);
+        const payout = asNumber(item.finalPayout ?? item.proposedPayout);
+        const profit = asNumber(item.profit);
+        const openedLabel = item.openedAt ? new Date(item.openedAt).toLocaleString() : "—";
         return (
           <Card>
             <Row style={{ justifyContent: "space-between" }}>
@@ -65,13 +80,13 @@ export default function TradesScreen() {
               />
             </Row>
             <Text style={styles.meta}>
-              {new Date(item.openedAt).toLocaleString()}
+              {openedLabel}
               {item.regime ? ` · ${REGIME_LABELS[item.regime] ?? item.regime}` : ""}
               {item.strategyId ? ` · ${item.strategyId}` : ""}
             </Text>
             <Row style={{ marginTop: spacing.sm }}>
-              <Metric label="Stake" value={item.stake.toFixed(2)} />
-              <Metric label="Payout" value={item.payout != null ? item.payout.toFixed(2) : "—"} />
+              <Metric label="Stake" value={formatMoney(stake)} />
+              <Metric label="Payout" value={formatMoney(payout)} />
               <Metric
                 label="Profit/Loss"
                 value={settled && profit != null ? `${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` : "open"}

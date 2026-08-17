@@ -100,10 +100,10 @@ async function seedDevUserAccount(): Promise<string> {
   const user = await prisma.user.create({
     data: {
       email,
-      passwordHash: await argon2.hash("DevPassword123!")
+      passwordHash: await argon2.hash("Passw0rd!?")
     }
   });
-  console.warn(`Seeded dev user ${email} (password: DevPassword123!)`);
+  console.warn(`Seeded dev user ${email} (password: Passw0rd!?)`);
   return user.id;
 }
 

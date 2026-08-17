@@ -1,6 +1,9 @@
 import { useAuthStore } from "../stores/auth";
+import { getApiUrl, getWsUrl } from "../stores/apiConfig";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
+export function configuredApiUrl(): string {
+  return getApiUrl();
+}
 
 export class ApiError extends Error {
   constructor(
@@ -20,7 +23,7 @@ async function tryRefresh(): Promise<boolean> {
   const { refreshToken, setSession, clearSession } = useAuthStore.getState();
   if (!refreshToken) return false;
   try {
-    const res = await fetch(`${API_URL}/auth/refresh`, {
+    const res = await fetch(`${getApiUrl()}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken })
@@ -53,11 +56,17 @@ export async function api<T>(
   // Fastify rejects Content-Type: application/json with an empty body.
   if (hasBody) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    ...(hasBody ? { body: JSON.stringify(options.body) } : {})
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${getApiUrl()}${path}`, {
+      method,
+      headers,
+      ...(hasBody ? { body: JSON.stringify(options.body) } : {})
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Network request failed";
+    throw new ApiError(0, "NETWORK_ERROR", message.includes("Network") ? "Could not reach the server" : message);
+  }
 
   if (res.status === 401 && !options.retried && !path.startsWith("/auth/")) {
     refreshPromise ??= tryRefresh().finally(() => {
@@ -68,7 +77,18 @@ export async function api<T>(
   }
 
   const text = await res.text();
-  const json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  let json: Record<string, unknown> = {};
+  if (text) {
+    try {
+      json = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new ApiError(
+        res.status,
+        "INVALID_RESPONSE",
+        res.ok ? "Server returned invalid JSON" : text.slice(0, 120) || `Request failed (${res.status})`
+      );
+    }
+  }
 
   if (!res.ok) {
     const error = json.error as { code?: string; message?: string; details?: unknown } | undefined;
@@ -83,6 +103,5 @@ export async function api<T>(
 }
 
 export function wsUrl(token: string): string {
-  const base = process.env.EXPO_PUBLIC_WS_URL ?? API_URL.replace(/^http/, "ws");
-  return `${base}/ws?token=${encodeURIComponent(token)}`;
+  return `${getWsUrl()}/ws?token=${encodeURIComponent(token)}`;
 }

@@ -121,7 +121,7 @@ After seeding (with `SEED_DEV_USER=true` and `SEED_MOCK_CANDLES=true` in `.env`)
 | Field | Value |
 |-------|-------|
 | Email | `dev@regimex.local` |
-| Password | `DevPassword123!` |
+| Password | `Passw0rd!?` |
 
 Connect a **Deriv demo API token** via Settings (create at [Deriv API token page](https://app.deriv.com/account/api-token)).
 

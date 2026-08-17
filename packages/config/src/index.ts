@@ -18,7 +18,11 @@ const envSchema = z.object({
   /** 32-byte key, hex or base64, for AES-256-GCM credential encryption. */
   CREDENTIAL_ENCRYPTION_KEY: z.string().min(32),
   DERIV_APP_ID: z.string().default("1089"),
-  DERIV_WS_URL: z.string().url().default("wss://ws.derivws.com/websockets/v3"),
+  DERIV_REST_URL: z.string().url().default("https://api.derivws.com"),
+  DERIV_WS_URL: z
+    .string()
+    .url()
+    .default("wss://api.derivws.com/trading/v1/options/ws/public"),
   MOBILE_APP_URL: z.string().default("regimex://"),
   CORS_ORIGINS: z.string().default("*"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),

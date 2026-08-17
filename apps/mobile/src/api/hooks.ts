@@ -333,6 +333,34 @@ export const useTestDerivConnection = () => {
   });
 };
 
+export const usePlaceManualTrade = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      symbol: string;
+      direction: "CALL" | "PUT";
+      duration?: number;
+      durationUnit?: "t" | "s" | "m";
+      stake?: number;
+    }) =>
+      api<{
+        trade: {
+          tradeId: string;
+          contractId: string;
+          direction: "CALL" | "PUT";
+          stake: number;
+          payout: number;
+        };
+      }>("/demo-trades/manual", { method: "POST", body }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["demo-trades"] });
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      void qc.invalidateQueries({ queryKey: ["risk-status"] });
+      void qc.invalidateQueries({ queryKey: ["deriv-account"] });
+    }
+  });
+};
+
 export const useCreateOptimization = () => {
   const qc = useQueryClient();
   return useMutation({

@@ -150,6 +150,7 @@ export class LiveEngineSession {
     this.client = new DerivClient({
       wsUrl: config.DERIV_WS_URL,
       appId: config.DERIV_APP_ID,
+      restUrl: config.DERIV_REST_URL,
       apiToken,
       logger: this.log
     });
@@ -613,9 +614,14 @@ export class LiveEngineSession {
       await client.subscribeContract(buy.contractId);
     } catch (err) {
       this.log.error({ err, correlationId }, "Trade execution failed");
+      await prisma.signal.update({ where: { id: signalId }, data: { status: "RISK_REJECTED" } }).catch(() => undefined);
+      await prisma.demoTrade.updateMany({
+        where: { signalId, status: "PROPOSED" },
+        data: { status: "ERROR" }
+      }).catch(() => undefined);
       await this.logDecision("RISK_REJECTED", [
         `Execution error: ${err instanceof Error ? err.message : "unknown"}`
-      ], { correlationId });
+      ], { correlationId, strategyId: chosen.strategy.id, action });
     }
   }
 

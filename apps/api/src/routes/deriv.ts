@@ -19,7 +19,12 @@ export function registerDerivRoutes(app: FastifyInstance, ctx: AppContext): void
     async (request, reply) => {
       const body = derivConnectSchema.parse(request.body);
 
-      const info = await verifyDerivToken(config.DERIV_WS_URL, config.DERIV_APP_ID, body.apiToken);
+      const info = await verifyDerivToken(
+        config.DERIV_WS_URL,
+        config.DERIV_APP_ID,
+        body.apiToken,
+        config.DERIV_REST_URL
+      );
       if (!info.isVirtual) {
         throw new ValidationError(
           "Only demo (virtual) account tokens are accepted. Live-money trading is disabled."
@@ -114,7 +119,12 @@ export function registerDerivRoutes(app: FastifyInstance, ctx: AppContext): void
       if (!credential) throw new NotFoundError("Deriv credential");
 
       const token = credentialCrypto.decrypt(credential.encryptedToken);
-      const info = await verifyDerivToken(config.DERIV_WS_URL, config.DERIV_APP_ID, token);
+      const info = await verifyDerivToken(
+        config.DERIV_WS_URL,
+        config.DERIV_APP_ID,
+        token,
+        config.DERIV_REST_URL
+      );
 
       await prisma.tradingAccount.updateMany({
         where: { userId: request.userId, derivLoginId: info.loginId },

@@ -42,7 +42,7 @@ Module: `packages/trading-engine/src/deriv/`
 
 When `DEMO_TRADING_ENABLED=true` **and** engine mode is `DEMO_TRADING` **and** risk approves:
 
-1. `proposal` — retrieve payout from Deriv when possible
+1. `proposal` — retrieve payout from Deriv when possible (Options API: `underlying_symbol`; legacy: `symbol`)
 2. `buy` — execute demo contract
 3. Monitor `proposal_open_contract` until settlement
 4. Record `DemoTrade` + `Contract` entities
@@ -50,9 +50,14 @@ When `DEMO_TRADING_ENABLED=true` **and** engine mode is `DEMO_TRADING` **and** r
 ## Configuration
 
 ```env
-DERIV_APP_ID=1089
-DERIV_WS_URL=wss://ws.derivws.com/websockets/v3
+DERIV_APP_ID=3480EH7xcjeMLwUvdv0GP   # Native (PAT) app from developers.deriv.com
+DERIV_REST_URL=https://api.derivws.com
+DERIV_WS_URL=wss://api.derivws.com/trading/v1/options/ws/public
 ```
+
+Alphanumeric App IDs use the **Options API** (PAT + OTP WebSocket). Numeric App IDs (e.g. `1089`) still use the legacy WebSocket endpoint.
+
+Catalogue symbols (`R_10` … `R_100`) are mapped automatically to Options symbols (`1HZ10V` … `1HZ100V`).
 
 ## Supported symbols
 
