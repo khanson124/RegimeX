@@ -10,8 +10,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://172.17.120.84:4000",
-        "EXPO_PUBLIC_WS_URL": "ws://172.17.120.84:4000"
+        "EXPO_PUBLIC_API_URL": "https://regimex.duckdns.org/api",
+        "EXPO_PUBLIC_WS_URL": "wss://regimex.duckdns.org"
       }
     },
     "production": {
