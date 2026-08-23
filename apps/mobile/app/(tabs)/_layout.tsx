@@ -1,7 +1,9 @@
 import React from "react";
+import { Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../../src/theme";
+import { webLayout } from "../../src/lib/webStyles";
 
 export default function TabsLayout() {
   return (
@@ -9,7 +11,20 @@ export default function TabsLayout() {
       screenOptions={{
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          ...(Platform.OS === "web"
+            ? {
+                maxWidth: webLayout.appMaxWidth,
+                width: "100%",
+                alignSelf: "center",
+                borderLeftWidth: 1,
+                borderRightWidth: 1,
+                borderColor: colors.border
+              }
+            : {})
+        },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textFaint,
         sceneStyle: { backgroundColor: colors.bg }

@@ -110,21 +110,31 @@ export default function DashboardScreen() {
       <Card>
         <RegimeBadge regime={s.currentRegime} confidence={s.regimeConfidence} />
         <Row style={{ marginTop: spacing.md }}>
+          <Metric label="Active strategy" value={strategyLabel(s.activeStrategy)} />
           <Metric
-            label="Active strategy"
-            value={strategyLabel(s.activeStrategy ?? s.latestSignal?.strategyId)}
+            label="Current signal"
+            value={
+              s.currentSignal.action === "HOLD"
+                ? "HOLD"
+                : s.currentSignal.action === "BUY" || s.currentSignal.action === "SELL"
+                  ? s.currentSignal.action
+                  : "—"
+            }
+            tone={
+              s.currentSignal.action === "BUY" ? "up" : s.currentSignal.action === "SELL" ? "down" : "neutral"
+            }
           />
         </Row>
         {s.latestSignal ? (
           <Row>
             <Metric
-              label={`Latest signal (${s.latestSignal.status})`}
+              label={`Last signal (${s.latestSignal.status})`}
               value={`${s.latestSignal.action} · ${(s.latestSignal.confidence * 100).toFixed(0)}%`}
               tone={s.latestSignal.action === "BUY" ? "up" : s.latestSignal.action === "SELL" ? "down" : "neutral"}
             />
           </Row>
         ) : (
-          <Text style={styles.dim}>No signals yet</Text>
+          <Text style={styles.dim}>No signals recorded yet</Text>
         )}
       </Card>
 

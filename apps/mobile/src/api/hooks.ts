@@ -15,6 +15,13 @@ export interface DashboardSummary {
   currentRegime: string | null;
   regimeConfidence: number | null;
   activeStrategy: string | null;
+  currentSignal: {
+    action: string | null;
+    strategyId: string | null;
+    status: string | null;
+    reasons: string[];
+    updatedAt: string | null;
+  };
   latestSignal: {
     id: string;
     action: string;

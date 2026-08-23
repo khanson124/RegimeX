@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { ApiError } from "../../src/api/client";
-import { useCandles, useDashboard, useDerivAccount, usePlaceManualTrade, useRiskProfile, useSymbols } from "../../src/api/hooks";
+import { useCandles, useDashboard, useDerivAccount, usePlaceManualTrade, useRiskProfile, useStrategies, useSymbols } from "../../src/api/hooks";
+import { alertMessage, confirmAsync } from "../../src/lib/confirm";
 import { useLiveEvents } from "../../src/ws/useLiveEvents";
 import { CandleChart } from "../../src/components/CandleChart";
 import { Button, Card, EmptyState, Metric, RegimeBadge, Row, SectionTitle, Skeleton } from "../../src/components/ui";
@@ -43,6 +44,7 @@ export default function MarketScreen() {
   const [manualError, setManualError] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const { data: dashboard } = useDashboard();
+  const { data: strategiesData } = useStrategies();
   const { data: derivAccount } = useDerivAccount();
   const { data: riskProfile } = useRiskProfile();
   const placeManual = usePlaceManualTrade();
@@ -67,50 +69,66 @@ export default function MarketScreen() {
   const displayPrice = price ?? lastClose;
   const s = dashboard?.summary;
 
+  function strategyLabel(strategyId: string | null | undefined): string {
+    if (!strategyId) return "None";
+    const match = strategiesData?.strategies.find((st) => st.id === strategyId);
+    return match?.name ?? strategyId;
+  }
+
+  const currentAction = s?.currentSignal?.action ?? null;
+  const currentSignalLabel =
+    currentAction === "HOLD"
+      ? "HOLD"
+      : currentAction === "BUY" || currentAction === "SELL"
+        ? currentAction
+        : "—";
+  const currentSignalTone =
+    currentAction === "BUY" ? "up" : currentAction === "SELL" ? "down" : "neutral";
+
   const noTradeReasons =
     lastEvent?.type === "strategy.noTrade" ? ((lastEvent.payload.reasons as string[]) ?? []) : null;
   const signalReasons =
     lastEvent?.type === "strategy.signal" ? ((lastEvent.payload.entryReason as string[]) ?? []) : null;
+  const apiReasons = s?.currentSignal?.reasons?.length ? s.currentSignal.reasons : null;
+  const explainReasons = signalReasons ?? noTradeReasons ?? apiReasons;
+  const explainTitle = signalReasons
+    ? "Why the last signal fired"
+    : explainReasons
+      ? "Why the engine is not trading"
+      : null;
 
   const selectedDuration = DURATIONS[durationIdx] ?? DURATIONS[1]!;
   const stake = riskProfile?.profile?.fixedStake != null ? Number(riskProfile.profile.fixedStake) : 0.5;
 
-  function confirmManualTrade(direction: "CALL" | "PUT"): void {
+  async function confirmManualTrade(direction: "CALL" | "PUT"): Promise<void> {
     if (!activeSymbol) return;
     if (!derivAccount?.account) {
-      Alert.alert("Deriv not connected", "Connect your demo account in Settings first.");
+      alertMessage("Deriv not connected", "Connect your demo account in Settings first.");
       return;
     }
-    Alert.alert(
+    const ok = await confirmAsync(
       `Place manual ${direction}?`,
       `${activeSymbol} · ${selectedDuration.label} · stake $${stake.toFixed(2)} (from risk profile)`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Place trade",
-          style: direction === "CALL" ? "default" : "destructive",
-          onPress: () => {
-            setManualError(null);
-            placeManual.mutate(
-              {
-                symbol: activeSymbol,
-                direction,
-                duration: selectedDuration.duration,
-                durationUnit: selectedDuration.unit
-              },
-              {
-                onSuccess: (res) =>
-                  Alert.alert(
-                    "Trade placed",
-                    `${res.trade.direction} opened · stake $${res.trade.stake.toFixed(2)} · payout $${res.trade.payout.toFixed(2)}`
-                  ),
-                onError: (err) =>
-                  setManualError(err instanceof ApiError ? err.message : "Manual trade failed")
-              }
-            );
-          }
-        }
-      ]
+      "Place trade"
+    );
+    if (!ok) return;
+
+    setManualError(null);
+    placeManual.mutate(
+      {
+        symbol: activeSymbol,
+        direction,
+        duration: selectedDuration.duration,
+        durationUnit: selectedDuration.unit
+      },
+      {
+        onSuccess: (res) =>
+          alertMessage(
+            "Trade placed",
+            `${res.trade.direction} opened · stake $${res.trade.stake.toFixed(2)} · payout $${res.trade.payout.toFixed(2)}`
+          ),
+        onError: (err) => setManualError(err instanceof ApiError ? err.message : "Manual trade failed")
+      }
     );
   }
 
@@ -155,13 +173,12 @@ export default function MarketScreen() {
       <Card>
         <RegimeBadge regime={s?.currentRegime ?? null} confidence={s?.regimeConfidence} />
         <Row style={{ marginTop: spacing.md }}>
-          <Metric label="Active strategy" value={s?.activeStrategy ?? "None"} />
-          <Metric
-            label="Current signal"
-            value={s?.latestSignal ? `${s.latestSignal.action}` : "—"}
-            tone={s?.latestSignal?.action === "BUY" ? "up" : s?.latestSignal?.action === "SELL" ? "down" : "neutral"}
-          />
+          <Metric label="Active strategy" value={strategyLabel(s?.activeStrategy)} />
+          <Metric label="Current signal" value={currentSignalLabel} tone={currentSignalTone} />
         </Row>
+        {s?.currentSignal?.status && s.currentSignal.status !== "NO_TRADE" ? (
+          <Text style={styles.hint}>Status: {s.currentSignal.status.replace(/_/g, " ")}</Text>
+        ) : null}
       </Card>
 
       <SectionTitle>Manual test trade</SectionTitle>
@@ -181,7 +198,7 @@ export default function MarketScreen() {
         <Row>
           <Button
             title="CALL (up)"
-            onPress={() => confirmManualTrade("CALL")}
+            onPress={() => void confirmManualTrade("CALL")}
             loading={placeManual.isPending}
             disabled={!activeSymbol || !derivAccount?.account}
           />
@@ -189,7 +206,7 @@ export default function MarketScreen() {
           <Button
             title="PUT (down)"
             variant="secondary"
-            onPress={() => confirmManualTrade("PUT")}
+            onPress={() => void confirmManualTrade("PUT")}
             loading={placeManual.isPending}
             disabled={!activeSymbol || !derivAccount?.account}
           />
@@ -202,23 +219,16 @@ export default function MarketScreen() {
 
       <SectionTitle>Explanation</SectionTitle>
       <Card>
-        {signalReasons ? (
+        {explainReasons && explainTitle ? (
           <>
-            <Text style={styles.explainTitle}>Why the last signal fired</Text>
-            {signalReasons.map((r, i) => (
-              <Text key={i} style={styles.reason}>• {r}</Text>
-            ))}
-          </>
-        ) : noTradeReasons ? (
-          <>
-            <Text style={styles.explainTitle}>Why the engine is not trading</Text>
-            {noTradeReasons.map((r, i) => (
+            <Text style={styles.explainTitle}>{explainTitle}</Text>
+            {explainReasons.map((r, i) => (
               <Text key={i} style={styles.reason}>• {r}</Text>
             ))}
           </>
         ) : (
           <Text style={styles.reason}>
-            Explanations appear here in real time while the live engine runs: regime reasoning, strategy
+            Explanations appear here while the live engine runs: regime reasoning, strategy
             selection, and every no-trade decision.
           </Text>
         )}

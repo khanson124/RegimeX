@@ -2,8 +2,10 @@ import React, { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { View, ActivityIndicator } from "react-native";
+import { Platform, View, ActivityIndicator } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { WebStyleProvider } from "../src/components/WebStyleProvider";
+import { WebAppFrame } from "../src/components/WebShell";
 import { useAuthStore } from "../src/stores/auth";
 import { useApiConfigStore } from "../src/stores/apiConfig";
 import { colors } from "../src/theme";
@@ -47,16 +49,18 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <StatusBar style="light" />
-        <AuthGate>
-          <Stack
-            screenOptions={{
-              headerStyle: { backgroundColor: colors.surface },
-              headerTintColor: colors.text,
-              contentStyle: { backgroundColor: colors.bg }
-            }}
-          >
+      <WebStyleProvider>
+        <QueryClientProvider client={queryClient}>
+          <StatusBar style="light" />
+          <AuthGate>
+            <WebAppFrame>
+              <Stack
+                screenOptions={{
+                  headerStyle: { backgroundColor: colors.surface },
+                  headerTintColor: colors.text,
+                  contentStyle: { backgroundColor: colors.bg }
+                }}
+              >
             <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
             <Stack.Screen name="(auth)/register" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -69,9 +73,11 @@ export default function RootLayout() {
             <Stack.Screen name="decisions" options={{ title: "Decision Log" }} />
             <Stack.Screen name="optimizer" options={{ title: "Optimizer" }} />
             <Stack.Screen name="settings" options={{ title: "Settings" }} />
-          </Stack>
-        </AuthGate>
-      </QueryClientProvider>
+              </Stack>
+            </WebAppFrame>
+          </AuthGate>
+        </QueryClientProvider>
+      </WebStyleProvider>
     </SafeAreaProvider>
   );
 }

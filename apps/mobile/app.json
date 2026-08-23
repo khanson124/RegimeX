@@ -20,6 +20,10 @@
       }
     },
     "plugins": ["expo-router", "expo-secure-store"],
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
     "experiments": {
       "typedRoutes": false
     }

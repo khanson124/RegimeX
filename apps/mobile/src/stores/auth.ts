@@ -1,5 +1,5 @@
-import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
+import { deleteSecureItem, getSecureItem, setSecureItem } from "../lib/secureStorage";
 
 const ACCESS_KEY = "regimex.accessToken";
 const REFRESH_KEY = "regimex.refreshToken";
@@ -27,24 +27,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrate: async () => {
     if (get().hydrated) return;
     const [access, refresh] = await Promise.all([
-      SecureStore.getItemAsync(ACCESS_KEY),
-      SecureStore.getItemAsync(REFRESH_KEY)
+      getSecureItem(ACCESS_KEY),
+      getSecureItem(REFRESH_KEY)
     ]);
     set({ accessToken: access, refreshToken: refresh, hydrated: true });
   },
 
   setSession: async (access, refresh, email = null) => {
     await Promise.all([
-      SecureStore.setItemAsync(ACCESS_KEY, access),
-      SecureStore.setItemAsync(REFRESH_KEY, refresh)
+      setSecureItem(ACCESS_KEY, access),
+      setSecureItem(REFRESH_KEY, refresh)
     ]);
     set({ accessToken: access, refreshToken: refresh, ...(email ? { userEmail: email } : {}) });
   },
 
   clearSession: async () => {
     await Promise.all([
-      SecureStore.deleteItemAsync(ACCESS_KEY),
-      SecureStore.deleteItemAsync(REFRESH_KEY)
+      deleteSecureItem(ACCESS_KEY),
+      deleteSecureItem(REFRESH_KEY)
     ]);
     set({ accessToken: null, refreshToken: null, userEmail: null });
   }

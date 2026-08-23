@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +10,7 @@ import {
   type TextInputProps,
   type ViewStyle
 } from "react-native";
+import { webStyle } from "../lib/webStyles";
 import { colors, font, radius, spacing, REGIME_LABELS } from "../theme";
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
@@ -81,19 +83,21 @@ export function Button({
   loading?: boolean;
 }) {
   const bg = variant === "danger" ? colors.danger : variant === "primary" ? colors.accent : colors.surfaceRaised;
+  const textColor = variant === "primary" || variant === "danger" ? "#FFFFFF" : colors.text;
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: bg, opacity: disabled ? 0.4 : pressed ? 0.75 : 1 }
+        { backgroundColor: bg, opacity: disabled ? 0.4 : pressed ? 0.75 : 1 },
+        webStyle({ cursor: disabled ? "not-allowed" : "pointer" })
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={colors.text} />
+        <ActivityIndicator color={textColor} />
       ) : (
-        <Text style={styles.buttonText}>{title}</Text>
+        <Text style={[styles.buttonText, { color: textColor }]}>{title}</Text>
       )}
     </Pressable>
   );
@@ -107,7 +111,7 @@ export function Input(props: TextInputProps & { label?: string }) {
         placeholderTextColor={colors.textFaint}
         autoCapitalize="none"
         {...props}
-        style={[styles.input, props.style]}
+        style={[styles.input, webStyle({ outlineStyle: "none" }), props.style]}
       />
     </View>
   );

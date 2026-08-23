@@ -1,7 +1,70 @@
 import { type FastifyInstance } from "fastify";
-import { utcDayStart } from "@regimex/shared";
+import { utcDayStart, type DecisionLogEventType } from "@regimex/shared";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
+
+const ENGINE_OUTCOME_EVENTS: DecisionLogEventType[] = [
+  "NO_TRADE",
+  "SIGNAL_PRODUCED",
+  "RISK_REJECTED",
+  "RISK_PASSED",
+  "TRADE_OPENED",
+  "TRADE_SETTLED"
+];
+
+type DecisionRow = {
+  eventType: string;
+  strategyId: string | null;
+  action: string | null;
+  reasons: unknown;
+  createdAt: Date;
+};
+
+function buildCurrentSignal(
+  outcome: DecisionRow | null,
+  strategySelected: DecisionRow | null
+): {
+  action: string | null;
+  strategyId: string | null;
+  status: string | null;
+  reasons: string[];
+  updatedAt: string | null;
+} {
+  const activeStrategy = strategySelected?.strategyId ?? outcome?.strategyId ?? null;
+  if (!outcome) {
+    return { action: null, strategyId: activeStrategy, status: null, reasons: [], updatedAt: null };
+  }
+
+  const reasons = Array.isArray(outcome.reasons) ? (outcome.reasons as string[]) : [];
+
+  if (outcome.eventType === "NO_TRADE") {
+    return {
+      action: outcome.strategyId || outcome.action === "HOLD" ? "HOLD" : null,
+      strategyId: activeStrategy,
+      status: "NO_TRADE",
+      reasons,
+      updatedAt: outcome.createdAt.toISOString()
+    };
+  }
+
+  if (outcome.eventType === "SIGNAL_PRODUCED" || outcome.eventType === "RISK_REJECTED") {
+    return {
+      action: outcome.action,
+      strategyId: outcome.strategyId ?? activeStrategy,
+      status: outcome.eventType === "SIGNAL_PRODUCED" ? "PRODUCED" : "RISK_REJECTED",
+      reasons,
+      updatedAt: outcome.createdAt.toISOString()
+    };
+  }
+
+  return {
+    action: outcome.action,
+    strategyId: outcome.strategyId ?? activeStrategy,
+    status: outcome.eventType,
+    reasons,
+    updatedAt: outcome.createdAt.toISOString()
+  };
+}
 
 export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { prisma } = ctx;
@@ -9,7 +72,8 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
 
   app.get("/dashboard/summary", { preHandler: auth }, async (request) => {
     const dayStart = new Date(utcDayStart(Date.now()));
-    const [engine, account, todayTrades, latestSignal, latestRegimeLog] = await Promise.all([
+    const [engine, account, todayTrades, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected] =
+      await Promise.all([
       prisma.liveEngine.findUnique({
         where: { userId: request.userId },
         include: { configurations: { where: { isActive: true }, take: 1 } }
@@ -23,6 +87,14 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       prisma.decisionLog.findFirst({
         where: { userId: request.userId, eventType: "REGIME_CLASSIFIED" },
         orderBy: { createdAt: "desc" }
+      }),
+      prisma.decisionLog.findFirst({
+        where: { userId: request.userId, eventType: { in: ENGINE_OUTCOME_EVENTS } },
+        orderBy: { createdAt: "desc" }
+      }),
+      prisma.decisionLog.findFirst({
+        where: { userId: request.userId, eventType: "STRATEGY_SELECTED" },
+        orderBy: { createdAt: "desc" }
       })
     ]);
 
@@ -33,6 +105,8 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       if (Number(settled[i]!.profit) < 0) consecutiveLosses++;
       else break;
     }
+
+    const currentSignal = buildCurrentSignal(latestEngineOutcome, latestStrategySelected);
 
     return {
       summary: {
@@ -48,7 +122,8 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
         mode: engine?.configurations[0]?.mode ?? null,
         currentRegime: latestRegimeLog?.regime ?? null,
         regimeConfidence: latestRegimeLog?.regimeConfidence !== null && latestRegimeLog ? Number(latestRegimeLog.regimeConfidence) : null,
-        activeStrategy: latestRegimeLog?.strategyId ?? null,
+        activeStrategy: currentSignal.strategyId,
+        currentSignal,
         latestSignal: latestSignal
           ? {
               id: latestSignal.id,

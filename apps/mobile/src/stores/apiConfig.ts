@@ -1,5 +1,5 @@
-import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
+import { deleteSecureItem, getSecureItem, setSecureItem } from "../lib/secureStorage";
 
 const API_URL_KEY = "regimex.apiUrl";
 const WS_URL_KEY = "regimex.wsUrl";
@@ -23,8 +23,8 @@ export const useApiConfigStore = create<ApiConfigState>((set, get) => ({
   hydrate: async () => {
     if (get().hydrated) return;
     const [storedApi, storedWs] = await Promise.all([
-      SecureStore.getItemAsync(API_URL_KEY),
-      SecureStore.getItemAsync(WS_URL_KEY)
+      getSecureItem(API_URL_KEY),
+      getSecureItem(WS_URL_KEY)
     ]);
     const apiUrl = storedApi ?? DEFAULT_API;
     set({
@@ -37,8 +37,8 @@ export const useApiConfigStore = create<ApiConfigState>((set, get) => ({
   setUrls: async (apiUrl, wsUrl) => {
     const ws = wsUrl ?? apiUrl.replace(/^http/, "ws");
     await Promise.all([
-      SecureStore.setItemAsync(API_URL_KEY, apiUrl),
-      SecureStore.setItemAsync(WS_URL_KEY, ws)
+      setSecureItem(API_URL_KEY, apiUrl),
+      setSecureItem(WS_URL_KEY, ws)
     ]);
     set({ apiUrl, wsUrl: ws });
   }
