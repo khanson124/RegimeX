@@ -122,8 +122,68 @@ export class EngineManager {
         if (session) {
           await session.emergencyStop();
           this.sessions.delete(userId);
+        } else if (this.config.EXECUTION_MODE === "paper_cfd") {
+          // No live session — still attempt paper liquidation via ephemeral runtime.
+          const runtime = new (await import("../cfd/paperCfdRuntime.js")).PaperCfdRuntime(userId, {
+            prisma: this.prisma,
+            config: this.config,
+            publish: this.publish,
+            logger: this.logger
+          });
+          const open = await this.prisma.position.findFirst({
+            where: { userId, status: "OPEN" },
+            select: { symbol: true }
+          });
+          await runtime.init(open?.symbol ?? "R_10");
+          const result = await runtime.liquidateAllOpen("RISK_SHUTDOWN");
+          this.logger.info({ userId, result }, "Emergency liquidation without live session");
+        } else if (this.config.EXECUTION_MODE === "broker_demo_mt5") {
+          const { emergencyCloseOwnedMt5Positions } = await import("../cfd/mt5CloseRuntime.js");
+          const result = await emergencyCloseOwnedMt5Positions({
+            prisma: this.prisma,
+            config: this.config,
+            userId,
+            logger: this.logger
+          });
+          this.logger.info({ userId, result }, "MT5 emergency close without live session");
         }
         break;
+      case "CLOSE_POSITION": {
+        const positionId = message.positionId;
+        if (!positionId) {
+          this.logger.warn({ message }, "CLOSE_POSITION missing positionId");
+          break;
+        }
+        if (session) {
+          const result = await session.closePaperPosition(positionId);
+          this.logger.info({ userId, positionId, result }, "Manual close via session");
+        } else if (this.config.EXECUTION_MODE === "broker_demo_mt5") {
+          const { closeMt5LocalPosition } = await import("../cfd/mt5CloseRuntime.js");
+          const result = await closeMt5LocalPosition({
+            prisma: this.prisma,
+            config: this.config,
+            userId,
+            positionId,
+            logger: this.logger
+          });
+          this.logger.info({ userId, positionId, result }, "MT5 manual close without live session");
+        } else {
+          const runtime = new (await import("../cfd/paperCfdRuntime.js")).PaperCfdRuntime(userId, {
+            prisma: this.prisma,
+            config: this.config,
+            publish: this.publish,
+            logger: this.logger
+          });
+          const pos = await this.prisma.position.findFirst({
+            where: { id: positionId, userId },
+            select: { symbol: true }
+          });
+          await runtime.init(pos?.symbol ?? "R_10");
+          const result = await runtime.manualClose(positionId);
+          this.logger.info({ userId, positionId, result }, "Manual close via ephemeral runtime");
+        }
+        break;
+      }
       case "RELOAD_CONFIG":
         // Applied on next START; a running session keeps its config for determinism.
         break;

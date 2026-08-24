@@ -3,11 +3,14 @@ import { type Redis } from "ioredis";
 import { type PrismaClient } from "@regimex/database";
 import {
   runResearchExperiment,
+  runCfdResearchExperiment,
   summarizeWalkForwardTests,
   buildStrategyRegimeMetrics,
   aggregateDemoForwardMetrics,
   createStrategy,
   DEFAULT_STRATEGY_PARAMETERS,
+  mapDbInstrumentMetadata,
+  isCfdCapableStrategy,
   type BacktestStrategyInput
 } from "@regimex/trading-engine";
 import { type Candle, type CandleInterval, type StrategyKind } from "@regimex/shared";
@@ -56,7 +59,15 @@ async function loadStrategies(
 function metricToDb(
   row: ReturnType<typeof buildStrategyRegimeMetrics>[number],
   userId: string,
-  researchRunId: string
+  researchRunId: string,
+  executionModel: string = "rise_fall_v1",
+  extras: {
+    expectancyR?: number | null;
+    averageR?: number | null;
+    averageGrossR?: number | null;
+    researchVerdict?: string | null;
+    degradationPercent?: number | null;
+  } = {}
 ) {
   const s = row.summary;
   return {
@@ -87,7 +98,13 @@ function metricToDb(
     parameterStabilityScore: row.parameterStabilityScore,
     parameterStabilityLevel: row.parameterStabilityLevel,
     researchConfidence: row.researchConfidence,
-    researchConfidenceReasons: row.researchConfidenceReasons
+    researchConfidenceReasons: row.researchConfidenceReasons,
+    executionModel,
+    expectancyR: extras.expectancyR ?? null,
+    averageR: extras.averageR ?? null,
+    averageGrossR: extras.averageGrossR ?? null,
+    researchVerdict: extras.researchVerdict ?? null,
+    degradationPercent: extras.degradationPercent ?? null
   };
 }
 
@@ -109,10 +126,19 @@ export function createResearchProcessor(deps: Deps) {
 
     try {
       const config = run.config as {
-        walkForward?: { trainWindow: number; testWindow: number; stepSize: number };
+        walkForward?: {
+          trainWindow: number;
+          testWindow: number;
+          stepSize: number;
+          windowMode?: "rolling" | "anchored";
+          maxWindows?: number;
+        };
         sampleRequirements?: Record<string, number>;
         randomBaselineSimulations?: number;
         experimentSeed?: number;
+        riskPerTradePercent?: number;
+        maxHoldBars?: number;
+        optimizePerWindow?: boolean;
       };
 
       const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: run.symbol } });
@@ -145,10 +171,233 @@ export function createResearchProcessor(deps: Deps) {
       const strategies = await loadStrategies(prisma, run.strategyIds as string[], userId);
       if (strategies.length === 0) throw new Error("No enabled strategies");
 
+      const executionModel = run.executionModel ?? "rise_fall_v1";
       const wfConfig = config.walkForward ?? { trainWindow: 2000, testWindow: 400, stepSize: 400 };
       const holdoutPercent = Number(run.holdoutPercent);
       const startingBalance = Number(run.startingBalance);
       const experimentSeed = config.experimentSeed ?? hashSeed(researchRunId);
+
+      if (executionModel === "cfd_v1") {
+        const metaRow = await prisma.instrumentMetadata.findFirst({
+          where: { symbol: { derivSymbol: run.symbol } },
+          include: { symbol: true }
+        });
+        if (!metaRow) {
+          throw new Error(`Instrument metadata required for CFD research on ${run.symbol}`);
+        }
+        const instrument = mapDbInstrumentMetadata({
+          enabled: metaRow.enabled,
+          verified: metaRow.verified,
+          source: metaRow.source,
+          notes: metaRow.notes,
+          contractSize: metaRow.contractSize,
+          volumeStep: metaRow.volumeStep,
+          minVolume: metaRow.minVolume,
+          maxVolume: metaRow.maxVolume,
+          tickSize: metaRow.tickSize,
+          tickValue: metaRow.tickValue,
+          marginRate: metaRow.marginRate,
+          spreadBps: metaRow.spreadBps,
+          slippageBps: metaRow.slippageBps,
+          currency: metaRow.currency,
+          symbol: metaRow.symbol
+        });
+        const cfdStrategies = strategies.filter((s) => isCfdCapableStrategy(s.strategy.id));
+        if (cfdStrategies.length === 0) throw new Error("No CFD-capable strategies for research");
+
+        const cfd = await runCfdResearchExperiment({
+          candles,
+          strategies: cfdStrategies,
+          instrument,
+          holdoutPercent,
+          startingBalance,
+          riskPerTradePercent: Number(run.riskPerTradePercent ?? config.riskPerTradePercent ?? 0.5),
+          maxHoldBars: run.maxHoldBars ?? config.maxHoldBars ?? 30,
+          experimentSeed,
+          randomBaselineSimulations: config.randomBaselineSimulations ?? 50,
+          walkForward: wfConfig,
+          optimizePerWindow: config.optimizePerWindow ?? false
+        });
+
+        const degPct =
+          cfd.degradation.worstLevel === "SEVERE_DEGRADATION"
+            ? 80
+            : cfd.degradation.worstLevel === "HIGH_DEGRADATION"
+              ? 55
+              : cfd.degradation.worstLevel === "MODERATE_DEGRADATION"
+                ? 30
+                : 10;
+
+        for (const w of cfd.windows) {
+          await prisma.walkForwardWindowResult.create({
+            data: {
+              researchRunId,
+              windowIndex: w.windowIndex,
+              trainStartIndex: w.window.trainStart,
+              trainEndIndex: w.window.trainEnd,
+              testStartIndex: w.window.testStart,
+              testEndIndex: w.window.testEnd,
+              frozenParameters: w.frozenParameters as object,
+              trainSummary: {
+                ...w.trainSummary,
+                configHashes: w.configHashes,
+                trainToValidationDegradationPercent: w.trainToValidationDegradationPercent,
+                baselines: w.baselines
+              } as object,
+              testSummary: {
+                ...w.validationSummary,
+                expectancyR: w.validationSummary.expectancyR,
+                netProfit: w.validationSummary.netProfit,
+                profitFactor: w.validationSummary.profitFactor,
+                maxDrawdownPercent: w.validationSummary.maxDrawdownPercent,
+                totalTrades: w.validationSummary.totalTrades,
+                endingBalance: w.validationSummary.endingBalance
+              } as object
+            }
+          });
+        }
+
+        const metricRows = [];
+        for (const s of cfdStrategies) {
+          const common = {
+            researchRunId,
+            userId,
+            symbol: run.symbol,
+            interval: run.interval,
+            strategyId: s.strategy.id,
+            regime: "ALL",
+            evaluationStatus: cfd.confidence.evaluationStatus,
+            researchConfidence: cfd.confidence.score,
+            executionModel: "cfd_v1",
+            researchVerdict: cfd.verdict.verdict,
+            degradationPercent: degPct,
+            parameterStabilityScore: cfd.parameterStability.score,
+            parameterStabilityLevel: cfd.parameterStability.level
+          };
+          metricRows.push({
+            ...common,
+            segment: "WALK_FORWARD",
+            totalTrades: cfd.walkForwardSummary.totalTrades,
+            wins: cfd.walkForwardSummary.winningTrades,
+            losses: cfd.walkForwardSummary.losingTrades,
+            pushes: cfd.walkForwardSummary.pushTrades,
+            winRate: cfd.walkForwardSummary.winRate,
+            profitFactor: cfd.walkForwardSummary.profitFactor,
+            expectancy: cfd.walkForwardSummary.expectancy,
+            averageWin: cfd.walkForwardSummary.averageWin,
+            averageLoss: cfd.walkForwardSummary.averageLoss,
+            netProfit: cfd.walkForwardSummary.netProfit,
+            returnPercent: cfd.walkForwardSummary.returnPercent,
+            maxDrawdown: cfd.walkForwardSummary.maxDrawdown,
+            maxDrawdownPercent: cfd.walkForwardSummary.maxDrawdownPercent,
+            longestWinStreak: cfd.walkForwardSummary.longestWinStreak,
+            longestLossStreak: cfd.walkForwardSummary.longestLossStreak,
+            expectancyR: cfd.walkForwardSummary.expectancyR,
+            averageR: cfd.walkForwardSummary.averageR,
+            averageGrossR: cfd.walkForwardSummary.averageGrossR
+          });
+          metricRows.push({
+            ...common,
+            segment: "TRAIN",
+            totalTrades: cfd.trainSummary.totalTrades,
+            wins: cfd.trainSummary.winningTrades,
+            losses: cfd.trainSummary.losingTrades,
+            pushes: cfd.trainSummary.pushTrades,
+            winRate: cfd.trainSummary.winRate,
+            profitFactor: cfd.trainSummary.profitFactor,
+            expectancy: cfd.trainSummary.expectancy,
+            averageWin: cfd.trainSummary.averageWin,
+            averageLoss: cfd.trainSummary.averageLoss,
+            netProfit: cfd.trainSummary.netProfit,
+            returnPercent: cfd.trainSummary.returnPercent,
+            maxDrawdown: cfd.trainSummary.maxDrawdown,
+            maxDrawdownPercent: cfd.trainSummary.maxDrawdownPercent,
+            longestWinStreak: cfd.trainSummary.longestWinStreak,
+            longestLossStreak: cfd.trainSummary.longestLossStreak,
+            expectancyR: cfd.trainSummary.expectancyR,
+            averageR: cfd.trainSummary.averageR,
+            averageGrossR: cfd.trainSummary.averageGrossR
+          });
+          metricRows.push({
+            ...common,
+            segment: "HOLDOUT",
+            totalTrades: cfd.holdoutSummary.totalTrades,
+            wins: cfd.holdoutSummary.winningTrades,
+            losses: cfd.holdoutSummary.losingTrades,
+            pushes: cfd.holdoutSummary.pushTrades,
+            winRate: cfd.holdoutSummary.winRate,
+            profitFactor: cfd.holdoutSummary.profitFactor,
+            expectancy: cfd.holdoutSummary.expectancy,
+            averageWin: cfd.holdoutSummary.averageWin,
+            averageLoss: cfd.holdoutSummary.averageLoss,
+            netProfit: cfd.holdoutSummary.netProfit,
+            returnPercent: cfd.holdoutSummary.returnPercent,
+            maxDrawdown: cfd.holdoutSummary.maxDrawdown,
+            maxDrawdownPercent: cfd.holdoutSummary.maxDrawdownPercent,
+            longestWinStreak: cfd.holdoutSummary.longestWinStreak,
+            longestLossStreak: cfd.holdoutSummary.longestLossStreak,
+            expectancyR: cfd.holdoutSummary.expectancyR,
+            averageR: cfd.holdoutSummary.averageR,
+            averageGrossR: cfd.holdoutSummary.averageGrossR
+          });
+        }
+        await prisma.strategyRegimeMetric.createMany({ data: metricRows });
+
+        await prisma.researchRun.update({
+          where: { id: researchRunId },
+          data: {
+            status: "COMPLETED",
+            progress: 100,
+            completedAt: new Date(),
+            experimentSeed,
+            developmentCandleCount: cfd.developmentCandleCount,
+            holdoutCandleCount: cfd.holdoutCandleCount,
+            holdoutStartIndex: cfd.holdoutStartIndex,
+            walkForwardSummary: {
+              ...cfd.walkForwardSummary,
+              aggregate: cfd.walkForward.aggregate
+            } as object,
+            holdoutSummary: cfd.holdoutSummary as object,
+            trainSummary: cfd.trainSummary as object,
+            verdict: cfd.verdict.verdict,
+            verdictReasons: cfd.verdict.reasons as object,
+            researchConfidence: cfd.verdict.confidence,
+            baselineResults: cfd.baselines as object,
+            degradationAnalysis: cfd.degradation as object,
+            parameterStability: cfd.parameterStability as object,
+            reproducibility: cfd.reproducibility as object,
+            summary: {
+              executionModel: "cfd_v1",
+              walkForward: cfd.walkForwardSummary,
+              aggregate: cfd.walkForward.aggregate,
+              holdout: cfd.holdoutSummary,
+              train: cfd.trainSummary,
+              verdict: cfd.verdict,
+              promotion: cfd.promotion,
+              historicalEvidence: cfd.historicalEvidence,
+              forwardEvidence: cfd.forwardEvidence,
+              baselines: cfd.baselines,
+              degradation: cfd.degradation,
+              parameterStability: cfd.parameterStability,
+              conclusion: cfd.verdict.conclusion,
+              windowCount: cfd.windows.length,
+              metricsNote:
+                "CFD metrics use netR. historicalEvidence and forwardEvidence are separate."
+            } as object
+          }
+        });
+
+        await publish(userId, "research.completed", { researchRunId, executionModel: "cfd_v1" });
+        log.info(
+          {
+            verdict: cfd.verdict.verdict,
+            windows: cfd.windows.length,
+            promotion: cfd.promotion.eligibility
+          },
+          "CFD research run completed"
+        );
+        return;
+      }
 
       const candidateRecorder = createCandidateRecorder(prisma, userId, researchRunId, "WALK_FORWARD_TEST");
 
@@ -271,7 +520,7 @@ export function createResearchProcessor(deps: Deps) {
 
       await prisma.strategyRegimeMetric.createMany({
         data: [...wfMetrics, ...holdoutMetrics, ...trainMetrics, ...demoMetrics].map((m) =>
-          metricToDb(m, userId, researchRunId)
+          metricToDb(m, userId, researchRunId, "rise_fall_v1")
         )
       });
 

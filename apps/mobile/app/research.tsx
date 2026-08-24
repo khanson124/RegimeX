@@ -4,6 +4,7 @@ import {
   useForwardComparison,
   useResearchMetrics,
   useResearchRuns,
+  useResearchRunDetail,
   useResearchVerdict,
   useStrategies,
   useCreateResearchExperiment,
@@ -14,11 +15,14 @@ import { colors, font, spacing } from "../src/theme";
 
 const SYMBOLS = ["R_10", "R_25", "R_50", "R_75", "R_100"];
 
+type ExecutionModel = "cfd_v1" | "rise_fall_v1";
+
 export default function ResearchScreen() {
   const [symbol, setSymbol] = useState("R_75");
   const [interval, setInterval] = useState<"1m" | "5m">("5m");
   const [strategyId, setStrategyId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>();
+  const [executionModel, setExecutionModel] = useState<ExecutionModel>("cfd_v1");
 
   const { data: strategies } = useStrategies();
   const { data: runs } = useResearchRuns();
@@ -29,26 +33,72 @@ export default function ResearchScreen() {
     strategyId: strategyId || undefined
   });
   const { data: verdictData } = useResearchVerdict(selectedRunId);
+  const { data: runDetail } = useResearchRunDetail(selectedRunId);
   const createExperiment = useCreateResearchExperiment();
+  const [windowsOpen, setWindowsOpen] = useState(false);
 
   const selectedStrategy = strategies?.strategies.find((s: StrategyRow) => s.id === strategyId);
+  const selectedRun = runs?.items.find((r) => r.id === selectedRunId);
+  const runModel = (selectedRun?.executionModel ??
+    runDetail?.researchRun.executionModel ??
+    executionModel) as ExecutionModel;
+  const isCfd = runModel === "cfd_v1";
+  const summary = (runDetail?.researchRun.summary ?? verdictData?.summary ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const aggregate = (summary?.aggregate ?? null) as Record<string, number> | null;
+  const promotion = (summary?.promotion ?? null) as { eligibility?: string; reasons?: string[] } | null;
+  const historicalEvidence = (summary?.historicalEvidence ?? null) as Record<string, unknown> | null;
+  const forwardEvidence = (summary?.forwardEvidence ?? null) as Record<string, unknown> | null;
+
   const wfMetric = metrics?.items.find((m) => m.segment === "WALK_FORWARD" && m.regime === "ALL");
   const trainMetric = metrics?.items.find((m) => m.segment === "TRAIN" && m.regime === "ALL");
   const holdoutMetric = metrics?.items.find((m) => m.segment === "HOLDOUT" && m.regime === "ALL");
   const demoMetric = metrics?.items.find((m) => m.segment === "DEMO_FORWARD" && m.regime === "ALL");
+  const paperMetric = metrics?.items.find((m) => m.segment === "PAPER_FORWARD" && m.regime === "ALL");
 
-  const completedRuns = runs?.items.filter((r) => r.status === "COMPLETED" && r.symbol === symbol) ?? [];
+  const completedRuns =
+    runs?.items.filter(
+      (r) =>
+        r.status === "COMPLETED" &&
+        r.symbol === symbol &&
+        (!r.executionModel || r.executionModel === executionModel)
+    ) ?? [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
       <Text style={styles.title}>Research & Validation</Text>
       <Text style={styles.subtitle}>
-        Full validation ladder: walk-forward optimization, untouched holdout, baselines, and demo-forward.
-        Statistical evidence is not guaranteed future profitability.
+        Walk-forward, holdout, baselines, and forward evidence. CFD research uses expectancyR / net P&amp;L —
+        not binary payout win rates. Statistical evidence is not guaranteed future profitability.
       </Text>
 
       <Card>
-        <Text style={styles.label}>Symbol</Text>
+        <Text style={styles.label}>Execution model</Text>
+        <View style={styles.row}>
+          {(
+            [
+              { value: "cfd_v1" as const, label: "CFD (cfd_v1)" },
+              { value: "rise_fall_v1" as const, label: "Legacy binary" }
+            ] as const
+          ).map((m) => (
+            <Pressable
+              key={m.value}
+              onPress={() => setExecutionModel(m.value)}
+              style={[styles.chip, executionModel === m.value && styles.chipActive]}
+            >
+              <Text style={styles.chipText}>{m.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {executionModel === "cfd_v1"
+            ? "CFD: lots, SL/TP, spread/slippage, netR metrics. Requires InstrumentMetadata."
+            : "Legacy rise/fall: fixed stake & payout ratio. Kept for historical comparison only."}
+        </Text>
+
+        <Text style={[styles.label, { marginTop: spacing.md }]}>Symbol</Text>
         <View style={styles.row}>
           {SYMBOLS.map((s) => (
             <Pressable key={s} onPress={() => setSymbol(s)} style={[styles.chip, symbol === s && styles.chipActive]}>
@@ -82,25 +132,28 @@ export default function ResearchScreen() {
               from: "2025-01-01T00:00:00.000Z",
               to: "2026-07-01T00:00:00.000Z",
               strategies: strategyId ? [strategyId] : "ALL",
-              holdoutPercent: 0.3
+              holdoutPercent: 0.3,
+              executionModel
             })
           }
         >
           {createExperiment.isPending ? (
             <ActivityIndicator color={colors.text} />
           ) : (
-            <Text style={styles.runBtnText}>Run full experiment</Text>
+            <Text style={styles.runBtnText}>
+              Run {executionModel === "cfd_v1" ? "CFD" : "binary"} experiment
+            </Text>
           )}
         </Pressable>
       </Card>
 
       {completedRuns.length > 0 ? (
         <Card>
-          <Text style={styles.sectionTitle}>Recent experiments</Text>
+          <Text style={styles.sectionTitle}>Recent {executionModel === "cfd_v1" ? "CFD" : "binary"} experiments</Text>
           {completedRuns.slice(0, 5).map((r) => (
             <Pressable key={r.id} onPress={() => setSelectedRunId(r.id)} style={styles.runRow}>
               <Text style={[styles.runRowText, selectedRunId === r.id && styles.runRowActive]}>
-                {r.verdict ?? "—"} · {r.interval} · {r.id.slice(0, 8)}
+                {r.executionModel ?? "—"} · {r.verdict ?? "—"} · {r.interval} · {r.id.slice(0, 8)}
               </Text>
             </Pressable>
           ))}
@@ -113,9 +166,12 @@ export default function ResearchScreen() {
         <>
           {verdictData?.verdict ? (
             <Card>
-              <Text style={styles.sectionTitle}>Research Verdict</Text>
+              <Text style={styles.sectionTitle}>Research Verdict ({isCfd ? "CFD" : "binary"})</Text>
               <Text style={styles.verdict}>{verdictData.verdict.replace(/_/g, " ")}</Text>
               <Text style={styles.bigScore}>Confidence: {verdictData.confidence ?? "—"} / 100</Text>
+              {promotion?.eligibility ? (
+                <Text style={styles.hint}>Promotion eligibility: {promotion.eligibility} (advice only)</Text>
+              ) : null}
               {(verdictData.reasons ?? []).slice(0, 8).map((r) => (
                 <Text key={r} style={styles.reason}>{r}</Text>
               ))}
@@ -125,26 +181,155 @@ export default function ResearchScreen() {
             </Card>
           ) : null}
 
+          {isCfd && aggregate ? (
+            <Card>
+              <Text style={styles.sectionTitle}>Walk-forward aggregates</Text>
+              <MetricRow label="Windows" value={String(aggregate.windowCount ?? "—")} />
+              <MetricRow
+                label="Profitable windows %"
+                value={
+                  aggregate.percentProfitableWindows != null
+                    ? `${(Number(aggregate.percentProfitableWindows) * 100).toFixed(0)}%`
+                    : "—"
+                }
+              />
+              <MetricRow
+                label="Positive E[R] windows %"
+                value={
+                  aggregate.percentPositiveExpectancyWindows != null
+                    ? `${(Number(aggregate.percentPositiveExpectancyWindows) * 100).toFixed(0)}%`
+                    : "—"
+                }
+              />
+              <MetricRow label="Median OOS E[R]" value={fmt(aggregate.medianExpectancyR as number)} />
+              <MetricRow label="Weighted OOS E[R]" value={fmt(aggregate.weightedExpectancyR as number)} />
+              <MetricRow label="E[R] variability" value={fmt(aggregate.expectancyRVariability as number)} />
+              <MetricRow label="Validation trades" value={String(aggregate.totalValidationTrades ?? "—")} />
+              <MetricRow
+                label="Param stability"
+                value={
+                  runDetail?.researchRun.parameterStability?.level ??
+                  verdictData?.parameterStability?.level ??
+                  "—"
+                }
+              />
+            </Card>
+          ) : null}
+
+          {isCfd ? (
+            <Card>
+              <Text style={styles.sectionTitle}>Historical vs forward (separate)</Text>
+              <MetricRow
+                label="Historical median E[R]"
+                value={fmt(historicalEvidence?.medianExpectancyR as number | undefined)}
+              />
+              <MetricRow
+                label="Forward-paper E[R]"
+                value={fmt(forwardEvidence?.expectancyR as number | undefined)}
+              />
+              <MetricRow
+                label="Forward-paper trades"
+                value={forwardEvidence?.trades != null ? String(forwardEvidence.trades) : "—"}
+              />
+              <Text style={styles.hint}>Broker-demo forward is a third lane when available — never blended.</Text>
+            </Card>
+          ) : null}
+
+          {isCfd && (runDetail?.windows?.length ?? 0) > 0 ? (
+            <Card>
+              <Pressable onPress={() => setWindowsOpen((o) => !o)}>
+                <Text style={styles.sectionTitle}>
+                  Walk-forward windows ({runDetail!.windows.length}) {windowsOpen ? "▾" : "▸"}
+                </Text>
+              </Pressable>
+              {windowsOpen
+                ? runDetail!.windows.map((w) => {
+                    const val = w.testSummary as {
+                      expectancyR?: number;
+                      profitFactor?: number | null;
+                      totalTrades?: number;
+                      maxDrawdownPercent?: number;
+                      netProfit?: number;
+                    } | null;
+                    const train = w.trainSummary as { expectancyR?: number; totalTrades?: number } | null;
+                    return (
+                      <View key={w.windowIndex} style={styles.regimeRow}>
+                        <Text style={styles.regimeName}>
+                          Window {w.windowIndex} · train [{w.trainStartIndex},{w.trainEndIndex}) → val [
+                          {w.testStartIndex},{w.testEndIndex})
+                        </Text>
+                        <Text style={styles.regimeStat}>
+                          train E[R] {fmt(train?.expectancyR)} ({train?.totalTrades ?? 0} tr) · val E[R]{" "}
+                          {fmt(val?.expectancyR)} · PF {fmt(val?.profitFactor ?? undefined)} · DD{" "}
+                          {fmt(val?.maxDrawdownPercent)}% · {val?.totalTrades ?? 0} trades
+                        </Text>
+                      </View>
+                    );
+                  })
+                : null}
+            </Card>
+          ) : null}
+
           <Card>
-            <Text style={styles.sectionTitle}>Validation Ladder</Text>
-            <MetricRow label="Train PF" value={fmtPf(trainMetric?.profitFactor ?? verdictData?.summary)} />
-            <MetricRow label="Walk-forward PF" value={fmt(wfMetric?.profitFactor ?? comparison?.comparison.walkForwardProfitFactor)} />
-            <MetricRow label="Final holdout PF" value={fmt(holdoutMetric?.profitFactor ?? comparison?.comparison.holdoutProfitFactor)} />
-            <MetricRow label="Demo forward PF" value={fmt(demoMetric?.profitFactor ?? comparison?.comparison.demoForwardProfitFactor)} />
-            {demoMetric?.evaluationStatus === "PRELIMINARY" || (demoMetric && demoMetric.totalTrades < 100) ? (
-              <Text style={styles.hint}>Demo-forward sample: PRELIMINARY — not enough live demo trades yet.</Text>
-            ) : null}
+            <Text style={styles.sectionTitle}>
+              {isCfd ? "CFD validation ladder" : "Binary validation ladder"}
+            </Text>
+            {isCfd ? (
+              <>
+                <MetricRow label="Train expectancyR" value={fmt(trainMetric?.expectancyR)} />
+                <MetricRow label="Walk-forward expectancyR" value={fmt(wfMetric?.expectancyR)} />
+                <MetricRow label="Holdout expectancyR" value={fmt(holdoutMetric?.expectancyR)} />
+                <MetricRow label="Walk-forward PF" value={fmt(wfMetric?.profitFactor ?? comparison?.comparison.walkForwardProfitFactor)} />
+                <MetricRow label="Holdout PF" value={fmt(holdoutMetric?.profitFactor ?? comparison?.comparison.holdoutProfitFactor)} />
+                <MetricRow label="Max DD %" value={fmt(wfMetric?.maxDrawdownPercent ?? holdoutMetric?.maxDrawdownPercent)} />
+                <MetricRow label="Sample (WF trades)" value={wfMetric?.totalTrades != null ? String(wfMetric.totalTrades) : "—"} />
+                <MetricRow
+                  label="Paper-forward E[R]"
+                  value={fmt(paperMetric?.expectancyR ?? paperMetric?.averageR)}
+                />
+                <MetricRow
+                  label="Paper-forward trades"
+                  value={paperMetric?.totalTrades != null ? String(paperMetric.totalTrades) : "—"}
+                />
+              </>
+            ) : (
+              <>
+                <MetricRow label="Train PF" value={fmtPf(trainMetric?.profitFactor ?? verdictData?.summary)} />
+                <MetricRow label="Walk-forward PF" value={fmt(wfMetric?.profitFactor ?? comparison?.comparison.walkForwardProfitFactor)} />
+                <MetricRow label="Final holdout PF" value={fmt(holdoutMetric?.profitFactor ?? comparison?.comparison.holdoutProfitFactor)} />
+                <MetricRow label="Demo forward PF" value={fmt(demoMetric?.profitFactor ?? comparison?.comparison.demoForwardProfitFactor)} />
+                {demoMetric?.evaluationStatus === "PRELIMINARY" || (demoMetric && demoMetric.totalTrades < 100) ? (
+                  <Text style={styles.hint}>Demo-forward sample: PRELIMINARY — not enough live demo trades yet.</Text>
+                ) : null}
+              </>
+            )}
           </Card>
 
           {verdictData?.baselines ? (
             <Card>
               <Text style={styles.sectionTitle}>Baselines</Text>
-              <MetricRow label="RegimeX PF" value={fmt(verdictData.baselines.regimeX?.profitFactor)} />
-              <MetricRow label="No regime filter PF" value={fmt(verdictData.baselines.noRegimeFilter?.profitFactor)} />
-              <MetricRow label="Random median PF" value={fmt(verdictData.baselines.random?.medianProfitFactor)} />
-              <MetricRow label="Random 95th pct PF" value={fmt(verdictData.baselines.random?.percentile95)} />
-              <MetricRow label="Always CALL PF" value={fmt(verdictData.baselines.alwaysCall?.profitFactor)} />
-              <MetricRow label="Always PUT PF" value={fmt(verdictData.baselines.alwaysPut?.profitFactor)} />
+              {isCfd ? (
+                <>
+                  <MetricRow label="RegimeX PF" value={fmt(verdictData.baselines.regimeX?.profitFactor)} />
+                  <MetricRow label="RegimeX E[R]" value={fmt(verdictData.baselines.regimeX?.expectancyR)} />
+                  <MetricRow label="Always LONG PF" value={fmt(verdictData.baselines.alwaysLong?.profitFactor)} />
+                  <MetricRow label="Always SHORT PF" value={fmt(verdictData.baselines.alwaysShort?.profitFactor)} />
+                  <MetricRow
+                    label="Random direction median E[R]"
+                    value={fmt(verdictData.baselines.randomDirection?.medianExpectancyR)}
+                  />
+                  <MetricRow label="No-trade (cash)" value={fmt(verdictData.baselines.noTrade?.profitFactor) === "—" ? "0 trades" : fmt(verdictData.baselines.noTrade?.profitFactor)} />
+                </>
+              ) : (
+                <>
+                  <MetricRow label="RegimeX PF" value={fmt(verdictData.baselines.regimeX?.profitFactor)} />
+                  <MetricRow label="No regime filter PF" value={fmt(verdictData.baselines.noRegimeFilter?.profitFactor)} />
+                  <MetricRow label="Random median PF" value={fmt(verdictData.baselines.random?.medianProfitFactor)} />
+                  <MetricRow label="Random 95th pct PF" value={fmt(verdictData.baselines.random?.percentile95)} />
+                  <MetricRow label="Always CALL PF" value={fmt(verdictData.baselines.alwaysCall?.profitFactor)} />
+                  <MetricRow label="Always PUT PF" value={fmt(verdictData.baselines.alwaysPut?.profitFactor)} />
+                </>
+              )}
               {verdictData.baselines.regimePfImprovementPercent != null ? (
                 <Text style={styles.hint}>
                   Regime filtering PF change: {verdictData.baselines.regimePfImprovementPercent.toFixed(1)}%
@@ -183,7 +368,9 @@ export default function ResearchScreen() {
                   <View key={m.id} style={styles.regimeRow}>
                     <Text style={styles.regimeName}>{m.regime}</Text>
                     <Text style={styles.regimeStat}>
-                      {m.totalTrades} trades · WR {(Number(m.winRate) * 100).toFixed(1)}% · PF {fmt(m.profitFactor)} · {m.evaluationStatus}
+                      {isCfd
+                        ? `${m.totalTrades} trades · E[R] ${fmt(m.expectancyR)} · PF ${fmt(m.profitFactor)} · DD ${fmt(m.maxDrawdownPercent)}% · ${m.evaluationStatus}`
+                        : `${m.totalTrades} trades · WR ${(Number(m.winRate) * 100).toFixed(1)}% · PF ${fmt(m.profitFactor)} · ${m.evaluationStatus}`}
                     </Text>
                   </View>
                 ))}
@@ -233,7 +420,6 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontSize: font.title, fontWeight: "700", marginBottom: spacing.sm },
   verdict: { color: colors.accent, fontSize: 28, fontWeight: "800" },
   bigScore: { color: colors.text, fontSize: font.body, fontWeight: "600", marginTop: 4 },
-  status: { color: colors.textDim, fontSize: font.caption, marginTop: 4 },
   hint: { color: colors.textDim, fontSize: font.caption, marginTop: spacing.sm, lineHeight: 18 },
   conclusion: { color: colors.text, fontSize: font.caption, marginTop: spacing.md, lineHeight: 20, fontStyle: "italic" },
   reason: { color: colors.textDim, fontSize: font.caption, marginTop: 2 },

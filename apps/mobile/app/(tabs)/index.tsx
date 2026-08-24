@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text } from "react-native";
 import { useRouter } from "expo-router";
 import { ApiError, configuredApiUrl } from "../../src/api/client";
-import { useDashboard, useEngineAction, useStrategies } from "../../src/api/hooks";
+import { useDashboard, useEngineAction, useStrategies, useBrokerDemoStatus, useMt5Status } from "../../src/api/hooks";
 import { useLiveEvents } from "../../src/ws/useLiveEvents";
 import { Badge, Button, Card, ErrorView, Metric, RegimeBadge, Row, SectionTitle, Skeleton } from "../../src/components/ui";
 import { colors, font, spacing } from "../../src/theme";
@@ -10,6 +10,8 @@ import { colors, font, spacing } from "../../src/theme";
 export default function DashboardScreen() {
   const { data, isLoading, isError, error, refetch, isRefetching } = useDashboard();
   const { data: strategiesData } = useStrategies();
+  const { data: brokerDemo } = useBrokerDemoStatus();
+  const { data: mt5Status } = useMt5Status();
   const engineAction = useEngineAction();
   const { connected } = useLiveEvents();
   const router = useRouter();
@@ -79,6 +81,48 @@ export default function DashboardScreen() {
           <Metric label="Live feed" value={connected ? "Streaming" : "Reconnecting"} tone={connected ? "up" : "warning"} />
         </Row>
         {s.emergencyStop ? <Badge tone="down" text="EMERGENCY STOP ACTIVE" /> : null}
+        {brokerDemo?.status?.enabled ? (
+          <Row style={{ marginTop: spacing.md }}>
+            <Metric
+              label="cTrader"
+              value={brokerDemo.status.demo || brokerDemo.status.isDemo ? "DEMO" : "—"}
+              tone="warning"
+            />
+            <Metric
+              label="cTrader link"
+              value={brokerDemo.status.connected ? "Connected" : brokerDemo.status.error ? "Error" : "Offline"}
+              tone={brokerDemo.status.connected ? "up" : "warning"}
+            />
+            <Metric
+              label="Demo equity"
+              value={
+                brokerDemo.status.account?.equity != null
+                  ? String(brokerDemo.status.account.equity)
+                  : "—"
+              }
+            />
+          </Row>
+        ) : null}
+        {mt5Status?.status?.enabled ? (
+          <Row style={{ marginTop: spacing.md }}>
+            <Metric label="MT5" value={mt5Status.status.isDemo ? "DEMO" : "—"} tone="warning" />
+            <Metric
+              label="MT5 link"
+              value={mt5Status.status.connected ? "Connected" : mt5Status.status.error ? "Error" : "Offline"}
+              tone={mt5Status.status.connected ? "up" : "warning"}
+            />
+            <Metric
+              label="MT5 engine"
+              value={mt5Status.status.engineAutomationEnabled ? "ON" : "OFF"}
+              tone={mt5Status.status.engineAutomationEnabled ? "warning" : "neutral"}
+            />
+          </Row>
+        ) : null}
+        {!brokerDemo?.status?.enabled && !mt5Status?.status?.enabled ? (
+          <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
+            Execution: paper CFD (simulated). Broker DEMO requires EXECUTION_MODE=broker_demo_cfd or broker_demo_mt5.
+          </Text>
+        ) : null}
       </Card>
 
       <Card>
@@ -111,6 +155,10 @@ export default function DashboardScreen() {
         <RegimeBadge regime={s.currentRegime} confidence={s.regimeConfidence} />
         <Row style={{ marginTop: spacing.md }}>
           <Metric label="Active strategy" value={strategyLabel(s.activeStrategy)} />
+          <Metric
+            label="Selection"
+            value={s.strategySelection?.selectionMode ?? "—"}
+          />
           <Metric
             label="Current signal"
             value={

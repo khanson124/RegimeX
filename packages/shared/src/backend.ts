@@ -16,7 +16,9 @@ export const CHANNELS = {
 } as const;
 
 export interface EngineControlMessage {
-  command: "START" | "PAUSE" | "RESUME" | "STOP" | "EMERGENCY_STOP" | "RELOAD_CONFIG";
+  command: "START" | "PAUSE" | "RESUME" | "STOP" | "EMERGENCY_STOP" | "RELOAD_CONFIG" | "CLOSE_POSITION";
   userId: string;
   correlationId: string;
+  /** Required when command is CLOSE_POSITION. */
+  positionId?: string;
 }

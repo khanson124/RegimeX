@@ -105,13 +105,27 @@ export class BollingerReversionStrategy implements TradingStrategy {
     if (prevPiercedLower && closedBackInsideLower && rsiOversold && !nearMajorLow) {
       const confidence = Math.min(0.55 + (p.rsiOversold + 5 - f.rsi) / 60 + (p.adxMaximum - f.adx) / 100, 0.9);
       if (confidence >= p.minimumConfidence) {
-        return this.signal("BUY", confidence, ts, p, [
-          `ADX ${f.adx.toFixed(1)} confirms ranging market`,
-          "Previous candle touched/closed below the lower Bollinger band",
-          `RSI ${f.rsi.toFixed(1)} is oversold`,
-          "Candle closed back inside the band",
-          "Price is not breaking a major recent low"
-        ]);
+        return this.signal(
+          "BUY",
+          confidence,
+          ts,
+          p,
+          [
+            `ADX ${f.adx.toFixed(1)} confirms ranging market`,
+            "Previous candle touched/closed below the lower Bollinger band",
+            `RSI ${f.rsi.toFixed(1)} is oversold`,
+            "Candle closed back inside the band",
+            "Price is not breaking a major recent low"
+          ],
+          {
+            bollingerLower: f.bollingerLower,
+            bollingerUpper: f.bollingerUpper,
+            bollingerMiddle: f.bollingerMiddle,
+            bollingerMid: f.bollingerMiddle,
+            extremeLow: Math.min(prev.low, candle.low),
+            extremeHigh: Math.max(prev.high, candle.high)
+          }
+        );
       }
     }
 
@@ -124,13 +138,27 @@ export class BollingerReversionStrategy implements TradingStrategy {
     if (prevPiercedUpper && closedBackInsideUpper && rsiOverbought && !nearMajorHigh) {
       const confidence = Math.min(0.55 + (f.rsi - (p.rsiOverbought - 5)) / 60 + (p.adxMaximum - f.adx) / 100, 0.9);
       if (confidence >= p.minimumConfidence) {
-        return this.signal("SELL", confidence, ts, p, [
-          `ADX ${f.adx.toFixed(1)} confirms ranging market`,
-          "Previous candle touched/closed above the upper Bollinger band",
-          `RSI ${f.rsi.toFixed(1)} is overbought`,
-          "Candle closed back inside the band",
-          "Price is not breaking a major recent high"
-        ]);
+        return this.signal(
+          "SELL",
+          confidence,
+          ts,
+          p,
+          [
+            `ADX ${f.adx.toFixed(1)} confirms ranging market`,
+            "Previous candle touched/closed above the upper Bollinger band",
+            `RSI ${f.rsi.toFixed(1)} is overbought`,
+            "Candle closed back inside the band",
+            "Price is not breaking a major recent high"
+          ],
+          {
+            bollingerLower: f.bollingerLower,
+            bollingerUpper: f.bollingerUpper,
+            bollingerMiddle: f.bollingerMiddle,
+            bollingerMid: f.bollingerMiddle,
+            extremeLow: Math.min(prev.low, candle.low),
+            extremeHigh: Math.max(prev.high, candle.high)
+          }
+        );
       }
     }
 
@@ -142,7 +170,8 @@ export class BollingerReversionStrategy implements TradingStrategy {
     confidence: number,
     ts: number,
     _p: BollingerReversionParams,
-    reasons: string[]
+    reasons: string[],
+    structure: Record<string, number | null>
   ): StrategyDecision {
     return {
       action,
@@ -155,7 +184,7 @@ export class BollingerReversionStrategy implements TradingStrategy {
       signalTimestamp: ts,
       strategyId: this.id,
       strategyVersion: this.version,
-      metadata: {}
+      metadata: structure
     };
   }
 }

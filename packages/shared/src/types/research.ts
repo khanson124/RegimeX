@@ -6,6 +6,9 @@ export const METRIC_SEGMENTS = [
   "WALK_FORWARD",
   "HOLDOUT",
   "DEMO_FORWARD",
+  "PAPER_FORWARD",
+  /** Broker-demo CFD forward — never blended with paper or historical OOS. */
+  "BROKER_DEMO_FORWARD",
   "BASELINE"
 ] as const;
 
@@ -98,6 +101,16 @@ export const RESEARCH_VERDICTS = [
 
 export type ResearchVerdict = (typeof RESEARCH_VERDICTS)[number];
 
+/** Research-only promotion advice — never auto-deployed. */
+export const PROMOTION_ELIGIBILITIES = [
+  "REJECTED",
+  "EXPERIMENTAL",
+  "CANDIDATE",
+  "VALIDATED"
+] as const;
+
+export type PromotionEligibility = (typeof PROMOTION_ELIGIBILITIES)[number];
+
 export const DEGRADATION_LEVELS = [
   "LOW_DEGRADATION",
   "MODERATE_DEGRADATION",
@@ -111,7 +124,11 @@ export const BASELINE_TYPES = [
   "RANDOM",
   "ALWAYS_CALL",
   "ALWAYS_PUT",
-  "NO_REGIME_FILTER"
+  "NO_REGIME_FILTER",
+  "ALWAYS_LONG",
+  "ALWAYS_SHORT",
+  "RANDOM_DIRECTION",
+  "NO_TRADE"
 ] as const;
 
 export type BaselineType = (typeof BASELINE_TYPES)[number];

@@ -6,9 +6,10 @@ import { Card } from "../../src/components/ui";
 import { colors, font, spacing } from "../../src/theme";
 
 const LINKS: Array<{ href: Href; icon: keyof typeof Ionicons.glyphMap; label: string; hint: string }> = [
-  { href: "/engine", icon: "play-circle-outline", label: "Live Engine", hint: "Start, pause, configure analysis or demo trading" },
-  { href: "/trades", icon: "swap-horizontal-outline", label: "Demo Trades", hint: "Open and settled demo contracts" },
-  { href: "/risk", icon: "shield-checkmark-outline", label: "Risk Settings", hint: "Stakes, loss limits, cooldowns, session hours" },
+  { href: "/engine", icon: "play-circle-outline", label: "Live Engine", hint: "Start, pause, configure analysis or paper CFD trading" },
+  { href: "/positions", icon: "layers-outline", label: "Open Positions", hint: "Paper CFD positions, floating P/L, manual close" },
+  { href: "/trades", icon: "swap-horizontal-outline", label: "Legacy Demo Trades", hint: "Historical binary demo contracts (read-only)" },
+  { href: "/risk", icon: "shield-checkmark-outline", label: "Risk Settings", hint: "Risk %, loss limits, cooldowns, session hours" },
   { href: "/decisions", icon: "document-text-outline", label: "Decision Log", hint: "Why the engine traded or did not trade" },
   { href: "/research", icon: "analytics-outline", label: "Research", hint: "Walk-forward validation, holdout, confidence scores" },
   { href: "/optimizer", icon: "options-outline", label: "Optimizer", hint: "Grid-search strategy parameters" },

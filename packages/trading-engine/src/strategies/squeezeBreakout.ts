@@ -133,7 +133,14 @@ export class SqueezeBreakoutStrategy implements TradingStrategy {
       signalTimestamp: ts,
       strategyId: this.id,
       strategyVersion: this.version,
-      metadata: { minSqueezeWidth: minWidth, expansionRatio }
+      metadata: {
+        minSqueezeWidth: minWidth,
+        expansionRatio,
+        donchianLow: f.donchianLow,
+        donchianHigh: f.donchianHigh,
+        squeezeLow: f.donchianLow,
+        squeezeHigh: f.donchianHigh
+      }
     };
   }
 }

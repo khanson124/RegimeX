@@ -45,6 +45,8 @@ export interface StrategyCatalogueEntry {
   version: string;
   description: string;
   supportedRegimes: MarketRegime[];
+  /** True when CFD stop/target proposal + paper execution path is complete. */
+  cfdCapable: boolean;
 }
 
 export function holdDecision(

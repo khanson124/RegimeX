@@ -34,6 +34,8 @@ model User {
   tradeCandidates  TradeCandidate[]
   notifications    Notification[]
   strategies       StrategyDefinition[]
+  paperAccount     PaperAccount?
+  positions        Position[]
 
   @@index([status])
 }
@@ -111,6 +113,7 @@ model Symbol {
   updatedAt       DateTime @updatedAt
 
   candles Candle[]
+  instrumentMetadata InstrumentMetadata?
 
   @@index([enabled])
 }
@@ -217,6 +220,12 @@ model Backtest {
   selectionMode           String    @default("AUTO")
   contractDurationCandles Int       @default(5)
   assumedPayoutRatio      Decimal   @db.Decimal(6, 4)
+  /// rise_fall_v1 (legacy) | cfd_v1
+  executionModel          String    @default("rise_fall_v1")
+  /// CFD: risk % of equity per trade (nullable for legacy runs).
+  riskPerTradePercent     Decimal?  @db.Decimal(6, 4)
+  /// CFD: max holding bars if SL/TP not hit.
+  maxHoldBars             Int?
   testSplit               Decimal   @db.Decimal(4, 2)
   regimeClassifierVersion String
   status                  String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
@@ -323,6 +332,10 @@ model ResearchRun {
   contractDurationCandles Int       @default(5)
   assumedPayoutRatio      Decimal   @db.Decimal(6, 4)
   holdoutPercent          Decimal   @db.Decimal(4, 2)
+  /// rise_fall_v1 | cfd_v1 — keep binary and CFD research clearly separated.
+  executionModel          String    @default("rise_fall_v1")
+  riskPerTradePercent     Decimal?  @db.Decimal(6, 4)
+  maxHoldBars             Int?
   /// Walk-forward + sample requirement configuration JSON.
   config                  Json
   developmentCandleCount  Int?
@@ -412,6 +425,16 @@ model StrategyRegimeMetric {
   parameterStabilityLevel String?
   researchConfidence      Int?
   researchConfidenceReasons Json?
+  executionModel          String   @default("rise_fall_v1")
+  strategyVersion         String?
+  configHash              String?
+  expectancyR             Decimal? @db.Decimal(12, 4)
+  averageR                Decimal? @db.Decimal(12, 4)
+  averageGrossR           Decimal? @db.Decimal(12, 4)
+  researchVerdict         String?
+  degradationPercent      Decimal? @db.Decimal(8, 4)
+  forwardTradeCount       Int      @default(0)
+  recentForwardExpectancyR Decimal? @db.Decimal(12, 4)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -420,6 +443,7 @@ model StrategyRegimeMetric {
   @@index([userId, symbol, interval, strategyId, regime])
   @@index([researchRunId, segment])
   @@index([strategyId, regime, segment])
+  @@index([userId, executionModel, strategyId, regime])
 }
 
 model TradeCandidate {
@@ -579,6 +603,17 @@ model Signal {
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   demoTrades DemoTrade[]
+  positions  Position[]
+
+  // ── CFD signal extensions (nullable; populated by CFD execution path) ──
+  entryType          String?
+  proposedEntryPrice Decimal? @db.Decimal(18, 5)
+  stopLoss           Decimal? @db.Decimal(18, 5)
+  takeProfit         Decimal? @db.Decimal(18, 5)
+  stopDistance       Decimal? @db.Decimal(18, 5)
+  targetDistance     Decimal? @db.Decimal(18, 5)
+  riskRewardRatio    Decimal? @db.Decimal(8, 4)
+  proposedVolume     Decimal? @db.Decimal(18, 8)
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([symbol, signalTime])
@@ -654,6 +689,11 @@ model RiskProfile {
   sessionEndHourUtc        Int?
   maxDataAgeSeconds        Int      @default(30)
   maxSignalAgeSeconds      Int      @default(30)
+  /// CFD risk (% of equity). Null = use system defaults.
+  riskPerTradePercent      Decimal? @db.Decimal(6, 4)
+  maxTotalOpenRiskPercent  Decimal? @db.Decimal(6, 4)
+  maxConcurrentPositions   Int?
+  minRiskRewardRatio       Decimal? @db.Decimal(4, 2)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
@@ -661,6 +701,118 @@ model RiskProfile {
 
   @@unique([userId, name])
   @@index([userId, isActive])
+}
+
+// ─────────────────────────────────────────────────────────────
+// CFD paper trading (additive; legacy DemoTrade/Contract unchanged)
+// ─────────────────────────────────────────────────────────────
+
+model InstrumentMetadata {
+  id           String   @id @default(cuid())
+  symbolId     String   @unique
+  enabled      Boolean  @default(false)
+  verified     Boolean  @default(false)
+  source       String?
+  notes        String?
+  contractSize Decimal  @db.Decimal(18, 8)
+  volumeStep   Decimal  @db.Decimal(18, 8)
+  minVolume    Decimal  @db.Decimal(18, 8)
+  maxVolume    Decimal  @db.Decimal(18, 8)
+  tickSize     Decimal  @db.Decimal(18, 8)
+  tickValue    Decimal  @db.Decimal(18, 8)
+  marginRate   Decimal  @db.Decimal(8, 6)
+  spreadBps    Decimal  @db.Decimal(8, 4)
+  slippageBps  Decimal  @db.Decimal(8, 4)
+  currency     String   @default("USD")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  symbol Symbol @relation(fields: [symbolId], references: [id], onDelete: Cascade)
+}
+
+model PaperAccount {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  currency     String   @default("USD")
+  initialBalance Decimal @db.Decimal(18, 2)
+  balance      Decimal  @db.Decimal(18, 2)
+  equity       Decimal  @db.Decimal(18, 2)
+  usedMargin   Decimal  @db.Decimal(18, 2)
+  freeMargin   Decimal  @db.Decimal(18, 2)
+  realizedPnl  Decimal  @db.Decimal(18, 2) @default(0)
+  floatingPnl  Decimal  @db.Decimal(18, 2) @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions Position[]
+}
+
+model Position {
+  id                     String    @id @default(cuid())
+  userId                 String
+  paperAccountId         String?
+  signalId               String?
+  symbol                 String
+  strategyId             String
+  strategyVersion        String?
+  regime                 String?
+  direction              String // BUY | SELL
+  volume                 Decimal   @db.Decimal(18, 8)
+  /// ENGINE | MANUAL | ADMIN — only ENGINE counts toward automated ranking.
+  origin                 String    @default("ENGINE")
+  interval               String?
+  entryPrice             Decimal?  @db.Decimal(18, 5)
+  initialStopLoss        Decimal   @db.Decimal(18, 5)
+  stopLoss               Decimal   @db.Decimal(18, 5)
+  initialTakeProfit      Decimal?  @db.Decimal(18, 5)
+  takeProfit             Decimal?  @db.Decimal(18, 5)
+  currentPrice           Decimal?  @db.Decimal(18, 5)
+  entryType              String    @default("MARKET")
+  status                 String    @default("PENDING")
+  realizedPnl            Decimal?  @db.Decimal(18, 2)
+  floatingPnl            Decimal?  @db.Decimal(18, 2)
+  initialRiskAmount      Decimal?  @db.Decimal(18, 2)
+  initialRiskPercent       Decimal?  @db.Decimal(6, 4)
+  initialRiskReward      Decimal?  @db.Decimal(8, 4)
+  riskAmount             Decimal?  @db.Decimal(18, 2)
+  riskPercent            Decimal?  @db.Decimal(6, 4)
+  closePrice             Decimal?  @db.Decimal(18, 5)
+  closeReason            String?
+  brokerPositionId       String?   @unique
+  idempotencyKey         String    @unique
+  appliedEntrySpreadBps  Decimal?  @db.Decimal(8, 4)
+  appliedEntrySlippageBps Decimal? @db.Decimal(8, 4)
+  appliedExitSpreadBps   Decimal?  @db.Decimal(8, 4)
+  appliedExitSlippageBps Decimal?  @db.Decimal(8, 4)
+  marginUsed             Decimal?  @db.Decimal(18, 2)
+  correlationId          String
+  reasoning              Json?
+  metadata               Json?
+  openedAt               DateTime?
+  closedAt               DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paperAccount PaperAccount? @relation(fields: [paperAccountId], references: [id], onDelete: SetNull)
+  signal       Signal?       @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  events       PositionEvent[]
+
+  @@index([userId, status, createdAt(sort: Desc)])
+  @@index([symbol, status])
+}
+
+model PositionEvent {
+  id         String   @id @default(cuid())
+  positionId String
+  eventType  String
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@index([positionId, createdAt(sort: Desc)])
 }
 
 // ─────────────────────────────────────────────────────────────

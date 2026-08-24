@@ -33,6 +33,17 @@ export function registerBacktestRoutes(app: FastifyInstance, ctx: AppContext): v
       );
     }
 
+    if (body.executionModel === "cfd_v1") {
+      const meta = await prisma.instrumentMetadata.findUnique({
+        where: { symbolId: symbol.id }
+      });
+      if (!meta || !meta.enabled || !meta.verified) {
+        throw new ValidationError(
+          `CFD backtest requires verified InstrumentMetadata for ${body.symbol}. Configure via PUT /symbols/:id/instrument-metadata.`
+        );
+      }
+    }
+
     const backtest = await prisma.backtest.create({
       data: {
         userId: request.userId,
@@ -47,6 +58,9 @@ export function registerBacktestRoutes(app: FastifyInstance, ctx: AppContext): v
         selectionMode: body.selectionMode,
         contractDurationCandles: body.contractDurationCandles,
         assumedPayoutRatio: body.assumedPayoutRatio,
+        executionModel: body.executionModel,
+        riskPerTradePercent: body.executionModel === "cfd_v1" ? body.riskPerTradePercent : null,
+        maxHoldBars: body.executionModel === "cfd_v1" ? body.maxHoldBars : null,
         testSplit: body.testSplit,
         regimeClassifierVersion: REGIME_CLASSIFIER_VERSION,
         status: "QUEUED"

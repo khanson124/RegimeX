@@ -198,5 +198,13 @@ export function baselineTypeLabel(type: BaselineType): string {
       return "Always PUT";
     case "NO_REGIME_FILTER":
       return "No regime filter";
+    case "ALWAYS_LONG":
+      return "Always LONG";
+    case "ALWAYS_SHORT":
+      return "Always SHORT";
+    case "RANDOM_DIRECTION":
+      return "Random direction";
+    case "NO_TRADE":
+      return "No trade / cash";
   }
 }

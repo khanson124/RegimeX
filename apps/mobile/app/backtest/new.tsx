@@ -8,6 +8,10 @@ import { colors, font, spacing } from "../../src/theme";
 
 const INTERVALS = ["1m", "5m"] as const;
 const MODES = ["AUTO", "ENSEMBLE"] as const;
+const EXEC_MODELS = [
+  { value: "cfd_v1" as const, label: "CFD (cfd_v1)" },
+  { value: "rise_fall_v1" as const, label: "Legacy binary" }
+];
 
 function isoDaysAgo(days: number): string {
   const d = new Date(Date.now() - days * 86_400_000);
@@ -23,11 +27,14 @@ export default function NewBacktestScreen() {
   const [symbol, setSymbol] = useState<string | null>(null);
   const [interval, setInterval] = useState<(typeof INTERVALS)[number]>("1m");
   const [mode, setMode] = useState<(typeof MODES)[number]>("AUTO");
+  const [executionModel, setExecutionModel] = useState<"cfd_v1" | "rise_fall_v1">("cfd_v1");
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(isoDaysAgo(0));
   const [stake, setStake] = useState("1");
   const [balance, setBalance] = useState("10000");
   const [duration, setDuration] = useState("5");
+  const [riskPct, setRiskPct] = useState("0.5");
+  const [maxHold, setMaxHold] = useState("60");
   const [error, setError] = useState<string | null>(null);
 
   const activeSymbol = symbol ?? enabledSymbols[0]?.derivSymbol ?? null;
@@ -49,6 +56,9 @@ export default function NewBacktestScreen() {
         stakeAmount: Number(stake),
         selectionMode: mode,
         contractDurationCandles: Number(duration),
+        executionModel,
+        riskPerTradePercent: Number(riskPct),
+        maxHoldBars: Number(maxHold),
         testSplit: 0.3
       },
       {
@@ -88,13 +98,34 @@ export default function NewBacktestScreen() {
         AUTO picks the best eligible strategy per regime, candle by candle. ENSEMBLE aggregates weighted votes.
       </Text>
 
+      <SectionTitle>Execution model</SectionTitle>
+      <Row style={{ marginBottom: spacing.sm }}>
+        {EXEC_MODELS.map((m) => (
+          <Pressable key={m.value} onPress={() => setExecutionModel(m.value)}>
+            <Text style={[styles.selector, executionModel === m.value && styles.selectorActive]}>{m.label}</Text>
+          </Pressable>
+        ))}
+      </Row>
+      <Text style={styles.hint}>
+        CFD uses SL/TP, lot sizing, and variable hold time (cfd_v1). Requires verified InstrumentMetadata.
+      </Text>
+
       <SectionTitle>Configuration</SectionTitle>
       <Card>
         <Input label="From (YYYY-MM-DD)" value={from} onChangeText={setFrom} placeholder="2026-06-01" />
         <Input label="To (YYYY-MM-DD)" value={to} onChangeText={setTo} placeholder="2026-07-01" />
         <Input label="Starting balance" value={balance} onChangeText={setBalance} keyboardType="numeric" />
-        <Input label="Fixed stake per trade" value={stake} onChangeText={setStake} keyboardType="numeric" />
-        <Input label="Contract duration (candles)" value={duration} onChangeText={setDuration} keyboardType="numeric" />
+        {executionModel === "cfd_v1" ? (
+          <>
+            <Input label="Risk per trade (%)" value={riskPct} onChangeText={setRiskPct} keyboardType="numeric" />
+            <Input label="Max hold (bars)" value={maxHold} onChangeText={setMaxHold} keyboardType="numeric" />
+          </>
+        ) : (
+          <>
+            <Input label="Fixed stake per trade" value={stake} onChangeText={setStake} keyboardType="numeric" />
+            <Input label="Contract duration (candles)" value={duration} onChangeText={setDuration} keyboardType="numeric" />
+          </>
+        )}
       </Card>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

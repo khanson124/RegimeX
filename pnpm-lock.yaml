@@ -164,6 +164,37 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  apps/mt5-bridge:
+    dependencies:
+      '@regimex/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@regimex/trading-engine':
+        specifier: workspace:*
+        version: link:../../packages/trading-engine
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.0
+    devDependencies:
+      '@regimex/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
+      '@regimex/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^22.10.7
+        version: 22.20.1
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.5(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)(terser@5.49.0)
+
   apps/worker:
     dependencies:
       '@regimex/config':

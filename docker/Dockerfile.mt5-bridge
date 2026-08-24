@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache wget
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY packages ./packages
+COPY apps/mt5-bridge ./apps/mt5-bridge
+
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Internal Docker network only. Do NOT publish this port on the host.
+EXPOSE 8765
+CMD ["pnpm", "--filter", "@regimex/mt5-bridge", "start"]

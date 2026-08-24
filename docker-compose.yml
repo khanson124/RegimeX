@@ -35,6 +35,8 @@ services:
     environment:
       DATABASE_URL: postgresql://regimex:regimex@postgres:5432/regimex
       REDIS_URL: redis://redis:6379
+      # Worker/API reach the bridge via Compose DNS, never 127.0.0.1.
+      MT5_BRIDGE_URL: http://mt5-bridge:8765
     ports:
       - "4000:4000"
     depends_on:
@@ -58,6 +60,7 @@ services:
     environment:
       DATABASE_URL: postgresql://regimex:regimex@postgres:5432/regimex
       REDIS_URL: redis://redis:6379
+      MT5_BRIDGE_URL: http://mt5-bridge:8765
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,6 +68,24 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    restart: unless-stopped
+
+  mt5-bridge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mt5-bridge
+    env_file: .env
+    environment:
+      # Bind inside the container; Compose DNS name is mt5-bridge.
+      # Do NOT add a host `ports:` mapping. Nginx must never proxy this.
+      MT5_BRIDGE_BIND_HOST: 0.0.0.0
+      MT5_BRIDGE_PORT: "8765"
+      MT5_MAILBOX_PATH: /mt5-mailbox
+      MT5_BRIDGE_URL: http://mt5-bridge:8765
+    expose:
+      - "8765"
+    volumes:
+      - ${MT5_MAILBOX_HOST_PATH:-./var/mt5-mailbox}:/mt5-mailbox
     restart: unless-stopped
 
 volumes:

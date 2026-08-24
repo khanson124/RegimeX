@@ -19,10 +19,20 @@ import {
   DEFAULT_REGIME_THRESHOLDS,
   createStrategy,
   DEFAULT_STRATEGY_PARAMETERS,
+  isPaperCfdExecution,
+  assertLegacyBinaryReachable,
+  resolveExecutionBackend,
+  isCfdCapableStrategy,
+  buildCfdPerformanceRecords,
+  computeStrategyConfigHash,
+  aggregatePaperForwardPerformance,
   type RegimeThresholds,
   type SelectionCandidate,
-  type TradingStrategy
+  type TradingStrategy,
+  type StrategyPerformanceRecord
 } from "@regimex/trading-engine";
+import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
+import { closeMt5LocalPosition, emergencyCloseOwnedMt5Positions } from "../cfd/mt5CloseRuntime.js";
 import { type Logger } from "pino";
 import { type EventPublisher } from "../lib/events.js";
 import { recordTradeCandidate } from "../lib/tradeCandidates.js";
@@ -63,10 +73,7 @@ export class LiveEngineSession {
   private strategies: LoadedStrategy[] = [];
   private readonly classifier = new RuleBasedRegimeClassifier();
   private readonly riskManager = new RiskManager();
-  private readonly selection = new StrategySelectionService({
-    ...DEFAULT_SELECTION_CONFIG,
-    mode: "BOOTSTRAP"
-  });
+  private selection: StrategySelectionService;
   private thresholds: RegimeThresholds = DEFAULT_REGIME_THRESHOLDS;
   private lastSignalCandle = new Map<string, number>();
   private executedSignals = new Set<string>();
@@ -83,11 +90,21 @@ export class LiveEngineSession {
   private peakBalance = 0;
   private recentApiErrors = 0;
   private recentDisconnects = 0;
+  private paperCfd: PaperCfdRuntime | null = null;
+  private executionBackend: import("@regimex/trading-engine").ExecutionBackend = "paper_cfd";
 
   constructor(
     readonly userId: string,
     private readonly deps: SessionDeps
-  ) {}
+  ) {
+    const mode =
+      deps.config.STRATEGY_SELECTION_MODE === "validated" ? "VALIDATED" : "BOOTSTRAP";
+    this.selection = new StrategySelectionService({
+      ...DEFAULT_SELECTION_CONFIG,
+      mode,
+      bootstrapFallback: true
+    });
+  }
 
   private get log(): Logger {
     return this.deps.logger.child({ userId: this.userId, engineId: this.engineId, symbol: this.symbol });
@@ -95,6 +112,24 @@ export class LiveEngineSession {
 
   async start(options: { allowTradingResume: boolean }): Promise<void> {
     const { prisma, config, publish } = this.deps;
+
+    this.executionBackend = resolveExecutionBackend(config);
+    if (this.executionBackend === "broker_real_cfd") {
+      throw new Error("REAL_CFD_EXECUTION_NOT_IMPLEMENTED");
+    }
+    if (this.executionBackend === "broker_real_mt5") {
+      throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
+    }
+    if (this.executionBackend === "broker_demo_cfd" && !config.BROKER_DEMO_ENGINE_ENABLED) {
+      this.log.warn(
+        "broker_demo_cfd active but BROKER_DEMO_ENGINE_ENABLED=false — connect/status/test-trade only; no automated engine orders"
+      );
+    }
+    if (this.executionBackend === "broker_demo_mt5" && !config.MT5_ENGINE_ENABLED) {
+      this.log.warn(
+        "broker_demo_mt5 active but MT5_ENGINE_ENABLED=false — connect/status/test-trade only; no automated engine orders"
+      );
+    }
 
     const engine = await prisma.liveEngine.upsert({
       where: { userId: this.userId },
@@ -175,15 +210,26 @@ export class LiveEngineSession {
     if (apiToken) await this.setState("AUTHENTICATING", "Authorizing Deriv token");
     await this.client.connect();
 
-    // Trading requires a verified demo account.
-    if (this.mode === "DEMO_TRADING") {
-      const info = this.client.accountInfo;
+    // Legacy binary requires Deriv virtual account; paper CFD uses separate PaperAccount.
+    if (this.mode === "DEMO_TRADING" && this.executionBackend === "legacy_binary") {
+      const info = this.client?.accountInfo;
       if (!info?.isVirtual) {
         this.mode = "ANALYSIS_ONLY";
         await this.logDecision("RISK_REJECTED", [
-          "Demo trading requested but account is missing or not virtual; falling back to analysis-only"
+          "Legacy binary demo trading requested but account is missing or not virtual; falling back to analysis-only"
         ]);
       }
+    }
+
+    // Paper CFD runtime (authoritative when EXECUTION_MODE=paper_cfd).
+    if (this.executionBackend === "paper_cfd") {
+      this.paperCfd = new PaperCfdRuntime(this.userId, {
+        prisma,
+        config,
+        publish,
+        logger: this.deps.logger
+      });
+      await this.paperCfd.init(this.symbol);
     }
 
     // Restore candle state from persistence.
@@ -223,11 +269,14 @@ export class LiveEngineSession {
 
     await this.client.subscribeTicks(this.symbol, (tick) => {
       this.lastTickAt = tick.epochMs;
+      void this.paperCfd?.onQuote(this.symbol, tick.quote, tick.epochMs);
       this.aggregator?.processTick(tick);
     });
 
-    // Reconcile any contracts that were open before a restart.
-    await this.reconcileOpenContracts();
+    // Reconcile legacy binary contracts only in legacy mode.
+    if (this.executionBackend === "legacy_binary") {
+      await this.reconcileOpenContracts();
+    }
 
     // Timers: candle flush on missing ticks + heartbeat/staleness watchdog.
     this.flushTimer = setInterval(() => this.aggregator?.flushIfExpired(Date.now()), 5_000);
@@ -264,14 +313,66 @@ export class LiveEngineSession {
   async emergencyStop(): Promise<void> {
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+
+    if (this.executionBackend === "paper_cfd" && this.paperCfd) {
+      const result = await this.paperCfd.liquidateAllOpen("RISK_SHUTDOWN");
+      await this.logDecision("EMERGENCY_STOP", [
+        `Paper CFD liquidation: closed ${result.closed.length}, failed ${result.failed.length}`,
+        ...result.failed.map((f) => `Failed ${f.positionId}: ${f.error}`)
+      ]);
+    }
+
+    if (this.executionBackend === "broker_demo_mt5") {
+      const result = await emergencyCloseOwnedMt5Positions({
+        prisma: this.deps.prisma,
+        config: this.deps.config,
+        userId: this.userId,
+        logger: this.log
+      });
+      await this.logDecision("EMERGENCY_STOP", [
+        `MT5 owned close requested: closed ${result.closed.length}, skipped external ${result.skipped.length}, failed ${result.failed.length}`,
+        ...result.failed
+      ]);
+    }
+
     await this.client?.disconnect();
     this.client = null;
+    this.paperCfd = null;
     await this.deps.prisma.liveEngine.update({
       where: { userId: this.userId },
       data: { emergencyStop: true, state: "EMERGENCY_STOPPED", stateReason: "Emergency stop" }
     });
     await this.deps.publish(this.userId, "emergency.stop", {});
     await this.logDecision("EMERGENCY_STOP", ["Emergency stop enforced by worker"]);
+  }
+
+  async closePaperPosition(positionId: string): Promise<{ closed: boolean; reasons: string[] }> {
+    if (this.executionBackend === "broker_demo_mt5") {
+      return closeMt5LocalPosition({
+        prisma: this.deps.prisma,
+        config: this.deps.config,
+        userId: this.userId,
+        positionId,
+        logger: this.log
+      });
+    }
+    if (this.executionBackend !== "paper_cfd") {
+      return { closed: false, reasons: ["Manual CFD close requires EXECUTION_MODE=paper_cfd or broker_demo_mt5"] };
+    }
+    if (!this.paperCfd) {
+      // Session may be analysis-only without runtime; spin up for close.
+      this.paperCfd = new PaperCfdRuntime(this.userId, {
+        prisma: this.deps.prisma,
+        config: this.deps.config,
+        publish: this.deps.publish,
+        logger: this.deps.logger
+      });
+      const pos = await this.deps.prisma.position.findFirst({
+        where: { id: positionId, userId: this.userId }
+      });
+      await this.paperCfd.init(pos?.symbol ?? this.symbol ?? "R_10");
+    }
+    return this.paperCfd.manualClose(positionId);
   }
 
   // ── candle pipeline ──────────────────────────────────────────
@@ -353,18 +454,34 @@ export class LiveEngineSession {
     });
 
     // Strategy selection.
+    const paperCfd = isPaperCfdExecution(config);
     const eligible = this.strategies.filter(
       (s) =>
         s.enabled &&
         s.strategy.supportedRegimes.includes(regime.regime) &&
         regime.confidence >= s.strategy.eligibility.minimumRegimeConfidence &&
-        this.candles.length >= s.strategy.minimumHistory
+        this.candles.length >= s.strategy.minimumHistory &&
+        (!paperCfd || isCfdCapableStrategy(s.strategy.id))
     );
-    const candidates: SelectionCandidate[] = eligible.map((s) => ({
-      strategy: s.strategy,
-      enabled: s.enabled,
-      performance: null // live regime-specific history accrues via backtests; bootstrap for now
-    }));
+
+    const performanceById = paperCfd
+      ? await this.loadCfdSelectionPerformance(regime.regime)
+      : new Map();
+
+    const candidates: SelectionCandidate[] = eligible.map((s) => {
+      const configHash = computeStrategyConfigHash({
+        strategyId: s.strategy.id,
+        strategyVersion: s.strategy.version,
+        parameters: s.parameters,
+        executionModel: paperCfd ? "cfd_v1" : "rise_fall_v1"
+      });
+      return {
+        strategy: s.strategy,
+        enabled: s.enabled,
+        performance: performanceById.get(s.strategy.id) ?? null,
+        expectedConfigHash: configHash
+      };
+    });
     const selectionResult = this.selection.select(regime.regime, regime.confidence, candidates);
 
     if (!selectionResult.selectedStrategyId) {
@@ -385,12 +502,40 @@ export class LiveEngineSession {
     }
 
     const chosen = eligible.find((s) => s.strategy.id === selectionResult.selectedStrategyId)!;
-    await publish(this.userId, "strategy.selected", selectionResult);
+    const chosenPerf = performanceById.get(chosen.strategy.id) ?? null;
+    const evidenceSummary = chosenPerf
+      ? {
+          tradeCount: chosenPerf.trades,
+          expectancyR: chosenPerf.expectancyR ?? null,
+          profitFactor: chosenPerf.profitFactor,
+          maxDrawdownPercent: chosenPerf.maxDrawdownPercent,
+          winRate: chosenPerf.winRate,
+          researchVerdict: chosenPerf.researchVerdict ?? null,
+          confidenceScore: chosenPerf.confidenceScore ?? null,
+          forwardTradeCount: chosenPerf.forwardTradeCount ?? 0,
+          recentForwardExpectancyR: chosenPerf.recentForwardExpectancyR ?? null,
+          degradationPercent: chosenPerf.degradationPercent ?? null,
+          executionModel: chosenPerf.executionModel ?? (paperCfd ? "cfd_v1" : "rise_fall_v1")
+        }
+      : null;
+    await publish(this.userId, "strategy.selected", {
+      ...selectionResult,
+      selectionMode: selectionResult.selectionMode,
+      componentScores: selectionResult.componentScores,
+      evidence: evidenceSummary
+    });
     await this.logDecision("STRATEGY_SELECTED", selectionResult.reasons, {
       regime: regime.regime,
       regimeConfidence: regime.confidence,
       strategyId: chosen.strategy.id,
-      correlationId
+      correlationId,
+      featureSummary: {
+        selectionMode: selectionResult.selectionMode,
+        selectionScore: selectionResult.selectionScore,
+        componentScores: selectionResult.componentScores,
+        eligibilityRejections: selectionResult.eligibilityRejections?.slice(0, 8),
+        evidence: evidenceSummary
+      }
     });
 
     // Evaluate.
@@ -465,6 +610,55 @@ export class LiveEngineSession {
       return;
     }
 
+    if (isPaperCfdExecution(config)) {
+      if (!isCfdCapableStrategy(chosen.strategy.id)) {
+        await this.deps.prisma.signal.update({
+          where: { id: signal.id },
+          data: { status: "SKIPPED" }
+        });
+        await this.logDecision("NO_TRADE", [
+          `Strategy ${chosen.strategy.id} is not CFD-capable — skipped for paper execution`
+        ], {
+          strategyId: chosen.strategy.id,
+          correlationId
+        });
+        return;
+      }
+      const features = this.lastFeatures;
+      if (!features || !this.paperCfd) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        return;
+      }
+      const result = await this.paperCfd.executeCfdSignal({
+        signalId: signal.id,
+        correlationId,
+        symbol: this.symbol,
+        strategyId: chosen.strategy.id,
+        regime: regime.regime,
+        decision,
+        candle,
+        features,
+        candles: this.candles
+      });
+      if (!result.opened) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "RISK_REJECTED" } });
+        await publish(this.userId, "risk.rejected", { signalId: signal.id, reasons: result.reasons });
+        await this.logDecision("RISK_REJECTED", result.reasons, {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          riskApproved: false,
+          correlationId
+        });
+      } else {
+        await this.logDecision("TRADE_OPENED", result.reasons, {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId
+        });
+      }
+      return;
+    }
+
     await this.executeTrade(signal.id, correlationId, candle, decision.action, decision, chosen);
   }
 
@@ -478,6 +672,8 @@ export class LiveEngineSession {
     decision: { proposedStake: number | null; expiryDuration: number | null; expiryUnit: "t" | "s" | "m" | null; signalTimestamp: number },
     chosen: LoadedStrategy
   ): Promise<void> {
+    assertLegacyBinaryReachable(this.deps.config);
+
     const { prisma, publish } = this.deps;
     const client = this.client;
     const account = client?.accountInfo ?? null;
@@ -788,6 +984,133 @@ export class LiveEngineSession {
     } catch (err) {
       this.log.warn({ err }, "Heartbeat failed");
     }
+  }
+
+  private async loadCfdSelectionPerformance(
+    regime: string
+  ): Promise<Map<string, StrategyPerformanceRecord>> {
+    const map = new Map<string, StrategyPerformanceRecord>();
+    try {
+      const rows = await this.deps.prisma.strategyRegimeMetric.findMany({
+        where: {
+          userId: this.userId,
+          symbol: this.symbol,
+          interval: this.interval,
+          regime,
+          executionModel: "cfd_v1"
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 200
+      });
+
+      const closed = await this.deps.prisma.position.findMany({
+        where: {
+          userId: this.userId,
+          symbol: this.symbol,
+          status: "CLOSED",
+          origin: "ENGINE",
+          regime
+        },
+        orderBy: { closedAt: "desc" },
+        take: 500
+      });
+
+      const paperBuckets = aggregatePaperForwardPerformance(
+        closed.map((p) => ({
+          strategyId: p.strategyId,
+          strategyVersion: p.strategyVersion,
+          symbol: p.symbol,
+          interval: p.interval ?? this.interval,
+          regime: p.regime,
+          direction: p.direction as "BUY" | "SELL",
+          entryPrice: Number(p.entryPrice ?? 0),
+          exitPrice: Number(p.closePrice ?? 0),
+          volume: Number(p.volume),
+          realizedPnl: Number(p.realizedPnl ?? 0),
+          riskAmount: Number(p.riskAmount ?? p.initialRiskAmount ?? 0),
+          openedAt: p.openedAt?.getTime() ?? p.createdAt.getTime(),
+          closedAt: p.closedAt?.getTime() ?? p.updatedAt.getTime(),
+          origin: p.origin,
+          closeReason: p.closeReason
+        }))
+      );
+
+      const metricRows = rows.map((r) => {
+        const paper = paperBuckets.find(
+          (b) => b.strategyId === r.strategyId && b.regime === r.regime
+        );
+        return {
+          strategyId: r.strategyId,
+          symbol: r.symbol,
+          interval: r.interval,
+          regime: r.regime,
+          segment: r.segment,
+          totalTrades: r.totalTrades,
+          winRate: Number(r.winRate),
+          profitFactor: r.profitFactor !== null ? Number(r.profitFactor) : null,
+          expectancy: Number(r.expectancy),
+          expectancyR: r.expectancyR !== null ? Number(r.expectancyR) : null,
+          averageR: r.averageR !== null ? Number(r.averageR) : null,
+          averageGrossR: r.averageGrossR !== null ? Number(r.averageGrossR) : null,
+          maxDrawdownPercent: Number(r.maxDrawdownPercent),
+          researchConfidence: r.researchConfidence,
+          researchVerdict: r.researchVerdict,
+          degradationPercent: r.degradationPercent !== null ? Number(r.degradationPercent) : null,
+          forwardTradeCount: paper?.tradeCount ?? r.forwardTradeCount,
+          recentForwardExpectancyR:
+            paper?.summary.expectancyR ??
+            (r.recentForwardExpectancyR !== null ? Number(r.recentForwardExpectancyR) : null),
+          executionModel: r.executionModel,
+          strategyVersion: r.strategyVersion,
+          configHash: r.configHash,
+          parameterStabilityScore:
+            r.parameterStabilityScore !== null ? Number(r.parameterStabilityScore) : null,
+          updatedAt: r.updatedAt
+        };
+      });
+
+      // If only paper evidence exists (no research metrics yet), synthesize rows.
+      if (metricRows.length === 0 && paperBuckets.length > 0) {
+        for (const b of paperBuckets) {
+          metricRows.push({
+            strategyId: b.strategyId,
+            symbol: b.symbol,
+            interval: b.interval,
+            regime: b.regime,
+            segment: "PAPER_FORWARD",
+            totalTrades: b.tradeCount,
+            winRate: b.summary.winRate,
+            profitFactor: b.summary.profitFactor,
+            expectancy: b.summary.expectancy,
+            expectancyR: b.summary.expectancyR,
+            averageR: b.summary.averageR,
+            averageGrossR: b.summary.averageGrossR,
+            maxDrawdownPercent: b.summary.maxDrawdownPercent,
+            researchConfidence: null,
+            researchVerdict: null,
+            degradationPercent: null,
+            forwardTradeCount: b.tradeCount,
+            recentForwardExpectancyR: b.summary.expectancyR,
+            executionModel: "cfd_v1",
+            strategyVersion: null,
+            configHash: null,
+            parameterStabilityScore: null,
+            updatedAt: new Date()
+          });
+        }
+      }
+
+      const records = buildCfdPerformanceRecords({
+        symbol: this.symbol,
+        interval: this.interval,
+        regime: regime as import("@regimex/shared").MarketRegime,
+        rows: metricRows
+      });
+      for (const rec of records) map.set(rec.strategyId, rec);
+    } catch (err) {
+      this.log.warn({ err }, "Failed to load CFD selection performance; using bootstrap");
+    }
+    return map;
   }
 
   private async setState(state: EngineState, reason: string): Promise<void> {

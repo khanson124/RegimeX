@@ -14,3 +14,5 @@ prisma/*.db
 .turbo/
 android/
 ios/
+var/mt5-mailbox/**
+!var/mt5-mailbox/.gitkeep

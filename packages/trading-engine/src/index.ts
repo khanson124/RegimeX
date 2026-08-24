@@ -7,13 +7,21 @@ export * from "./regime/classifier.js";
 // Strategies
 export * from "./strategies/types.js";
 export * from "./strategies/breakoutMomentum.js";
+export * from "./strategies/breakoutMomentumCfd.js";
 export * from "./strategies/emaPullback.js";
+export * from "./strategies/emaPullbackCfd.js";
+export * from "./strategies/cfdCapability.js";
 export * from "./strategies/bollingerReversion.js";
+export * from "./strategies/bollingerReversionCfd.js";
 export * from "./strategies/squeezeBreakout.js";
+export * from "./strategies/squeezeBreakoutCfd.js";
 export * from "./strategies/registry.js";
 
 // Selection & ensemble
 export * from "./selection/strategySelector.js";
+export * from "./selection/sampleConfidence.js";
+export * from "./selection/strategyVersioning.js";
+export * from "./selection/cfdPerformanceRecords.js";
 export * from "./ensemble/ensemble.js";
 
 // Candles
@@ -21,11 +29,20 @@ export * from "./candles/aggregator.js";
 
 // Backtesting
 export * from "./backtest/contractSimulator.js";
+export * from "./backtest/cfdSimulator.js";
+export * from "./backtest/cfdMetrics.js";
+export * from "./backtest/cfdBacktester.js";
 export * from "./backtest/metrics.js";
 export * from "./backtest/backtester.js";
 
+// Broker & CFD execution (Milestone 0 foundation)
+export * from "./broker/index.js";
+export * from "./execution/executionMode.js";
+export * from "./execution/index.js";
+
 // Risk
 export * from "./risk/riskManager.js";
+export * from "./risk/cfdRiskManager.js";
 
 // Optimization
 export * from "./optimize/gridSearch.js";
@@ -46,10 +63,19 @@ export * from "./research/riskRuleAnalytics.js";
 export * from "./research/forwardComparison.js";
 export * from "./research/researchMetrics.js";
 export * from "./research/baselines.js";
+export * from "./research/cfdBaselines.js";
+export * from "./research/paperForwardAggregator.js";
 export * from "./research/degradationAnalysis.js";
 export * from "./research/researchVerdict.js";
 export * from "./research/demoForwardAggregator.js";
 export * from "./research/experimentService.js";
+export * from "./research/cfdExperimentService.js";
+export * from "./research/cfdWalkForwardService.js";
+export * from "./research/cfdWindowOptimizer.js";
+export * from "./research/cfdObjective.js";
+export * from "./research/cfdWalkForwardAggregates.js";
+export * from "./research/cfdResearchVerdict.js";
+export * from "./research/cfdPromotion.js";
 
 // ML readiness (no ML implementation)
 export * from "./scoring/tradeScoringService.js";

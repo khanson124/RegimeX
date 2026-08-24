@@ -30,6 +30,91 @@ const envSchema = z.object({
   FEATURE_ENSEMBLE_VOTING: z.coerce.boolean().default(false),
   /** Hard switch: demo trade execution. Defaults OFF. */
   DEMO_TRADING_ENABLED: z.coerce.boolean().default(false),
+  /**
+   * CFD execution backend:
+   * - paper_cfd: simulated PaperCFDBrokerAdapter (default)
+   * - broker_demo_cfd: Deriv cTrader Open API DEMO
+   * - broker_demo_mt5: Deriv MT5 DEMO via local EA/bridge (no public ports)
+   * - broker_real_cfd / broker_real_mt5: MUST remain unimplemented
+   * - legacy_binary: quarantined options path
+   */
+  EXECUTION_MODE: z
+    .enum([
+      "paper_cfd",
+      "broker_demo_cfd",
+      "broker_demo_mt5",
+      "broker_real_cfd",
+      "broker_real_mt5",
+      "legacy_binary"
+    ])
+    .default("paper_cfd"),
+  /** Must remain false. Real-money path is architecture-only. */
+  REAL_MONEY_ENABLED: z.coerce.boolean().default(false),
+  /** Quarantined legacy Deriv rise/fall options path. Defaults OFF. */
+  LEGACY_BINARY_ENABLED: z.coerce.boolean().default(false),
+  /** Initial balance for new paper CFD accounts (not Deriv options balance). */
+  PAPER_INITIAL_BALANCE: z.coerce.number().positive().default(10_000),
+  /** Global fallback paper spread/slippage when instrument metadata omits overrides. */
+  PAPER_SPREAD_BPS: z.coerce.number().min(0).default(10),
+  PAPER_SLIPPAGE_BPS: z.coerce.number().min(0).default(5),
+  /**
+   * Max age of a quote for paper open/close/liquidation (ms).
+   * Aligns with risk maxDataAgeSeconds default (30s). Fail closed / defer when stale.
+   */
+  MAX_EXECUTION_QUOTE_AGE_MS: z.coerce.number().int().positive().default(30_000),
+  /**
+   * Live strategy selection mode:
+   * - bootstrap: regime-fit only (cold start)
+   * - validated: CFD research + forward-paper evidence when available; falls back to bootstrap
+   * Default remains bootstrap — do not enable validated until research evidence exists.
+   */
+  STRATEGY_SELECTION_MODE: z.enum(["bootstrap", "validated"]).default("bootstrap"),
+  /** Required acknowledgement string for broker_real_cfd — do not set in .env.example. */
+  BROKER_REAL_ACK: z.string().optional(),
+  BROKER_REAL_ACCOUNT_ID: z.string().optional(),
+  /** cTrader Open API credentials for broker_demo_cfd (optional until provisioned). */
+  CTRADER_CLIENT_ID: z.string().optional(),
+  CTRADER_CLIENT_SECRET: z.string().optional(),
+  CTRADER_ACCOUNT_ID: z.string().optional(),
+  CTRADER_ACCESS_TOKEN: z.string().optional(),
+  /** demo | live — broker_demo_cfd requires demo. */
+  CTRADER_ENVIRONMENT: z.enum(["demo", "live"]).default("demo"),
+  CTRADER_HOST: z.string().optional(),
+  CTRADER_PORT: z.coerce.number().int().optional(),
+  /** Extra demo safety caps (in addition to RiskProfile). */
+  BROKER_DEMO_MAX_VOLUME: z.coerce.number().positive().default(0.1),
+  BROKER_DEMO_MAX_RISK_PERCENT: z.coerce.number().positive().default(0.5),
+  /**
+   * Guarded connectivity test path. Does not enable automated engine trading.
+   */
+  BROKER_DEMO_TEST_MODE: z.coerce.boolean().default(false),
+  /**
+   * Allow engine-generated broker-demo trades. Keep false until one manual demo
+   * connectivity trade is approved.
+   */
+  BROKER_DEMO_ENGINE_ENABLED: z.coerce.boolean().default(false),
+  /** Spotware money field scale (cents → 100). */
+  CTRADER_MONEY_SCALE: z.coerce.number().positive().default(100),
+  /**
+   * MT5 demo bridge (worker/api → Docker DNS, never 127.0.0.1 from a container).
+   * Example inside Compose: http://mt5-bridge:8765
+   * Do NOT publish this port. Do NOT put MT5 account passwords here.
+   */
+  MT5_BRIDGE_URL: z.string().url().optional(),
+  MT5_BRIDGE_HOST: z.string().default("mt5-bridge"),
+  MT5_BRIDGE_PORT: z.coerce.number().int().positive().default(8765),
+  MT5_BRIDGE_SECRET: z.string().min(16).optional(),
+  MT5_MAILBOX_PATH: z.string().default("/mt5-mailbox"),
+  MT5_EXPECTED_BROKER: z.string().default("Deriv"),
+  MT5_EXPECTED_ENVIRONMENT: z.enum(["demo", "live"]).default("demo"),
+  MT5_EXPECTED_SERVER: z.string().optional(),
+  MT5_EXPECTED_LOGIN: z.string().optional(),
+  MT5_MAGIC_NUMBER: z.coerce.number().int().positive().default(26082301),
+  MT5_ENGINE_ENABLED: z.coerce.boolean().default(false),
+  MT5_TEST_MODE: z.coerce.boolean().default(false),
+  MT5_MAX_TEST_VOLUME: z.coerce.number().positive().default(0.01),
+  MT5_MAX_TEST_RISK_PERCENT: z.coerce.number().positive().default(0.1),
+  MT5_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   /** Optimizer safety threshold before confirmation is required. */
   OPTIMIZER_MAX_COMBINATIONS: z.coerce.number().int().default(200),
   ENGINE_VERSION: z.string().default("0.1.0")

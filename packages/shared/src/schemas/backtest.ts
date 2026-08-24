@@ -16,6 +16,12 @@ export const backtestCreateSchema = z
     contractDurationCandles: z.number().int().min(1).max(60).default(5),
     /** Assumed payout ratio per winning stake, e.g. 0.95 = 95%. */
     assumedPayoutRatio: z.number().min(0.5).max(1).default(0.95),
+    /** rise_fall_v1 = legacy binary; cfd_v1 = CFD position simulator. */
+    executionModel: z.enum(["rise_fall_v1", "cfd_v1"]).default("rise_fall_v1"),
+    /** CFD only: risk % of equity per trade. */
+    riskPerTradePercent: z.number().positive().max(10).default(0.5),
+    /** CFD only: max bars to hold if SL/TP not hit. */
+    maxHoldBars: z.number().int().min(1).max(500).default(60),
     /** Fraction of data reserved for out-of-sample testing (0 disables). */
     testSplit: z.number().min(0).max(0.5).default(0.3)
   })

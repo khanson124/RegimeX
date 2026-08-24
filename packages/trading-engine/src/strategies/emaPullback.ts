@@ -108,13 +108,20 @@ export class EmaPullbackStrategy implements TradingStrategy {
       if (confidence < p.minimumConfidence) {
         return holdDecision(this, ts, [`Confidence ${confidence.toFixed(2)} below minimum`]);
       }
-      return this.signal("BUY", confidence, ts, p, [
-        "Uptrend intact (EMA alignment and price above long EMA)",
-        `Pullback touched the ${p.pullbackEma} EMA`,
-        `RSI cooled to ${f.rsi.toFixed(1)} without turning bearish`,
-        "Bullish rejection candle closed back above the EMA",
-        `ADX ${f.adx.toFixed(1)} confirms trend persistence`
-      ]);
+      return this.signal(
+        "BUY",
+        confidence,
+        ts,
+        p,
+        [
+          "Uptrend intact (EMA alignment and price above long EMA)",
+          `Pullback touched the ${p.pullbackEma} EMA`,
+          `RSI cooled to ${f.rsi.toFixed(1)} without turning bearish`,
+          "Bullish rejection candle closed back above the EMA",
+          `ADX ${f.adx.toFixed(1)} confirms trend persistence`
+        ],
+        { pullbackLow: candle.low, pullbackHigh: candle.high, targetEma }
+      );
     }
 
     // Mirrored short conditions
@@ -135,13 +142,20 @@ export class EmaPullbackStrategy implements TradingStrategy {
     if (confidence < p.minimumConfidence) {
       return holdDecision(this, ts, [`Confidence ${confidence.toFixed(2)} below minimum`]);
     }
-    return this.signal("SELL", confidence, ts, p, [
-      "Downtrend intact (EMA alignment and price below long EMA)",
-      `Pullback touched the ${p.pullbackEma} EMA`,
-      `RSI cooled to ${f.rsi.toFixed(1)} without turning bullish`,
-      "Bearish rejection candle closed back below the EMA",
-      `ADX ${f.adx.toFixed(1)} confirms trend persistence`
-    ]);
+    return this.signal(
+      "SELL",
+      confidence,
+      ts,
+      p,
+      [
+        "Downtrend intact (EMA alignment and price below long EMA)",
+        `Pullback touched the ${p.pullbackEma} EMA`,
+        `RSI cooled to ${f.rsi.toFixed(1)} without turning bullish`,
+        "Bearish rejection candle closed back below the EMA",
+        `ADX ${f.adx.toFixed(1)} confirms trend persistence`
+      ],
+      { pullbackLow: candle.low, pullbackHigh: candle.high, targetEma }
+    );
   }
 
   private signal(
@@ -149,7 +163,8 @@ export class EmaPullbackStrategy implements TradingStrategy {
     confidence: number,
     ts: number,
     p: EmaPullbackParams,
-    reasons: string[]
+    reasons: string[],
+    structure: { pullbackLow: number; pullbackHigh: number; targetEma: number }
   ): StrategyDecision {
     return {
       action,
@@ -162,7 +177,12 @@ export class EmaPullbackStrategy implements TradingStrategy {
       signalTimestamp: ts,
       strategyId: this.id,
       strategyVersion: this.version,
-      metadata: { pullbackEma: p.pullbackEma }
+      metadata: {
+        pullbackEma: p.pullbackEma,
+        pullbackLow: structure.pullbackLow,
+        pullbackHigh: structure.pullbackHigh,
+        targetEma: structure.targetEma
+      }
     };
   }
 }

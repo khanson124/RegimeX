@@ -4,8 +4,10 @@ import { type PrismaClient } from "@regimex/database";
 import { type Candle, type CandleInterval, type StrategyKind } from "@regimex/shared";
 import {
   Backtester,
+  CfdBacktester,
   createStrategy,
   DEFAULT_STRATEGY_PARAMETERS,
+  mapDbInstrumentMetadata,
   type BacktestStrategyInput
 } from "@regimex/trading-engine";
 import { type Logger } from "pino";
@@ -23,7 +25,6 @@ interface Deps {
   logger: Logger;
 }
 
-/** Load strategy implementations + parameters referenced by a backtest. */
 async function loadStrategies(
   prisma: PrismaClient,
   strategyIds: string[],
@@ -57,7 +58,7 @@ export function createBacktestProcessor(deps: Deps) {
     if (!backtest || backtest.status === "CANCELLED") return;
 
     const log = logger.child({ backtestId, userId, jobId: job.id });
-    log.info("Starting backtest");
+    log.info({ executionModel: backtest.executionModel }, "Starting backtest");
 
     await prisma.backtest.update({
       where: { id: backtestId },
@@ -96,6 +97,103 @@ export function createBacktestProcessor(deps: Deps) {
       const strategies = await loadStrategies(prisma, backtest.strategyIds as string[], userId);
       if (strategies.length === 0) throw new Error("No enabled strategies to test");
 
+      const onProgress = async (p: { percent: number }) => {
+        const cancelled = await redis.get(`backtest:cancel:${backtestId}`);
+        if (cancelled) return false;
+        await prisma.backtest.update({
+          where: { id: backtestId },
+          data: { progress: p.percent }
+        });
+        await publish(userId, "backtest.progress", { backtestId, percent: p.percent });
+        return true;
+      };
+
+      if (backtest.executionModel === "cfd_v1") {
+        const metaRow = await prisma.instrumentMetadata.findUnique({
+          where: { symbolId: symbol.id },
+          include: { symbol: true }
+        });
+        if (!metaRow) throw new Error(`InstrumentMetadata missing for ${backtest.symbol}`);
+        const instrument = mapDbInstrumentMetadata(metaRow);
+
+        const cfd = new CfdBacktester({
+          startingBalance: Number(backtest.startingBalance),
+          riskPerTradePercent: Number(backtest.riskPerTradePercent ?? 0.5),
+          minRiskRewardRatio: 1.5,
+          maxHoldBars: backtest.maxHoldBars ?? 60,
+          instrument,
+          strategies,
+          testSplit: Number(backtest.testSplit)
+        });
+
+        const result = await cfd.run(candles, { chunkSize: 250, onProgress });
+        if (result.cancelled) {
+          await prisma.backtest.update({
+            where: { id: backtestId },
+            data: { status: "CANCELLED", completedAt: new Date() }
+          });
+          return;
+        }
+
+        const tradeRows = result.trades.map((t) => ({
+          backtestId,
+          strategyId: t.strategyId,
+          strategyVersion: t.strategyVersion,
+          regime: t.regime,
+          regimeConfidence: t.regimeConfidence,
+          action: t.action,
+          entryTime: new Date(t.entryTime),
+          exitTime: new Date(t.exitTime),
+          entryPrice: t.entryPrice,
+          exitPrice: t.exitPrice,
+          stake: t.riskAmount,
+          payout: 0,
+          profit: t.profit,
+          outcome: t.outcome,
+          confidence: t.confidence,
+          entryReason: [
+            ...t.entryReason,
+            `closeReason=${t.closeReason}`,
+            `volume=${t.volume}`,
+            `rMultiple=${t.rMultiple ?? "n/a"}`,
+            `simulator=${t.simulatorVersion}`
+          ],
+          isOutOfSample: t.isOutOfSample
+        }));
+        for (let i = 0; i < tradeRows.length; i += 500) {
+          await prisma.backtestTrade.createMany({ data: tradeRows.slice(i, i + 500) });
+        }
+
+        const maxPoints = 500;
+        const step = Math.max(1, Math.ceil(result.equityCurve.length / maxPoints));
+        const equityRows = result.equityCurve
+          .filter((_, i) => i % step === 0 || i === result.equityCurve.length - 1)
+          .map((p) => ({
+            backtestId,
+            time: new Date(p.time),
+            balance: p.balance,
+            equity: p.equity,
+            drawdown: p.drawdown
+          }));
+        if (equityRows.length > 0) {
+          await prisma.backtestEquityPoint.createMany({ data: equityRows });
+        }
+
+        await prisma.backtest.update({
+          where: { id: backtestId },
+          data: {
+            status: "COMPLETED",
+            progress: 100,
+            completedAt: new Date(),
+            summary: result.summary as object,
+            validation: result.validation as object | undefined
+          }
+        });
+        await publish(userId, "backtest.completed", { backtestId, summary: result.summary });
+        log.info({ trades: result.trades.length, model: "cfd_v1" }, "CFD backtest completed");
+        return;
+      }
+
       const backtester = new Backtester({
         startingBalance: Number(backtest.startingBalance),
         stakeAmount: Number(backtest.stakeAmount),
@@ -106,19 +204,7 @@ export function createBacktestProcessor(deps: Deps) {
         strategies
       });
 
-      const result = await backtester.run(candles, {
-        chunkSize: 250,
-        onProgress: async (p) => {
-          const cancelled = await redis.get(`backtest:cancel:${backtestId}`);
-          if (cancelled) return false;
-          await prisma.backtest.update({
-            where: { id: backtestId },
-            data: { progress: p.percent }
-          });
-          await publish(userId, "backtest.progress", { backtestId, percent: p.percent });
-          return true;
-        }
-      });
+      const result = await backtester.run(candles, { chunkSize: 250, onProgress });
 
       if (result.cancelled) {
         await prisma.backtest.update({
@@ -129,7 +215,6 @@ export function createBacktestProcessor(deps: Deps) {
         return;
       }
 
-      // Persist trades and a downsampled equity curve in chunks.
       const tradeRows = result.trades.map((t) => ({
         backtestId,
         strategyId: t.strategyId,
@@ -174,7 +259,7 @@ export function createBacktestProcessor(deps: Deps) {
           status: "COMPLETED",
           progress: 100,
           completedAt: new Date(),
-          summary: result.summary as object,
+          summary: { ...result.summary, simulatorVersion: "rise_fall_v1" } as object,
           regimeResults: result.regimePerformance as object[],
           strategyResults: result.strategyPerformance as object[],
           validation: result.validation as object | undefined

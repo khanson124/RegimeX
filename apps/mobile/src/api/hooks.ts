@@ -12,6 +12,14 @@ export interface DashboardSummary {
   symbol: string | null;
   interval: string | null;
   mode: string | null;
+  executionMode?: string | null;
+  brokerDemo?: {
+    connected: boolean;
+    isDemo: boolean;
+    balance: number | null;
+    equity: number | null;
+    error?: string | null;
+  } | null;
   currentRegime: string | null;
   regimeConfidence: number | null;
   activeStrategy: string | null;
@@ -22,6 +30,44 @@ export interface DashboardSummary {
     reasons: string[];
     updatedAt: string | null;
   };
+  strategySelection: {
+    strategyId: string | null;
+    reasons: string[];
+    selectionMode: string | null;
+    selectionScore: number | null;
+    componentScores: Record<string, number> | null;
+    eligibilityRejections: string[];
+    evidence: {
+      tradeCount?: number;
+      expectancyR?: number | null;
+      profitFactor?: number | null;
+      maxDrawdownPercent?: number;
+      winRate?: number;
+      researchVerdict?: string | null;
+      confidenceScore?: number | null;
+      forwardTradeCount?: number;
+      recentForwardExpectancyR?: number | null;
+      degradationPercent?: number | null;
+      executionModel?: string;
+    } | null;
+    updatedAt: string | null;
+  } | null;
+  cfdProposal: {
+    action: string;
+    strategyId: string;
+    regime: string;
+    status: string;
+    entry: number | null;
+    stopLoss: number | null;
+    takeProfit: number | null;
+    stopMethod: string | null;
+    targetMethod: string | null;
+    proposedVolume: number | null;
+    riskAmount: number | null;
+    riskPercent: number | null;
+    riskRewardRatio: number | null;
+    reasons: string[];
+  } | null;
   latestSignal: {
     id: string;
     action: string;
@@ -29,6 +75,11 @@ export interface DashboardSummary {
     confidence: number;
     signalTime: string;
     status: string;
+    proposedEntryPrice?: number | null;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+    proposedVolume?: number | null;
+    riskRewardRatio?: number | null;
   } | null;
   todayPnl: number;
   todayTrades: number;
@@ -208,6 +259,50 @@ export const useDemoTrades = () =>
     queryFn: () => api<{ items: Array<Record<string, unknown>> }>("/demo-trades"),
     refetchInterval: 10_000
   });
+
+export const usePaperAccount = () =>
+  useQuery({
+    queryKey: ["paper-account"],
+    queryFn: () =>
+      api<{
+        account: {
+          id: string;
+          balance: number | string;
+          equity: number | string;
+          usedMargin: number | string;
+          freeMargin: number | string;
+          realizedPnl: number | string;
+          floatingPnl: number | string;
+          currency: string;
+        } | null;
+      }>("/paper-account"),
+    refetchInterval: 5_000
+  });
+
+export const usePositions = (status?: string) =>
+  useQuery({
+    queryKey: ["positions", status ?? "all"],
+    queryFn: () =>
+      api<{ items: Array<Record<string, unknown>> }>(
+        `/positions${status ? `?status=${encodeURIComponent(status)}` : ""}`
+      ),
+    refetchInterval: 5_000
+  });
+
+export const useClosePosition = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<{ success: boolean; idempotent?: boolean; message?: string }>(`/positions/${id}/close`, {
+        method: "POST"
+      }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["positions"] });
+      void qc.invalidateQueries({ queryKey: ["paper-account"] });
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    }
+  });
+};
 
 export const useDecisions = () =>
   useQuery({
@@ -391,10 +486,23 @@ export interface ResearchMetricRow {
   totalTrades: number;
   winRate: number;
   profitFactor: number | null;
+  expectancy?: number | null;
+  expectancyR?: number | null;
+  averageR?: number | null;
+  averageGrossR?: number | null;
+  netProfit?: number | null;
+  returnPercent?: number | null;
   researchConfidence: number | null;
   researchConfidenceReasons: string[];
+  researchVerdict?: string | null;
   parameterStabilityLevel: string | null;
   maxDrawdownPercent: number;
+  longestLossStreak?: number | null;
+  averageHoldingMs?: number | null;
+  exposure?: number | null;
+  executionModel?: string | null;
+  degradationPercent?: number | null;
+  forwardTradeCount?: number | null;
 }
 
 export const useResearchMetrics = (params: { symbol?: string; interval?: string; strategyId?: string }) =>
@@ -445,10 +553,14 @@ export interface ResearchVerdictResponse {
   confidence: number | null;
   reasons: string[] | null;
   baselines: {
-    regimeX?: { profitFactor?: number | null };
-    noRegimeFilter?: { profitFactor?: number | null };
+    regimeX?: { profitFactor?: number | null; expectancyR?: number | null };
+    noRegimeFilter?: { profitFactor?: number | null; expectancyR?: number | null };
     alwaysCall?: { profitFactor?: number | null };
     alwaysPut?: { profitFactor?: number | null };
+    alwaysLong?: { profitFactor?: number | null; expectancyR?: number | null };
+    alwaysShort?: { profitFactor?: number | null; expectancyR?: number | null };
+    randomDirection?: { medianExpectancyR?: number | null; medianNetProfit?: number | null };
+    noTrade?: { profitFactor?: number | null };
     random?: { medianProfitFactor?: number | null; percentile95?: number | null };
     regimePfImprovementPercent?: number | null;
     randomBeatRate?: number | null;
@@ -472,6 +584,32 @@ export const useResearchVerdict = (runId: string | undefined) =>
     enabled: Boolean(runId)
   });
 
+export const useResearchRunDetail = (runId: string | undefined) =>
+  useQuery({
+    queryKey: ["research-run", runId],
+    queryFn: () =>
+      api<{
+        researchRun: {
+          id: string;
+          executionModel?: string | null;
+          summary?: Record<string, unknown> | null;
+          parameterStability?: { level?: string; score?: number; varianceNotes?: string[] } | null;
+          verdict?: string | null;
+        };
+        windows: Array<{
+          windowIndex: number;
+          trainStartIndex: number;
+          trainEndIndex: number;
+          testStartIndex: number;
+          testEndIndex: number;
+          frozenParameters: Record<string, unknown> | null;
+          trainSummary: Record<string, unknown> | null;
+          testSummary: Record<string, unknown> | null;
+        }>;
+      }>(`/research/runs/${runId}`),
+    enabled: Boolean(runId)
+  });
+
 export const useCreateResearchExperiment = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -483,5 +621,64 @@ export const useCreateResearchExperiment = () => {
 export const useResearchRuns = () =>
   useQuery({
     queryKey: ["research-runs"],
-    queryFn: () => api<{ items: Array<{ id: string; symbol: string; interval: string; status: string; verdict?: string | null }> }>("/research/runs")
+    queryFn: () =>
+      api<{
+        items: Array<{
+          id: string;
+          symbol: string;
+          interval: string;
+          status: string;
+          verdict?: string | null;
+          executionModel?: string | null;
+        }>;
+      }>("/research/runs")
+  });
+
+export const useBrokerDemoStatus = () =>
+  useQuery({
+    queryKey: ["broker-demo-status"],
+    queryFn: () =>
+      api<{
+        status: {
+          mode?: string;
+          enabled?: boolean;
+          demo?: boolean;
+          connected?: boolean;
+          isDemo?: boolean;
+          account?: { balance: number; equity: number; currency: string } | null;
+          openPositions?: Array<Record<string, unknown>>;
+          engineAutomationEnabled?: boolean;
+          testMode?: boolean;
+          error?: string;
+          message?: string;
+        };
+      }>("/broker-demo/status"),
+    refetchInterval: 15_000
+  });
+
+export const useMt5Status = () =>
+  useQuery({
+    queryKey: ["broker-demo-mt5-status"],
+    queryFn: () =>
+      api<{
+        status: {
+          mode?: string;
+          enabled?: boolean;
+          demo?: boolean;
+          isDemo?: boolean;
+          connected?: boolean;
+          eaConnected?: boolean;
+          tradeMode?: string | null;
+          marginMode?: string | null;
+          login?: string | null;
+          company?: string | null;
+          server?: string | null;
+          leverage?: number | null;
+          account?: { balance: number; equity: number; usedMargin?: number; freeMargin?: number; currency: string } | null;
+          engineAutomationEnabled?: boolean;
+          error?: string;
+          message?: string;
+        };
+      }>("/broker-demo/mt5/status"),
+    refetchInterval: 15_000
   });

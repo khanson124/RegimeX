@@ -12,7 +12,10 @@ export const researchSampleRequirementsSchema = z.object({
 export const walkForwardConfigSchema = z.object({
   trainWindow: z.number().int().min(50),
   testWindow: z.number().int().min(10),
-  stepSize: z.number().int().min(1)
+  stepSize: z.number().int().min(1),
+  windowMode: z.enum(["rolling", "anchored"]).default("rolling"),
+  maxWindows: z.number().int().min(1).max(100).optional(),
+  minValidationCandles: z.number().int().min(1).optional()
 });
 
 export const researchExperimentCreateSchema = z.object({
@@ -28,10 +31,16 @@ export const researchExperimentCreateSchema = z.object({
   selectionMode: z.enum(["AUTO", "SINGLE", "ENSEMBLE"]).default("AUTO"),
   contractDurationCandles: z.number().int().min(1).max(50).default(5),
   assumedPayoutRatio: z.number().min(0.5).max(2).default(0.85),
+  /** CFD research uses cfd_v1; legacy binary remains rise_fall_v1. */
+  executionModel: z.enum(["rise_fall_v1", "cfd_v1"]).default("cfd_v1"),
+  riskPerTradePercent: z.number().positive().max(5).default(0.5),
+  maxHoldBars: z.number().int().min(1).max(500).default(30),
   walkForward: walkForwardConfigSchema.optional(),
   sampleRequirements: researchSampleRequirementsSchema.optional(),
   randomBaselineSimulations: z.number().int().min(10).max(500).default(100),
-  experimentSeed: z.number().int().optional()
+  experimentSeed: z.number().int().optional(),
+  /** Offline research optimization only — never mutates live strategies. */
+  optimizePerWindow: z.boolean().default(false)
 });
 
 export type ResearchExperimentCreateInput = z.infer<typeof researchExperimentCreateSchema>;

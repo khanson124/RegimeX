@@ -72,13 +72,15 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
 
   app.get("/dashboard/summary", { preHandler: auth }, async (request) => {
     const dayStart = new Date(utcDayStart(Date.now()));
-    const [engine, account, todayTrades, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected] =
+    const [engine, account, paperAccount, riskProfile, todayTrades, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition] =
       await Promise.all([
       prisma.liveEngine.findUnique({
         where: { userId: request.userId },
         include: { configurations: { where: { isActive: true }, take: 1 } }
       }),
       prisma.tradingAccount.findFirst({ where: { userId: request.userId, status: "ACTIVE" } }),
+      prisma.paperAccount.findUnique({ where: { userId: request.userId } }),
+      prisma.riskProfile.findFirst({ where: { userId: request.userId, isActive: true } }),
       prisma.demoTrade.findMany({
         where: { userId: request.userId, createdAt: { gte: dayStart } },
         orderBy: { createdAt: "asc" }
@@ -95,6 +97,10 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       prisma.decisionLog.findFirst({
         where: { userId: request.userId, eventType: "STRATEGY_SELECTED" },
         orderBy: { createdAt: "desc" }
+      }),
+      prisma.position.findFirst({
+        where: { userId: request.userId, status: "OPEN" },
+        orderBy: { openedAt: "desc" }
       })
     ]);
 
@@ -107,6 +113,64 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
     }
 
     const currentSignal = buildCurrentSignal(latestEngineOutcome, latestStrategySelected);
+    const selectionFeature =
+      latestStrategySelected?.featureSummary &&
+      typeof latestStrategySelected.featureSummary === "object" &&
+      !Array.isArray(latestStrategySelected.featureSummary)
+        ? (latestStrategySelected.featureSummary as Record<string, unknown>)
+        : null;
+    const strategySelection = latestStrategySelected
+      ? {
+          strategyId: latestStrategySelected.strategyId,
+          reasons: Array.isArray(latestStrategySelected.reasons)
+            ? (latestStrategySelected.reasons as string[])
+            : [],
+          selectionMode:
+            typeof selectionFeature?.selectionMode === "string"
+              ? selectionFeature.selectionMode
+              : null,
+          selectionScore:
+            typeof selectionFeature?.selectionScore === "number"
+              ? selectionFeature.selectionScore
+              : null,
+          componentScores:
+            selectionFeature?.componentScores &&
+            typeof selectionFeature.componentScores === "object"
+              ? (selectionFeature.componentScores as Record<string, number>)
+              : null,
+          eligibilityRejections: Array.isArray(selectionFeature?.eligibilityRejections)
+            ? (selectionFeature.eligibilityRejections as string[])
+            : [],
+          evidence:
+            selectionFeature?.evidence && typeof selectionFeature.evidence === "object"
+              ? (selectionFeature.evidence as Record<string, unknown>)
+              : null,
+          updatedAt: latestStrategySelected.createdAt.toISOString()
+        }
+      : null;
+    const riskPercent =
+      riskProfile?.riskPerTradePercent != null ? Number(riskProfile.riskPerTradePercent) : 0.5;
+    const paperEquity =
+      paperAccount?.equity != null ? Number(paperAccount.equity) : null;
+    const riskAmount =
+      paperEquity != null ? Number(((paperEquity * riskPercent) / 100).toFixed(2)) : null;
+    const positionReasoning = (latestOpenPosition?.reasoning ?? null) as {
+      stopMethod?: string;
+      targetMethod?: string;
+    } | null;
+
+    const num = (v: { toNumber(): number } | number | null | undefined) =>
+      v == null ? null : typeof v === "number" ? v : v.toNumber();
+
+    const signalReasons = Array.isArray(latestSignal?.entryReason)
+      ? (latestSignal!.entryReason as string[])
+      : currentSignal.reasons;
+    const stopMethodFromReasons =
+      signalReasons.find((r) => r.startsWith("Stop method:"))?.replace("Stop method:", "").trim() ??
+      null;
+    const targetMethodFromReasons =
+      signalReasons.find((r) => r.startsWith("Target method:"))?.replace("Target method:", "").trim() ??
+      null;
 
     return {
       summary: {
@@ -124,6 +188,31 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
         regimeConfidence: latestRegimeLog?.regimeConfidence !== null && latestRegimeLog ? Number(latestRegimeLog.regimeConfidence) : null,
         activeStrategy: currentSignal.strategyId,
         currentSignal,
+        strategySelection,
+        cfdProposal: latestSignal
+          ? {
+              action: latestSignal.action,
+              strategyId: latestSignal.strategyId,
+              regime: latestSignal.regime,
+              status: latestSignal.status,
+              entry: num(latestSignal.proposedEntryPrice),
+              stopLoss: num(latestSignal.stopLoss),
+              takeProfit: num(latestSignal.takeProfit),
+              stopMethod: positionReasoning?.stopMethod ?? stopMethodFromReasons,
+              targetMethod: positionReasoning?.targetMethod ?? targetMethodFromReasons,
+              proposedVolume: num(latestSignal.proposedVolume),
+              riskAmount:
+                latestOpenPosition?.riskAmount != null
+                  ? Number(latestOpenPosition.riskAmount)
+                  : riskAmount,
+              riskPercent:
+                latestOpenPosition?.riskPercent != null
+                  ? Number(latestOpenPosition.riskPercent)
+                  : riskPercent,
+              riskRewardRatio: num(latestSignal.riskRewardRatio),
+              reasons: signalReasons
+            }
+          : null,
         latestSignal: latestSignal
           ? {
               id: latestSignal.id,
@@ -131,7 +220,12 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
               strategyId: latestSignal.strategyId,
               confidence: Number(latestSignal.confidence),
               signalTime: latestSignal.signalTime,
-              status: latestSignal.status
+              status: latestSignal.status,
+              proposedEntryPrice: num(latestSignal.proposedEntryPrice),
+              stopLoss: num(latestSignal.stopLoss),
+              takeProfit: num(latestSignal.takeProfit),
+              proposedVolume: num(latestSignal.proposedVolume),
+              riskRewardRatio: num(latestSignal.riskRewardRatio)
             }
           : null,
         todayPnl: Number(todayPnl.toFixed(2)),

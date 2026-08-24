@@ -63,11 +63,18 @@ export function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): v
         holdoutPercent: body.holdoutPercent,
         experimentSeed: body.experimentSeed ?? null,
         regimeClassifierVersion: REGIME_CLASSIFIER_VERSION,
+        executionModel: body.executionModel,
+        riskPerTradePercent: body.executionModel === "cfd_v1" ? body.riskPerTradePercent : null,
+        maxHoldBars: body.executionModel === "cfd_v1" ? body.maxHoldBars : null,
         config: {
           walkForward: body.walkForward ?? { trainWindow: 2000, testWindow: 400, stepSize: 400 },
           sampleRequirements: body.sampleRequirements ?? null,
           randomBaselineSimulations: body.randomBaselineSimulations,
-          experimentSeed: body.experimentSeed ?? null
+          experimentSeed: body.experimentSeed ?? null,
+          executionModel: body.executionModel,
+          riskPerTradePercent: body.riskPerTradePercent,
+          maxHoldBars: body.maxHoldBars,
+          optimizePerWindow: body.optimizePerWindow
         } as object,
         status: "QUEUED"
       }

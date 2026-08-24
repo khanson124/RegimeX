@@ -38,6 +38,7 @@ export interface StrategyEligibility {
 export interface StrategySelectionAlternative {
   strategyId: string;
   score: number;
+  componentScores?: Record<string, number>;
 }
 
 export interface StrategySelectionResult {
@@ -47,6 +48,12 @@ export interface StrategySelectionResult {
   confidence: number | null;
   alternatives: StrategySelectionAlternative[];
   reasons: string[];
+  /** BOOTSTRAP = regime-fit only; VALIDATED = evidence-ranked. */
+  selectionMode?: "BOOTSTRAP" | "VALIDATED";
+  /** Transparent component breakdown for the selected strategy (or null if none). */
+  componentScores?: Record<string, number> | null;
+  /** Why candidates were excluded (eligibility gates). */
+  eligibilityRejections?: string[];
 }
 
 export interface EnsembleVoteResult {

@@ -33,7 +33,8 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
     version: "1",
     description:
       "Trades confirmed Donchian breakouts in the direction of an established trend with ADX, MACD and volatility confirmation.",
-    supportedRegimes: ["STRONG_UPTREND", "STRONG_DOWNTREND", "BREAKOUT_EXPANSION"]
+    supportedRegimes: ["STRONG_UPTREND", "STRONG_DOWNTREND", "BREAKOUT_EXPANSION"],
+    cfdCapable: true
   },
   {
     kind: "ema-pullback",
@@ -41,7 +42,8 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
     version: "1",
     description:
       "Buys rejection candles at the fast/slow EMA during pullbacks within an intact trend; mirrored for shorts.",
-    supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "STRONG_DOWNTREND", "WEAK_DOWNTREND"]
+    supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "STRONG_DOWNTREND", "WEAK_DOWNTREND"],
+    cfdCapable: true
   },
   {
     kind: "bollinger-reversion",
@@ -49,7 +51,8 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
     version: "1",
     description:
       "Fades Bollinger band touches with RSI confirmation in ranging markets; blocked during trends and breakouts.",
-    supportedRegimes: ["RANGE_LOW_VOLATILITY", "RANGE_HIGH_VOLATILITY"]
+    supportedRegimes: ["RANGE_LOW_VOLATILITY", "RANGE_HIGH_VOLATILITY"],
+    cfdCapable: true
   },
   {
     kind: "squeeze-breakout",
@@ -57,6 +60,7 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
     version: "1",
     description:
       "Trades range expansions out of Bollinger-width squeezes with momentum and volatility confirmation.",
-    supportedRegimes: ["VOLATILITY_COMPRESSION", "BREAKOUT_EXPANSION"]
+    supportedRegimes: ["VOLATILITY_COMPRESSION", "BREAKOUT_EXPANSION"],
+    cfdCapable: true
   }
 ];

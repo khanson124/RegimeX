@@ -125,11 +125,62 @@ async function seedRiskProfile(userId: string): Promise<void> {
       maxDrawdownPercent: 10,
       minBalance: 100,
       maxDataAgeSeconds: 30,
-      maxSignalAgeSeconds: 30
+      maxSignalAgeSeconds: 30,
+      riskPerTradePercent: 0.5,
+      maxTotalOpenRiskPercent: 2,
+      maxConcurrentPositions: 3,
+      minRiskRewardRatio: 1.5
     },
     update: {}
   });
   console.warn("Seeded conservative risk profile");
+}
+
+async function seedPaperAccount(userId: string): Promise<void> {
+  const existing = await prisma.paperAccount.findUnique({ where: { userId } });
+  if (existing) {
+    console.warn("Paper CFD account already exists — preserving balance and P&L");
+    return;
+  }
+  const initialBalance = Number(process.env.PAPER_INITIAL_BALANCE ?? 10_000);
+  await prisma.paperAccount.create({
+    data: {
+      userId,
+      currency: "USD",
+      initialBalance,
+      balance: initialBalance,
+      equity: initialBalance,
+      usedMargin: 0,
+      freeMargin: initialBalance,
+      realizedPnl: 0,
+      floatingPnl: 0
+    }
+  });
+  console.warn("Seeded paper CFD account (separate from Deriv options balance)");
+}
+
+async function seedPilotInstrumentMetadata(): Promise<void> {
+  if (process.env.SEED_PILOT_INSTRUMENT_METADATA !== "true") {
+    console.warn("Skipping pilot instrument metadata (set SEED_PILOT_INSTRUMENT_METADATA=true to enable R_10 pilot)");
+    return;
+  }
+  const { R_10_PILOT_PAPER_INSTRUMENT } = await import("./pilot/r10PaperInstrument.js");
+  const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: "R_10" } });
+  if (!symbol) return;
+
+  const existing = await prisma.instrumentMetadata.findUnique({ where: { symbolId: symbol.id } });
+  if (existing) {
+    console.warn("R_10 instrument metadata already exists — not overwriting");
+    return;
+  }
+
+  await prisma.instrumentMetadata.create({
+    data: {
+      symbolId: symbol.id,
+      ...R_10_PILOT_PAPER_INSTRUMENT
+    }
+  });
+  console.warn("Seeded R_10 pilot paper instrument metadata (NOT Deriv-verified specs)");
 }
 
 async function seedMockCandlesData(): Promise<void> {
@@ -203,11 +254,13 @@ async function main(): Promise<void> {
   await seedSymbols();
   await seedStrategies();
   await seedRegimeConfiguration();
+  await seedPilotInstrumentMetadata();
 
   const seedDevUser = process.env.SEED_DEV_USER !== "false";
   if (seedDevUser) {
     const userId = await seedDevUserAccount();
     await seedRiskProfile(userId);
+    await seedPaperAccount(userId);
   } else {
     console.warn("Skipping dev user (SEED_DEV_USER=false)");
   }
