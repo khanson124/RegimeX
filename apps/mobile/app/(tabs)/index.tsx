@@ -202,10 +202,18 @@ export default function DashboardScreen() {
             }
             large
           />
+        </Row>
+        <Row>
           <Metric
             label="Today P/L"
             value={`${s.todayPnl >= 0 ? "+" : ""}${s.todayPnl.toFixed(2)}`}
             tone={s.todayPnl > 0 ? "up" : s.todayPnl < 0 ? "down" : "neutral"}
+            large
+          />
+          <Metric
+            label="Today R"
+            value={s.todayR != null ? `${s.todayR >= 0 ? "+" : ""}${s.todayR.toFixed(2)}R` : "—"}
+            tone={s.todayR != null && s.todayR > 0 ? "up" : s.todayR != null && s.todayR < 0 ? "down" : "neutral"}
             large
           />
         </Row>
@@ -222,6 +230,69 @@ export default function DashboardScreen() {
           />
         </Row>
       </Card>
+
+      {executionSource === "MT5_DEMO" || mt5Active ? (
+        <>
+          <SectionTitle>Autonomous MT5 DEMO</SectionTitle>
+          <Card>
+            <Row>
+              <Metric
+                label="Autonomous"
+                value={s.autonomous?.enabled ? "Enabled" : "Blocked"}
+                tone={s.autonomous?.enabled ? "warning" : "neutral"}
+              />
+              <Metric
+                label="Engine flag"
+                value={s.autonomous?.mt5EngineEnabled || mt5EngineOn ? "ON" : "OFF"}
+                tone={s.autonomous?.mt5EngineEnabled || mt5EngineOn ? "warning" : "neutral"}
+              />
+              <Metric
+                label="Open owned"
+                value={String(s.autonomous?.openEnginePositions ?? 0)}
+              />
+            </Row>
+            {s.autonomous?.blocked && s.autonomous.reason ? (
+              <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
+                {s.autonomous.reason.replace(/_/g, " ")}
+              </Text>
+            ) : null}
+            <Row style={{ marginTop: spacing.md }}>
+              <Metric label="Forward trades" value={String(s.mt5Forward?.trades ?? 0)} />
+              <Metric
+                label="Expectancy R"
+                value={s.mt5Forward?.expectancyR != null ? s.mt5Forward.expectancyR.toFixed(2) : "—"}
+              />
+              <Metric
+                label="Profit factor"
+                value={s.mt5Forward?.profitFactor != null ? s.mt5Forward.profitFactor.toFixed(2) : "—"}
+              />
+            </Row>
+            <Row style={{ marginTop: spacing.sm }}>
+              <Metric
+                label="Drawdown"
+                value={
+                  s.mt5Forward?.maxDrawdownPercent != null
+                    ? `${s.mt5Forward.maxDrawdownPercent.toFixed(1)}%`
+                    : "—"
+                }
+              />
+              <Metric
+                label="Lifecycle"
+                value={(s.mt5Forward?.lifecycle ?? "EXPERIMENTAL").replace(/_/g, " ")}
+              />
+            </Row>
+            {s.recentAutonomousDecisions && s.recentAutonomousDecisions.length > 0 ? (
+              <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
+                Recent: {s.recentAutonomousDecisions.slice(0, 5).map((d) => d.code).join(" · ")}
+              </Text>
+            ) : (
+              <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
+                No autonomous decisions yet. Engine-driven orders stay off until you enable them.
+              </Text>
+            )}
+          </Card>
+        </>
+      ) : null}
 
       <SectionTitle>Market view</SectionTitle>
       <Card>

@@ -1,5 +1,10 @@
 import { type FastifyInstance } from "fastify";
-import { utcDayStart, type DecisionLogEventType } from "@regimex/shared";
+import { utcDayStart, type AutonomousDecisionCode, type DecisionLogEventType } from "@regimex/shared";
+import {
+  describeMt5AutonomousAvailability,
+  gateMt5EngineSubmission,
+  parseCsvAllowlist
+} from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
 
@@ -9,7 +14,10 @@ const ENGINE_OUTCOME_EVENTS: DecisionLogEventType[] = [
   "RISK_REJECTED",
   "RISK_PASSED",
   "TRADE_OPENED",
-  "TRADE_SETTLED"
+  "TRADE_SETTLED",
+  "EVIDENCE_BLOCKED",
+  "EXECUTION_REJECTED",
+  "STRATEGY_LIFECYCLE_CHANGED"
 ];
 
 type DecisionRow = {
@@ -18,6 +26,7 @@ type DecisionRow = {
   action: string | null;
   reasons: unknown;
   createdAt: Date;
+  featureSummary?: unknown;
 };
 
 function buildCurrentSignal(
@@ -66,13 +75,45 @@ function buildCurrentSignal(
   };
 }
 
+function autonomousCodeFromLog(row: DecisionRow): AutonomousDecisionCode {
+  const summary =
+    row.eventType &&
+    typeof (row as DecisionRow & { featureSummary?: unknown }).featureSummary === "object"
+      ? ((row as DecisionRow & { featureSummary?: Record<string, unknown> }).featureSummary ?? {})
+      : {};
+  const fromFeature = summary.autonomousDecisionCode;
+  if (
+    fromFeature === "BUY" ||
+    fromFeature === "SELL" ||
+    fromFeature === "NO_TRADE" ||
+    fromFeature === "RISK_BLOCKED" ||
+    fromFeature === "EVIDENCE_BLOCKED" ||
+    fromFeature === "EXECUTION_REJECTED"
+  ) {
+    return fromFeature;
+  }
+  if (row.eventType === "EVIDENCE_BLOCKED") return "EVIDENCE_BLOCKED";
+  if (row.eventType === "EXECUTION_REJECTED") return "EXECUTION_REJECTED";
+  if (row.eventType === "RISK_REJECTED") return "RISK_BLOCKED";
+  if (row.eventType === "TRADE_OPENED" && row.action === "SELL") return "SELL";
+  if (row.eventType === "TRADE_OPENED") return "BUY";
+  return "NO_TRADE";
+}
+
+function venueFromMetadata(metadata: unknown): "MT5_DEMO" | "PAPER" | "OTHER" {
+  const model = String((metadata as { executionModel?: string } | null)?.executionModel ?? "");
+  if (model === "broker_demo_mt5") return "MT5_DEMO";
+  if (model === "paper_cfd" || model === "") return "PAPER";
+  return "OTHER";
+}
+
 export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { prisma } = ctx;
   const auth = requireAuth(ctx);
 
   app.get("/dashboard/summary", { preHandler: auth }, async (request) => {
     const dayStart = new Date(utcDayStart(Date.now()));
-    const [engine, account, paperAccount, riskProfile, todayPositions, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition] =
+    const [engine, account, paperAccount, riskProfile, todayPositions, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition, recentDecisions, mt5ForwardMetric, evidenceState, openEnginePositions] =
       await Promise.all([
       prisma.liveEngine.findUnique({
         where: { userId: request.userId },
@@ -86,7 +127,15 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
           userId: request.userId,
           OR: [{ openedAt: { gte: dayStart } }, { closedAt: { gte: dayStart } }]
         },
-        select: { status: true, realizedPnl: true, openedAt: true, closedAt: true },
+        select: {
+          status: true,
+          realizedPnl: true,
+          riskAmount: true,
+          initialRiskAmount: true,
+          openedAt: true,
+          closedAt: true,
+          metadata: true
+        },
         orderBy: { closedAt: "desc" }
       }),
       prisma.signal.findFirst({ where: { userId: request.userId }, orderBy: { createdAt: "desc" } }),
@@ -105,6 +154,30 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       prisma.position.findFirst({
         where: { userId: request.userId, status: "OPEN" },
         orderBy: { openedAt: "desc" }
+      }),
+      prisma.decisionLog.findMany({
+        where: { userId: request.userId, eventType: { in: ENGINE_OUTCOME_EVENTS } },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: {
+          eventType: true,
+          strategyId: true,
+          action: true,
+          reasons: true,
+          createdAt: true,
+          featureSummary: true
+        }
+      }),
+      prisma.strategyRegimeMetric.findFirst({
+        where: { userId: request.userId, segment: "MT5_FORWARD", executionModel: "cfd_v1" },
+        orderBy: { updatedAt: "desc" }
+      }),
+      prisma.strategyEvidenceState.findFirst({
+        where: { userId: request.userId },
+        orderBy: { updatedAt: "desc" }
+      }),
+      prisma.position.count({
+        where: { userId: request.userId, status: "OPEN", origin: "ENGINE" }
       })
     ]);
 
@@ -113,6 +186,15 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       .filter((p) => p.status === "CLOSED" && p.closedAt != null && p.closedAt >= dayStart)
       .sort((a, b) => (b.closedAt?.getTime() ?? 0) - (a.closedAt?.getTime() ?? 0));
     const todayPnl = closedToday.reduce((acc, p) => acc + Number(p.realizedPnl ?? 0), 0);
+    let todayR = 0;
+    let todayRCount = 0;
+    for (const p of closedToday) {
+      const risk = Number(p.riskAmount ?? p.initialRiskAmount ?? 0);
+      if (risk > 0) {
+        todayR += Number(p.realizedPnl ?? 0) / risk;
+        todayRCount += 1;
+      }
+    }
     let consecutiveLosses = 0;
     for (const p of closedToday) {
       if (Number(p.realizedPnl ?? 0) < 0) consecutiveLosses++;
@@ -187,6 +269,56 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
           ? "CTRADER_DEMO"
           : "PAPER_CFD";
 
+    const configAvailability = describeMt5AutonomousAvailability(ctx.config);
+    const engineSymbol = engine?.configurations[0]?.symbol ?? "";
+    const engineStrategy = currentSignal.strategyId ?? parseCsvAllowlist(ctx.config.MT5_ENGINE_STRATEGY_ALLOWLIST)[0] ?? "";
+    const liveGate = gateMt5EngineSubmission({
+      config: ctx.config,
+      symbol: engineSymbol,
+      strategyId: engineStrategy || "__none__",
+      openOwnedCount: openEnginePositions,
+      lifecycle: (evidenceState?.lifecycle as import("@regimex/shared").StrategyEvidenceLifecycle | undefined) ?? "EXPERIMENTAL"
+    });
+    const autonomous = {
+      enabled: liveGate.allowed,
+      blocked: !liveGate.allowed,
+      reason: liveGate.reason ?? configAvailability.reason,
+      decisionCode: liveGate.decisionCode,
+      mt5EngineEnabled: ctx.config.MT5_ENGINE_ENABLED === true,
+      openEnginePositions
+    };
+    const mt5Forward = mt5ForwardMetric
+      ? {
+          trades: mt5ForwardMetric.totalTrades,
+          expectancyR: mt5ForwardMetric.expectancyR != null ? Number(mt5ForwardMetric.expectancyR) : null,
+          profitFactor: mt5ForwardMetric.profitFactor != null ? Number(mt5ForwardMetric.profitFactor) : null,
+          maxDrawdownPercent: Number(mt5ForwardMetric.maxDrawdownPercent),
+          winRate: Number(mt5ForwardMetric.winRate),
+          netRealizedPnl: mt5ForwardMetric.netProfit != null ? Number(mt5ForwardMetric.netProfit) : null,
+          strategyId: mt5ForwardMetric.strategyId,
+          symbol: mt5ForwardMetric.symbol,
+          lifecycle: evidenceState?.lifecycle ?? "EXPERIMENTAL"
+        }
+      : {
+          trades: 0,
+          expectancyR: null,
+          profitFactor: null,
+          maxDrawdownPercent: 0,
+          winRate: null,
+          netRealizedPnl: null,
+          strategyId: currentSignal.strategyId,
+          symbol: engineSymbol || null,
+          lifecycle: evidenceState?.lifecycle ?? "EXPERIMENTAL"
+        };
+    const recentAutonomousDecisions = recentDecisions.map((row) => ({
+      code: autonomousCodeFromLog(row),
+      eventType: row.eventType,
+      strategyId: row.strategyId,
+      action: row.action,
+      reasons: Array.isArray(row.reasons) ? (row.reasons as string[]) : [],
+      at: row.createdAt.toISOString()
+    }));
+
     return {
       summary: {
         engineState: engine?.state ?? "STOPPED",
@@ -256,8 +388,12 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
             }
           : null,
         todayPnl: Number(todayPnl.toFixed(2)),
+        todayR: todayRCount > 0 ? Number(todayR.toFixed(3)) : null,
         todayTrades: openedToday.length,
-        consecutiveLosses
+        consecutiveLosses,
+        autonomous,
+        mt5Forward,
+        recentAutonomousDecisions
       }
     };
   });
@@ -267,22 +403,39 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       where: { userId: request.userId, status: "CLOSED", closedAt: { not: null } },
       orderBy: { closedAt: "asc" },
       take: 500,
-      select: { realizedPnl: true, closedAt: true }
+      select: { realizedPnl: true, closedAt: true, origin: true, metadata: true }
     });
-    let cumulative = 0;
-    const curve = positions.map((p) => {
-      cumulative += Number(p.realizedPnl ?? 0);
-      return { time: p.closedAt?.getTime() ?? 0, pnl: Number(cumulative.toFixed(2)) };
-    });
-    const wins = positions.filter((p) => Number(p.realizedPnl ?? 0) > 0).length;
+    const lanes = {
+      mt5BrokerDemo: { totalTrades: 0, wins: 0, losses: 0, netPnl: 0, curve: [] as Array<{ time: number; pnl: number }> },
+      paperForward: { totalTrades: 0, wins: 0, losses: 0, netPnl: 0, curve: [] as Array<{ time: number; pnl: number }> }
+    };
+    let mt5Cum = 0;
+    let paperCum = 0;
+    for (const p of positions) {
+      if (p.origin === "TEST") continue;
+      const pnl = Number(p.realizedPnl ?? 0);
+      const venue = venueFromMetadata(p.metadata);
+      if (venue === "MT5_DEMO") {
+        mt5Cum += pnl;
+        lanes.mt5BrokerDemo.totalTrades += 1;
+        if (pnl > 0) lanes.mt5BrokerDemo.wins += 1;
+        else lanes.mt5BrokerDemo.losses += 1;
+        lanes.mt5BrokerDemo.netPnl = Number(mt5Cum.toFixed(2));
+        lanes.mt5BrokerDemo.curve.push({ time: p.closedAt?.getTime() ?? 0, pnl: lanes.mt5BrokerDemo.netPnl });
+      } else if (venue === "PAPER") {
+        paperCum += pnl;
+        lanes.paperForward.totalTrades += 1;
+        if (pnl > 0) lanes.paperForward.wins += 1;
+        else lanes.paperForward.losses += 1;
+        lanes.paperForward.netPnl = Number(paperCum.toFixed(2));
+        lanes.paperForward.curve.push({ time: p.closedAt?.getTime() ?? 0, pnl: lanes.paperForward.netPnl });
+      }
+    }
     return {
       performance: {
-        totalTrades: positions.length,
-        wins,
-        losses: positions.length - wins,
-        winRate: positions.length > 0 ? wins / positions.length : 0,
-        netPnl: Number(cumulative.toFixed(2)),
-        curve
+        lanes,
+        doNotSum: true,
+        note: "MT5 broker-demo, paper forward, historical OOS, and legacy binary are separate evidence lanes. Do not add them into one P/L figure."
       }
     };
   });

@@ -1,4 +1,5 @@
 import { type ExecutionBackend } from "../../execution/executionMode.js";
+import { describeMt5AutonomousAvailability, publicMt5RolloutSnapshot } from "./engineRollout.js";
 
 export const REAL_MT5_NOT_IMPLEMENTED = "REAL_MT5_EXECUTION_NOT_IMPLEMENTED";
 export const MT5_ENGINE_DISABLED = "MT5_ENGINE_DISABLED";
@@ -18,6 +19,9 @@ export interface Mt5AccessConfig {
   MT5_MAX_TEST_VOLUME?: number | null;
   MT5_MAX_TEST_RISK_PERCENT?: number | null;
   STRATEGY_SELECTION_MODE?: string | null;
+  MT5_ENGINE_SYMBOL_ALLOWLIST?: string | null;
+  MT5_ENGINE_STRATEGY_ALLOWLIST?: string | null;
+  MT5_ENGINE_MAX_CONCURRENT_POSITIONS?: number | null;
 }
 
 /** Real MT5 / real-money paths are architecture-only. Never construct a demo adapter for them. */
@@ -80,6 +84,8 @@ export function publicMt5ConfigSnapshot(config: Mt5AccessConfig): {
   maxTestRiskPercent: number | null;
   bridgeHost: string | null;
   strategySelectionMode: string | null;
+  rollout: ReturnType<typeof publicMt5RolloutSnapshot>;
+  autonomous: ReturnType<typeof describeMt5AutonomousAvailability>;
 } {
   const bridgeHost = (() => {
     if (config.MT5_BRIDGE_URL) {
@@ -109,7 +115,9 @@ export function publicMt5ConfigSnapshot(config: Mt5AccessConfig): {
     maxTestVolume: config.MT5_MAX_TEST_VOLUME ?? null,
     maxTestRiskPercent: config.MT5_MAX_TEST_RISK_PERCENT ?? null,
     bridgeHost,
-    strategySelectionMode: config.STRATEGY_SELECTION_MODE ?? null
+    strategySelectionMode: config.STRATEGY_SELECTION_MODE ?? null,
+    rollout: publicMt5RolloutSnapshot(config),
+    autonomous: describeMt5AutonomousAvailability(config)
   };
 }
 

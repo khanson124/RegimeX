@@ -36,6 +36,7 @@ model User {
   strategies       StrategyDefinition[]
   paperAccount     PaperAccount?
   positions        Position[]
+  strategyEvidenceStates StrategyEvidenceState[]
 
   @@index([status])
 }
@@ -402,7 +403,7 @@ model StrategyRegimeMetric {
   interval                String
   strategyId              String
   regime                  String
-  /// OVERALL | TRAIN | TEST | WALK_FORWARD | HOLDOUT | DEMO_FORWARD
+  /// OVERALL | TRAIN | TEST | WALK_FORWARD | HOLDOUT | DEMO_FORWARD | PAPER_FORWARD | MT5_FORWARD
   segment                 String
   evaluationStatus        String   @default("INSUFFICIENT_SAMPLE")
   totalTrades             Int      @default(0)
@@ -813,6 +814,43 @@ model PositionEvent {
   position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   @@index([positionId, createdAt(sort: Desc)])
+}
+
+/// MT5 DEMO evidence lifecycle — never enables live money.
+model StrategyEvidenceState {
+  id                String   @id @default(cuid())
+  userId            String
+  strategyId        String
+  symbol            String
+  interval          String
+  regime            String   @default("ALL")
+  lifecycle         String   @default("EXPERIMENTAL")
+  previousLifecycle String?
+  reasonCodes       Json
+  evidence          Json
+  consecutiveLosses Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user        User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transitions StrategyEvidenceTransition[]
+
+  @@unique([userId, strategyId, symbol, interval, regime])
+  @@index([userId, lifecycle])
+}
+
+model StrategyEvidenceTransition {
+  id            String   @id @default(cuid())
+  stateId       String
+  fromLifecycle String?
+  toLifecycle   String
+  reasonCodes   Json
+  evidence      Json
+  createdAt     DateTime @default(now())
+
+  state StrategyEvidenceState @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  @@index([stateId, createdAt(sort: Desc)])
 }
 
 // ─────────────────────────────────────────────────────────────

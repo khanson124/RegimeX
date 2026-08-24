@@ -27,13 +27,16 @@ import {
   computeStrategyConfigHash,
   aggregatePaperForwardPerformance,
   gateMt5EngineOrders,
+  rankEvidenceScore,
   type RegimeThresholds,
   type SelectionCandidate,
   type TradingStrategy,
   type StrategyPerformanceRecord
 } from "@regimex/trading-engine";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
+import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
 import { closeMt5LocalPosition, emergencyCloseOwnedMt5Positions } from "../cfd/mt5CloseRuntime.js";
+import { loadLifecycle } from "../cfd/mt5ForwardEvidence.js";
 import { type Logger } from "pino";
 import { type EventPublisher } from "../lib/events.js";
 import { recordTradeCandidate } from "../lib/tradeCandidates.js";
@@ -86,12 +89,14 @@ export class LiveEngineSession {
   private engineId: string | null = null;
   private flushTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private mt5QuoteTimer: NodeJS.Timeout | null = null;
   private candleIndex = 0;
   /** Session-lifetime peak balance for drawdown enforcement. */
   private peakBalance = 0;
   private recentApiErrors = 0;
   private recentDisconnects = 0;
   private paperCfd: PaperCfdRuntime | null = null;
+  private mt5Cfd: Mt5CfdRuntime | null = null;
   private executionBackend: import("@regimex/trading-engine").ExecutionBackend = "paper_cfd";
 
   constructor(
@@ -239,6 +244,16 @@ export class LiveEngineSession {
       await this.paperCfd.init(this.symbol);
     }
 
+    if (this.executionBackend === "broker_demo_mt5") {
+      this.mt5Cfd = new Mt5CfdRuntime(this.userId, {
+        prisma,
+        config,
+        publish,
+        logger: this.deps.logger
+      });
+      await this.mt5Cfd.init();
+    }
+
     // Restore candle state from persistence.
     await this.setState("SYNCING_DATA", "Restoring candle history");
     const symbolRow = await prisma.symbol.findUnique({ where: { derivSymbol: this.symbol } });
@@ -278,7 +293,15 @@ export class LiveEngineSession {
       this.lastTickAt = tick.epochMs;
       void this.paperCfd?.onQuote(this.symbol, tick.quote, tick.epochMs);
       this.aggregator?.processTick(tick);
+    }).catch((err: unknown) => {
+      if (this.executionBackend !== "broker_demo_mt5") throw err;
+      this.log.warn({ err }, "Deriv tick subscribe failed; MT5 quotes will drive candles");
     });
+
+    if (this.executionBackend === "broker_demo_mt5") {
+      this.mt5QuoteTimer = setInterval(() => void this.pollMt5Quote(), 2_000);
+      void this.pollMt5Quote();
+    }
 
     // Reconcile legacy binary contracts only in legacy mode.
     if (this.executionBackend === "legacy_binary") {
@@ -311,6 +334,9 @@ export class LiveEngineSession {
   async stop(reason = "Stopped by user"): Promise<void> {
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.mt5QuoteTimer) clearInterval(this.mt5QuoteTimer);
+    this.mt5QuoteTimer = null;
+    this.mt5Cfd = null;
     await this.client?.disconnect();
     this.client = null;
     await this.setState("STOPPED", reason);
@@ -320,6 +346,8 @@ export class LiveEngineSession {
   async emergencyStop(): Promise<void> {
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.mt5QuoteTimer) clearInterval(this.mt5QuoteTimer);
+    this.mt5QuoteTimer = null;
 
     if (this.executionBackend === "paper_cfd" && this.paperCfd) {
       const result = await this.paperCfd.liquidateAllOpen("RISK_SHUTDOWN");
@@ -345,6 +373,7 @@ export class LiveEngineSession {
     await this.client?.disconnect();
     this.client = null;
     this.paperCfd = null;
+    this.mt5Cfd = null;
     await this.deps.prisma.liveEngine.update({
       where: { userId: this.userId },
       data: { emergencyStop: true, state: "EMERGENCY_STOPPED", stateReason: "Emergency stop" }
@@ -462,16 +491,17 @@ export class LiveEngineSession {
 
     // Strategy selection.
     const paperCfd = isPaperCfdExecution(config);
+    const cfdVenue = paperCfd || this.executionBackend === "broker_demo_mt5";
     const eligible = this.strategies.filter(
       (s) =>
         s.enabled &&
         s.strategy.supportedRegimes.includes(regime.regime) &&
         regime.confidence >= s.strategy.eligibility.minimumRegimeConfidence &&
         this.candles.length >= s.strategy.minimumHistory &&
-        (!paperCfd || isCfdCapableStrategy(s.strategy.id))
+        (!cfdVenue || isCfdCapableStrategy(s.strategy.id))
     );
 
-    const performanceById = paperCfd
+    const performanceById = cfdVenue
       ? await this.loadCfdSelectionPerformance(regime.regime)
       : new Map();
 
@@ -480,7 +510,7 @@ export class LiveEngineSession {
         strategyId: s.strategy.id,
         strategyVersion: s.strategy.version,
         parameters: s.parameters,
-        executionModel: paperCfd ? "cfd_v1" : "rise_fall_v1"
+        executionModel: cfdVenue ? "cfd_v1" : "rise_fall_v1"
       });
       return {
         strategy: s.strategy,
@@ -510,6 +540,9 @@ export class LiveEngineSession {
 
     const chosen = eligible.find((s) => s.strategy.id === selectionResult.selectedStrategyId)!;
     const chosenPerf = performanceById.get(chosen.strategy.id) ?? null;
+    const mt5Forward = cfdVenue && this.executionBackend === "broker_demo_mt5"
+      ? await this.loadMt5ForwardSnapshot(chosen.strategy.id, regime.regime)
+      : null;
     const evidenceSummary = chosenPerf
       ? {
           tradeCount: chosenPerf.trades,
@@ -522,9 +555,32 @@ export class LiveEngineSession {
           forwardTradeCount: chosenPerf.forwardTradeCount ?? 0,
           recentForwardExpectancyR: chosenPerf.recentForwardExpectancyR ?? null,
           degradationPercent: chosenPerf.degradationPercent ?? null,
-          executionModel: chosenPerf.executionModel ?? (paperCfd ? "cfd_v1" : "rise_fall_v1")
+          executionModel: chosenPerf.executionModel ?? (cfdVenue ? "cfd_v1" : "rise_fall_v1"),
+          rankingScore: rankEvidenceScore({
+            trades: chosenPerf.trades,
+            expectancyR: chosenPerf.expectancyR ?? null,
+            profitFactor: chosenPerf.profitFactor,
+            maxDrawdownPercent: chosenPerf.maxDrawdownPercent
+          }),
+          mt5Forward,
+          lifecycle: mt5Forward?.lifecycle ?? null
         }
-      : null;
+      : mt5Forward
+        ? {
+            tradeCount: mt5Forward.trades,
+            expectancyR: mt5Forward.expectancyR,
+            profitFactor: mt5Forward.profitFactor,
+            maxDrawdownPercent: mt5Forward.maxDrawdownPercent,
+            mt5Forward,
+            lifecycle: mt5Forward.lifecycle,
+            rankingScore: rankEvidenceScore({
+              trades: mt5Forward.trades,
+              expectancyR: mt5Forward.expectancyR,
+              profitFactor: mt5Forward.profitFactor,
+              maxDrawdownPercent: mt5Forward.maxDrawdownPercent
+            })
+          }
+        : null;
     await publish(this.userId, "strategy.selected", {
       ...selectionResult,
       selectionMode: selectionResult.selectionMode,
@@ -618,26 +674,98 @@ export class LiveEngineSession {
     }
 
     if (this.executionBackend === "broker_demo_mt5") {
-      const gate = gateMt5EngineOrders(config);
-      if (!gate.allowed) {
+      if (!isCfdCapableStrategy(chosen.strategy.id)) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
-        await this.logDecision("NO_TRADE", [
-          `MT5 engine orders blocked (${gate.reason}). Status/preflight/TEST remain available.`
+        await this.logAutonomousDecision("NO_TRADE", [
+          `Strategy ${chosen.strategy.id} is not CFD-capable — skipped for MT5 DEMO`
         ], {
           strategyId: chosen.strategy.id,
           action: decision.action,
-          correlationId
+          correlationId,
+          regime: regime.regime,
+          regimeConfidence: regime.confidence
         });
         return;
       }
-      await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
-      await this.logDecision("NO_TRADE", [
-        "MT5_ENGINE_ENABLED=true but automated strategy routing to MT5 DEMO is not wired yet. Guarded TEST trades only."
-      ], {
+      const features = this.lastFeatures;
+      if (!features || !this.mt5Cfd) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        await this.logAutonomousDecision("NO_TRADE", ["MT5 CFD runtime is not initialized"], {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId,
+          regime: regime.regime
+        });
+        return;
+      }
+      const result = await this.mt5Cfd.executeCfdSignal({
+        signalId: signal.id,
+        correlationId,
+        symbol: this.symbol,
         strategyId: chosen.strategy.id,
-        action: decision.action,
-        correlationId
+        regime: regime.regime,
+        interval: this.interval,
+        decision,
+        candle,
+        features,
+        candles: this.candles
       });
+      await this.recordCandidate(latest, correlationId, {
+        decisionCode:
+          result.decisionCode === "RISK_BLOCKED"
+            ? "REJECT_RISK"
+            : result.decisionCode === "EVIDENCE_BLOCKED"
+              ? "REJECT_EVIDENCE"
+              : result.decisionCode === "EXECUTION_REJECTED"
+                ? "REJECT_EXECUTION"
+                : result.opened
+                  ? "TRADE"
+                  : "NO_SIGNAL",
+        rejectionCode: result.opened ? null : result.decisionCode,
+        reasons: result.reasons,
+        strategyId: chosen.strategy.id,
+        direction: decision.action
+      });
+      if (!result.opened) {
+        const status =
+          result.decisionCode === "RISK_BLOCKED"
+            ? "RISK_REJECTED"
+            : result.decisionCode === "EXECUTION_REJECTED"
+              ? "REJECTED"
+              : "SKIPPED";
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status } });
+        if (result.decisionCode === "RISK_BLOCKED") {
+          await publish(this.userId, "risk.rejected", { signalId: signal.id, reasons: result.reasons });
+        }
+        await this.logAutonomousDecision(result.decisionCode, result.reasons, {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId,
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          riskApproved: false,
+          featureSummary: {
+            requestedVolume: result.requestedVolume ?? null,
+            acceptedVolume: result.acceptedVolume ?? null,
+            lifecycle: mt5Forward?.lifecycle ?? null,
+            evidence: evidenceSummary
+          }
+        });
+      } else {
+        await this.logAutonomousDecision(result.decisionCode, result.reasons, {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId,
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          riskApproved: true,
+          featureSummary: {
+            requestedVolume: result.requestedVolume ?? null,
+            acceptedVolume: result.acceptedVolume ?? null,
+            evidence: evidenceSummary
+          }
+        });
+      }
       return;
     }
 
@@ -1012,8 +1140,75 @@ export class LiveEngineSession {
           ...(this.lastTickAt ? { lastTickAt: new Date(this.lastTickAt) } : {})
         }
       });
+      if (this.executionBackend === "broker_demo_mt5" && this.mt5Cfd) {
+        await this.mt5Cfd.reconcileOpen();
+      }
     } catch (err) {
       this.log.warn({ err }, "Heartbeat failed");
+    }
+  }
+
+  private async pollMt5Quote(): Promise<void> {
+    if (!this.mt5Cfd) return;
+    try {
+      const quote = await this.mt5Cfd.getQuote(this.symbol);
+      if (!quote) return;
+      this.lastTickAt = quote.timestamp;
+      this.aggregator?.processTick({
+        symbol: this.symbol,
+        epochMs: quote.timestamp,
+        quote: quote.mid
+      });
+    } catch (err) {
+      this.log.warn({ err }, "MT5 quote poll failed");
+    }
+  }
+
+  private async loadMt5ForwardSnapshot(
+    strategyId: string,
+    regime: string
+  ): Promise<{
+    trades: number;
+    expectancyR: number | null;
+    profitFactor: number | null;
+    maxDrawdownPercent: number;
+    winRate: number | null;
+    netRealizedPnl: number | null;
+    lifecycle: string;
+  } | null> {
+    try {
+      const [metric, lifecycle] = await Promise.all([
+        this.deps.prisma.strategyRegimeMetric.findFirst({
+          where: {
+            userId: this.userId,
+            strategyId,
+            symbol: this.symbol,
+            interval: this.interval,
+            segment: "MT5_FORWARD",
+            executionModel: "cfd_v1"
+          },
+          orderBy: { updatedAt: "desc" }
+        }),
+        loadLifecycle(this.deps.prisma, {
+          userId: this.userId,
+          strategyId,
+          symbol: this.symbol,
+          interval: this.interval,
+          regime: "ALL"
+        })
+      ]);
+      return {
+        trades: metric?.totalTrades ?? 0,
+        expectancyR: metric?.expectancyR != null ? Number(metric.expectancyR) : null,
+        profitFactor: metric?.profitFactor != null ? Number(metric.profitFactor) : null,
+        maxDrawdownPercent: metric ? Number(metric.maxDrawdownPercent) : 0,
+        winRate: metric ? Number(metric.winRate) : null,
+        netRealizedPnl: metric?.netProfit != null ? Number(metric.netProfit) : null,
+        lifecycle
+      };
+    } catch (err) {
+      this.log.warn({ err, strategyId, regime }, "Failed to load MT5 forward snapshot");
+      return null;
     }
   }
 
@@ -1194,6 +1389,47 @@ export class LiveEngineSession {
         candleIndex: this.candleIndex
       },
       this.deps.enqueueCounterfactual
+    );
+  }
+
+  private async logAutonomousDecision(
+    code: import("@regimex/shared").AutonomousDecisionCode,
+    reasons: string[],
+    extra: {
+      regime?: string;
+      regimeConfidence?: number;
+      strategyId?: string;
+      action?: string;
+      correlationId?: string;
+      riskApproved?: boolean;
+      featureSummary?: Record<string, unknown>;
+    }
+  ): Promise<void> {
+    const eventType =
+      code === "BUY" || code === "SELL"
+        ? "TRADE_OPENED"
+        : code === "RISK_BLOCKED"
+          ? "RISK_REJECTED"
+          : code === "EVIDENCE_BLOCKED"
+            ? "EVIDENCE_BLOCKED"
+            : code === "EXECUTION_REJECTED"
+              ? "EXECUTION_REJECTED"
+              : "NO_TRADE";
+    await this.logDecision(eventType, reasons, {
+      ...extra,
+      featureSummary: {
+        ...(extra.featureSummary ?? {}),
+        autonomousDecisionCode: code
+      }
+    });
+    this.log.info(
+      {
+        autonomousDecisionCode: code,
+        strategyId: extra.strategyId ?? null,
+        regime: extra.regime ?? null,
+        reasons
+      },
+      "Autonomous MT5 decision"
     );
   }
 

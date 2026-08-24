@@ -57,7 +57,10 @@ export const DECISION_LOG_EVENTS = [
   "DERIV_CONNECTED",
   "DERIV_DISCONNECTED",
   "EMERGENCY_STOP",
-  "NO_TRADE"
+  "NO_TRADE",
+  "EVIDENCE_BLOCKED",
+  "EXECUTION_REJECTED",
+  "STRATEGY_LIFECYCLE_CHANGED"
 ] as const;
 
 export type DecisionLogEventType = (typeof DECISION_LOG_EVENTS)[number];

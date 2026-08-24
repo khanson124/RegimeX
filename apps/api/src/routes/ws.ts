@@ -2,6 +2,7 @@ import { type FastifyInstance } from "fastify";
 import { type WebSocket } from "ws";
 import { CHANNELS, type AppWsEvent } from "@regimex/shared";
 import { type AppContext } from "../context.js";
+import { extractWsAccessToken } from "../lib/wsAuth.js";
 
 /** Event types throttled per-connection (high-frequency price updates). */
 const THROTTLED_EVENTS = new Set(["market.tick"]);
@@ -10,7 +11,8 @@ const THROTTLE_MS = 1_000;
 /**
  * Application WebSocket for mobile clients.
  *
- * - Authenticated via `?token=<accessToken>` at upgrade time.
+ * - Authenticated via `Authorization: Bearer` or `?token=<accessToken>` at upgrade time.
+ * - Request logs redact query tokens; prefer the Authorization header when the client can send it.
  * - Receives events published by the worker on Redis pub/sub and forwards
  *   only the events belonging to the authenticated user.
  * - `market.tick` is throttled to at most one per second per client; candles,
@@ -52,7 +54,10 @@ export function registerWsRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.get("/ws", { websocket: true }, (socket, request) => {
-    const { token } = request.query as { token?: string };
+    const token = extractWsAccessToken({
+      headers: request.headers,
+      query: request.query
+    });
     let userId: string;
     try {
       if (!token) throw new Error("missing token");

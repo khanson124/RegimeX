@@ -145,6 +145,7 @@ export default function EngineScreen() {
             CFD demo trading follows the server execution venue (MT5 DEMO, cTrader DEMO, or paper CFD).
             Engine-driven MT5 orders stay off unless MT5_ENGINE_ENABLED is true
             {mt5EngineOn ? " — currently ON." : " — currently OFF."}
+            Empty symbol/strategy allowlists fail closed. This never enables live money.
           </Text>
         )}
         <Button title="Save configuration" variant="secondary" onPress={saveConfig} loading={configure.isPending} />

@@ -9,6 +9,8 @@ export const METRIC_SEGMENTS = [
   "PAPER_FORWARD",
   /** Broker-demo CFD forward — never blended with paper or historical OOS. */
   "BROKER_DEMO_FORWARD",
+  /** Deriv MT5 DEMO forward — never blended with paper, OOS, or cTrader. */
+  "MT5_FORWARD",
   "BASELINE"
 ] as const;
 
@@ -29,7 +31,9 @@ export const CANDIDATE_DECISION_CODES = [
   "REJECT_CONFIDENCE",
   "REJECT_RISK",
   "REJECT_COOLDOWN",
-  "REJECT_CAPACITY"
+  "REJECT_CAPACITY",
+  "REJECT_EVIDENCE",
+  "REJECT_EXECUTION"
 ] as const;
 
 export type CandidateDecisionCode = (typeof CANDIDATE_DECISION_CODES)[number];
@@ -108,6 +112,34 @@ export const PROMOTION_ELIGIBILITIES = [
   "CANDIDATE",
   "VALIDATED"
 ] as const;
+
+/**
+ * Persisted MT5 DEMO evidence lifecycle. Never enables live money.
+ * Allowlists are the rollout gate; SUSPENDED / REJECTED / DEGRADED block new entries.
+ */
+export const STRATEGY_EVIDENCE_LIFECYCLES = [
+  "EXPERIMENTAL",
+  "CANDIDATE",
+  "MT5_FORWARD_VALIDATING",
+  "MT5_FORWARD_VALIDATED",
+  "PRODUCTION_CANDIDATE",
+  "DEGRADED",
+  "SUSPENDED",
+  "REJECTED"
+] as const;
+
+export type StrategyEvidenceLifecycle = (typeof STRATEGY_EVIDENCE_LIFECYCLES)[number];
+
+export const AUTONOMOUS_DECISION_CODES = [
+  "BUY",
+  "SELL",
+  "NO_TRADE",
+  "RISK_BLOCKED",
+  "EVIDENCE_BLOCKED",
+  "EXECUTION_REJECTED"
+] as const;
+
+export type AutonomousDecisionCode = (typeof AUTONOMOUS_DECISION_CODES)[number];
 
 export type PromotionEligibility = (typeof PROMOTION_ELIGIBILITIES)[number];
 

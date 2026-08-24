@@ -3,6 +3,7 @@ import { type PrismaClient } from "@regimex/database";
 import { selectMt5PositionsForEmergencyClose } from "@regimex/trading-engine";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
 import { type Logger } from "pino";
+import { refreshEvidenceForClosedPosition } from "./mt5ForwardEvidence.js";
 
 export async function closeMt5LocalPosition(input: {
   prisma: PrismaClient;
@@ -49,6 +50,7 @@ export async function closeMt5LocalPosition(input: {
     { positionId: pos.id, brokerPositionId: pos.brokerPositionId },
     "MT5 position closed after broker confirmation"
   );
+  await refreshEvidenceForClosedPosition(input.prisma, input.config, pos);
   return { closed: true, reasons: [] };
 }
 
@@ -103,6 +105,10 @@ export async function emergencyCloseOwnedMt5Positions(input: {
         }
       });
       closed.push(id);
+      const local = localOpen.find((p) => p.brokerPositionId === id);
+      if (local) {
+        await refreshEvidenceForClosedPosition(input.prisma, input.config, local);
+      }
     } catch (err) {
       failed.push(`${id}:${err instanceof Error ? err.message : String(err)}`);
     }

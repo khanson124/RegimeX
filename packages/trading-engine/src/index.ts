@@ -77,6 +77,10 @@ export * from "./research/cfdObjective.js";
 export * from "./research/cfdWalkForwardAggregates.js";
 export * from "./research/cfdResearchVerdict.js";
 export * from "./research/cfdPromotion.js";
+export * from "./research/strategyLifecycle.js";
+export * from "./research/mt5ForwardLedger.js";
+export * from "./research/evidenceRanking.js";
+export * from "./logging/redactSecrets.js";
 
 // ML readiness (no ML implementation)
 export * from "./scoring/tradeScoringService.js";

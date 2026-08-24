@@ -28,9 +28,17 @@ export interface BrokerAccountSnapshot {
   equity: number;
   usedMargin: number;
   freeMargin: number;
+  /**
+   * MT5 DEMO: realized P/L from broker OUT deals for the current UTC calendar day.
+   * Paper: lifetime realized on the paper account. Never mix the two.
+   */
   realizedPnl: number;
   floatingPnl: number;
   updatedAt: number;
+  /** Explicit period for realizedPnl. MT5 DEMO uses utc_today. */
+  realizedPnlPeriod?: "utc_today" | "lifetime";
+  /** Where realizedPnl came from. Never fabricate from local mid prices. */
+  realizedPnlSource?: "mt5_history_deals" | "paper_account" | "unavailable";
 }
 
 export interface BrokerQuote {

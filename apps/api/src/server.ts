@@ -4,6 +4,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import { type AppContext } from "./context.js";
+import { redactSensitiveUrl } from "@regimex/trading-engine";
 import { registerErrorHandler } from "./plugins/errorHandler.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerDerivRoutes } from "./routes/deriv.js";
@@ -31,14 +32,28 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
       redact: {
         paths: [
           "req.headers.authorization",
+          "req.query.token",
           "*.apiToken",
           "*.password",
           "*.refreshToken",
           "*.encryptedToken",
           "*.bridgeSecret",
-          "MT5_BRIDGE_SECRET"
+          "*.token",
+          "MT5_BRIDGE_SECRET",
+          "MT5_PASSWORD"
         ],
-        censor: "[REDACTED]"
+        censor: "[REDACTED]",
+        remove: false
+      },
+      serializers: {
+        req(req) {
+          return {
+            method: req.method,
+            url: redactSensitiveUrl(req.url),
+            host: req.host,
+            remoteAddress: req.ip
+          };
+        }
       }
     },
     bodyLimit: 1024 * 256, // request-size limit: 256 KiB

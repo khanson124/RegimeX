@@ -122,6 +122,25 @@ const envSchema = z.object({
   MT5_MAX_TEST_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_MAX_TEST_RISK_PERCENT: z.coerce.number().positive().default(0.1),
   MT5_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /**
+   * Autonomous MT5 DEMO rollout. Empty allowlist = fail-closed (no engine orders).
+   * Comma-separated; not a permanent instrument hardcode.
+   */
+  MT5_ENGINE_SYMBOL_ALLOWLIST: z.string().default(""),
+  MT5_ENGINE_STRATEGY_ALLOWLIST: z.string().default(""),
+  MT5_ENGINE_MAX_CONCURRENT_POSITIONS: z.coerce.number().int().min(0).max(5).default(1),
+  MT5_ENGINE_MAX_VOLUME: z.coerce.number().positive().default(0.01),
+  MT5_ENGINE_MAX_RISK_PERCENT: z.coerce.number().positive().default(0.1),
+  /** Evidence thresholds — not profitability promises. */
+  MT5_EVIDENCE_MIN_FORWARD_TRADES: z.coerce.number().int().min(1).default(20),
+  MT5_EVIDENCE_MIN_EXPECTANCY_R: z.coerce.number().default(0.05),
+  MT5_EVIDENCE_MIN_PROFIT_FACTOR: z.coerce.number().positive().default(1.1),
+  MT5_EVIDENCE_MAX_DRAWDOWN_PERCENT: z.coerce.number().positive().default(15),
+  MT5_EVIDENCE_MIN_POSITIVE_WF_PCT: z.coerce.number().min(0).max(100).default(50),
+  MT5_EVIDENCE_MAX_DEGRADATION_PERCENT: z.coerce.number().min(0).max(100).default(50),
+  /** Avoid flapping from one or two trades. */
+  MT5_EVIDENCE_MIN_TRADES_FOR_TRANSITION: z.coerce.number().int().min(1).default(8),
+  MT5_EVIDENCE_CONSECUTIVE_LOSSES_SUSPEND: z.coerce.number().int().min(3).default(8),
   /** Optimizer safety threshold before confirmation is required. */
   OPTIMIZER_MAX_COMBINATIONS: z.coerce.number().int().default(200),
   ENGINE_VERSION: z.string().default("0.1.0")

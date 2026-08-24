@@ -92,8 +92,33 @@ export interface DashboardSummary {
     riskRewardRatio?: number | null;
   } | null;
   todayPnl: number;
+  todayR?: number | null;
   todayTrades: number;
   consecutiveLosses: number;
+  autonomous?: {
+    enabled: boolean;
+    blocked: boolean;
+    reason: string | null;
+    decisionCode: string;
+    mt5EngineEnabled: boolean;
+    openEnginePositions: number;
+  };
+  mt5Forward?: {
+    trades: number;
+    expectancyR: number | null;
+    profitFactor: number | null;
+    maxDrawdownPercent: number;
+    winRate?: number | null;
+    lifecycle?: string;
+  };
+  recentAutonomousDecisions?: Array<{
+    code: string;
+    eventType: string;
+    strategyId: string | null;
+    action: string | null;
+    reasons: string[];
+    at: string;
+  }>;
 }
 
 export interface SymbolRow {

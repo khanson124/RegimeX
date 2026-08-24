@@ -29,8 +29,8 @@ export interface CfdPerformanceMetricRow {
 }
 
 const SEGMENT_PRIORITY = ["HOLDOUT", "WALK_FORWARD", "PAPER_FORWARD", "TEST", "OVERALL", "TRAIN"];
-// MT5_BROKER_DEMO_FORWARD is a separate evidence lane and is intentionally
-// not in this list — do not merge it into validated selection.
+// MT5_FORWARD / BROKER_DEMO_FORWARD are separate evidence lanes and are
+// intentionally not in this list — do not merge them into validated selection.
 
 /**
  * Pick the best research/paper metric row per strategy×regime for a symbol/interval,
@@ -47,7 +47,9 @@ export function buildCfdPerformanceRecords(input: {
       r.symbol === input.symbol &&
       r.interval === input.interval &&
       r.executionModel === "cfd_v1" &&
-      r.regime === input.regime
+      r.regime === input.regime &&
+      r.segment !== "MT5_FORWARD" &&
+      r.segment !== "BROKER_DEMO_FORWARD"
   );
 
   const byStrategy = new Map<string, CfdPerformanceMetricRow[]>();

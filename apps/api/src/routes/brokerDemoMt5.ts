@@ -3,6 +3,7 @@ import {
   DerivMT5BrokerAdapter,
   DEFAULT_MT5_MAGIC,
   measurePaperVsBrokerDivergence,
+  mapMt5SymbolToInstrument,
   planBrokerPositionReconciliation,
   resolveMt5BridgeUrl,
   selectMt5PositionsForEmergencyClose,
@@ -76,6 +77,81 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
     return {
       symbols,
       note: "Do not map R_10/R_25/… until a live DEMO row is verified. Names are broker-defined."
+    };
+  });
+
+  app.post("/broker-demo/mt5/register-symbol", { preHandler: auth }, async (request) => {
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
+    }
+    if (!isMt5DemoApiEnabled(ctx.config)) {
+      throw new ValidationError("MT5 symbol registration requires broker_demo_mt5 or MT5_TEST_MODE");
+    }
+    const body = z.object({ symbol: z.string().min(1) }).parse(request.body);
+    const adapter = await connectMt5Adapter(ctx);
+    const live = await adapter.getLiveSymbol(body.symbol);
+    if (!live) {
+      throw new ValidationError(`MT5 symbol not found: ${body.symbol}`);
+    }
+    const mapped = mapMt5SymbolToInstrument(live, adapter.getStatus().currency ?? "USD");
+    const symbol = await ctx.prisma.symbol.upsert({
+      where: { derivSymbol: live.name },
+      create: {
+        derivSymbol: live.name,
+        displayName: live.description || live.name,
+        enabled: true,
+        pricePrecision: live.digits,
+        candleIntervals: ["1m", "5m"]
+      },
+      update: {
+        displayName: live.description || live.name,
+        pricePrecision: live.digits,
+        enabled: true
+      }
+    });
+    const meta = mapped.instrument;
+    const instrumentMetadata = await ctx.prisma.instrumentMetadata.upsert({
+      where: { symbolId: symbol.id },
+      create: {
+        symbolId: symbol.id,
+        enabled: meta.enabled,
+        verified: meta.verified,
+        source: meta.source ?? "mt5_live_discovery",
+        notes: meta.notes ?? null,
+        contractSize: meta.contractSize,
+        volumeStep: meta.volumeStep,
+        minVolume: meta.minVolume,
+        maxVolume: meta.maxVolume,
+        tickSize: meta.tickSize,
+        tickValue: meta.tickValue,
+        marginRate: meta.marginRate,
+        spreadBps: meta.spreadBps,
+        slippageBps: meta.slippageBps,
+        currency: meta.currency
+      },
+      update: {
+        enabled: meta.enabled,
+        verified: meta.verified,
+        source: meta.source ?? "mt5_live_discovery",
+        notes: meta.notes ?? null,
+        contractSize: meta.contractSize,
+        volumeStep: meta.volumeStep,
+        minVolume: meta.minVolume,
+        maxVolume: meta.maxVolume,
+        tickSize: meta.tickSize,
+        tickValue: meta.tickValue,
+        marginRate: meta.marginRate,
+        spreadBps: meta.spreadBps,
+        slippageBps: meta.slippageBps,
+        currency: meta.currency
+      }
+    });
+    return {
+      symbol,
+      instrumentMetadata,
+      verified: meta.verified,
+      reasons: mapped.reasons,
+      note: "Registering a symbol does not enable autonomous execution. Allowlists and MT5_ENGINE_ENABLED remain separate gates."
     };
   });
 

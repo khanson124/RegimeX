@@ -226,6 +226,32 @@ Confirm the ticket in the Deriv MT5 terminal. TEST origin is excluded from strat
 
 Emergency stop closes **only** RegimeX magic + local rows. Manual MT5 tickets are skipped.
 
+## Autonomous MT5 DEMO (Milestone 6)
+
+Automated strategy → MT5 DEMO is wired through the existing `CfdRiskManager` + `DerivMT5BrokerAdapter`. It stays **off** until you set `MT5_ENGINE_ENABLED=true` **and** populate both allowlists.
+
+Empty `MT5_ENGINE_SYMBOL_ALLOWLIST` or `MT5_ENGINE_STRATEGY_ALLOWLIST` is fail-closed.
+
+`MT5_TEST_MODE` never enables autonomous orders. `broker_real_mt5` / `REAL_MONEY_ENABLED=true` remain impossible.
+
+`account.realizedPnl` means **UTC-today** realized P/L from MT5 OUT/INOUT deals (`profit + commission + swap + fee`). Source: `mt5_history_deals`.
+
+Do not enable autonomous execution until you have:
+
+1. One verified MT5 symbol registered in the RegimeX catalogue
+2. Verified instrument metadata
+3. Live Engine configured to that same symbol
+4. One CFD-capable strategy allowlisted
+5. `MT5_ENGINE_MAX_CONCURRENT_POSITIONS=1` and tiny DEMO risk
+
+Register a discovered MT5 symbol (does **not** enable the engine):
+
+```bash
+curl -X POST -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  http://localhost:4000/broker-demo/mt5/register-symbol \
+  -d '{"symbol":"<exact MT5 symbol>"}'
+```
+
 ## Real money
 
 `EXECUTION_MODE=broker_real_mt5` always fails with `REAL_MT5_EXECUTION_NOT_IMPLEMENTED`, even if `REAL_MONEY_ENABLED=true`. There is no funded execution path in this milestone.

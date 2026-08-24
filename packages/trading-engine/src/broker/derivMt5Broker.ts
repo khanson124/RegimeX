@@ -10,6 +10,7 @@ import {
   type ModifyPositionRequest,
   type OpenMarketPositionRequest,
   type OpenMarketPositionResult,
+  utcDayStart,
   validateInstrumentMetadata
 } from "@regimex/shared";
 import { isQuoteFresh, lossAtStopPerUnitVolume } from "../execution/cfdMath.js";
@@ -17,6 +18,7 @@ import { HttpMt5BridgeClient } from "./mt5/bridgeClient.js";
 import { assertMt5DemoAccount, assertMt5HedgingMode } from "./mt5/demoGuard.js";
 import { FILLING_MODE_UNSUPPORTED, selectFillingMode, parseSupportedFillingModes } from "./mt5/fillingMode.js";
 import { reconstructClosedPositionFromDeals, type Mt5ClosedPositionEvidence } from "./mt5/history.js";
+import { todayRealizedPnlFromMt5Deals } from "./mt5/todayRealizedPnl.js";
 import { regimeXOrderComment } from "./mt5/hmac.js";
 import { findMt5PositionByIdempotency, isRegimeXMt5Position } from "./mt5/ownership.js";
 import { mapMt5SymbolToInstrument } from "./mt5/symbolMap.js";
@@ -107,6 +109,11 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   private readonly completedOpens = new Map<string, OpenMarketPositionResult>();
   private readonly inFlightOpens = new Set<string>();
   private readonly closedResults = new Map<string, ClosedPositionResult>();
+  private realizedPnlCache: {
+    at: number;
+    pnl: number;
+    source: "mt5_history_deals" | "unavailable";
+  } | null = null;
 
   constructor(private readonly config: DerivMt5BrokerConfig) {
     if (!config.requireDemoAccount) {
@@ -192,6 +199,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       expectedEnvironment: this.config.expectedEnvironment ?? "demo"
     });
     if (!demo.ok) throw new Error(demo.reasons.join("; "));
+    await this.refreshTodayRealizedPnl();
     return this.mapAccount(account);
   }
 
@@ -654,10 +662,36 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       equity: account.equity,
       usedMargin: account.margin,
       freeMargin: account.freeMargin,
-      realizedPnl: 0,
+      realizedPnl: this.realizedPnlCache?.pnl ?? 0,
       floatingPnl: account.floatingPnl,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      realizedPnlPeriod: "utc_today",
+      realizedPnlSource: this.realizedPnlCache?.source ?? "unavailable"
     };
+  }
+
+  /**
+   * realizedPnl on the snapshot is UTC-today realized from MT5 OUT deals (authoritative).
+   * Cached ~15s so status polling does not flood the mailbox.
+   */
+  private async refreshTodayRealizedPnl(): Promise<void> {
+    if (this.realizedPnlCache && Date.now() - this.realizedPnlCache.at < 15_000) return;
+    try {
+      const now = Date.now();
+      const deals = await this.getHistoryDeals({
+        magic: this.config.magic ?? DEFAULT_MT5_MAGIC,
+        fromMs: utcDayStart(now),
+        toMs: now
+      });
+      const { realizedPnl } = todayRealizedPnlFromMt5Deals(
+        deals,
+        now,
+        this.config.magic ?? DEFAULT_MT5_MAGIC
+      );
+      this.realizedPnlCache = { at: now, pnl: realizedPnl, source: "mt5_history_deals" };
+    } catch {
+      this.realizedPnlCache = { at: Date.now(), pnl: 0, source: "unavailable" };
+    }
   }
 
   private toBrokerOpen(

@@ -396,6 +396,19 @@ describe("DerivMT5BrokerAdapter mocked transport", () => {
     expect(closed.brokerPositionId).toBe(id);
   });
 
+  it("populates account.realizedPnl from UTC-today MT5 OUT deals", async () => {
+    const { adapter } = await connectedAdapter();
+    const opened = await adapter.openMarketPosition(openReq({ idempotencyKey: "pnl-today-1" }));
+    const closed = await adapter.closePosition({
+      brokerPositionId: opened.brokerPositionId!,
+      reason: "MANUAL"
+    });
+    const account = await adapter.getAccount();
+    expect(account.realizedPnlPeriod).toBe("utc_today");
+    expect(account.realizedPnlSource).toBe("mt5_history_deals");
+    expect(account.realizedPnl).toBe(Number((closed.realizedPnl - 0.01).toFixed(2)));
+  });
+
   it("restart reconciliation: local OPEN missing on broker → mark closed; SL/TP broker wins; external ignored", async () => {
     const { adapter, mock } = await connectedAdapter();
     const opened = await adapter.openMarketPosition(openReq({ idempotencyKey: "rec-1" }));
