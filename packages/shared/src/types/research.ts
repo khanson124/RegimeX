@@ -134,12 +134,32 @@ export const AUTONOMOUS_DECISION_CODES = [
   "BUY",
   "SELL",
   "NO_TRADE",
+  "STRATEGY_HOLD",
+  "REGIME_INCOMPATIBLE",
+  "STRATEGY_NOT_ALLOWED",
+  "SYMBOL_NOT_ALLOWED",
+  "BROKER_SYMBOL_MAPPING_MISSING",
+  "BROKER_SYMBOL_MAPPING_UNVERIFIED",
+  "BROKER_SYMBOL_UNAVAILABLE",
+  "INSTRUMENT_METADATA_MISSING",
+  "QUOTE_STALE",
+  "STOP_INVALID",
   "RISK_BLOCKED",
+  "MIN_VOLUME_EXCEEDS_RISK",
+  "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME",
+  "MAX_CONCURRENT_POSITIONS",
   "EVIDENCE_BLOCKED",
-  "EXECUTION_REJECTED"
+  "LIFECYCLE_BLOCKED",
+  "EXECUTION_REJECTED",
+  "SUBMIT",
+  "OPENED"
 ] as const;
 
 export type AutonomousDecisionCode = (typeof AUTONOMOUS_DECISION_CODES)[number];
+
+export function isAutonomousDecisionCode(value: unknown): value is AutonomousDecisionCode {
+  return typeof value === "string" && (AUTONOMOUS_DECISION_CODES as readonly string[]).includes(value);
+}
 
 export type PromotionEligibility = (typeof PROMOTION_ELIGIBILITIES)[number];
 

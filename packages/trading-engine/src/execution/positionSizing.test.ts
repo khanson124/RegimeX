@@ -61,4 +61,27 @@ describe("DefaultPositionSizingService", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("calculateRaw does not raise or reject at broker minVolume", () => {
+    const raw = sizing.calculateRaw({
+      equity: 10,
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 99,
+      riskPerTradePercent: 0.5,
+      instrument
+    });
+    expect(raw.success).toBe(true);
+    expect(raw.rawVolume).not.toBeNull();
+    expect(raw.rawVolume!).toBeLessThan(instrument.minVolume);
+    const clamped = sizing.calculate({
+      equity: 10,
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 99,
+      riskPerTradePercent: 0.5,
+      instrument
+    });
+    expect(clamped.success).toBe(false);
+  });
 });

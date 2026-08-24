@@ -122,6 +122,47 @@ describe("MT5 demo access / status diagnostics", () => {
     expect(gateMt5EngineOrders(config).allowed).toBe(false);
   });
 
+  it("includes internal/broker mapping diagnostics without enabling trading", () => {
+    const status = buildMt5StatusEnvelope(
+      {
+        EXECUTION_MODE: "broker_demo_mt5",
+        REAL_MONEY_ENABLED: false,
+        MT5_ENGINE_ENABLED: false,
+        MT5_TEST_MODE: true,
+        MT5_ENGINE_SYMBOL_ALLOWLIST: "R_10",
+        MT5_ENGINE_STRATEGY_ALLOWLIST: "ema-pullback-v1",
+        MT5_ENGINE_MAX_VOLUME: 0.01
+      },
+      { connected: true },
+      null,
+      [
+        {
+          internalSymbol: "R_10",
+          brokerSymbol: "Volatility 10 Index",
+          verified: true,
+          minVolume: 0.5,
+          volumeStep: 0.01,
+          maxVolume: 400
+        }
+      ]
+    );
+    const config = status.status.config as {
+      rollout: {
+        allowedInternalSymbols: string[];
+        resolvedBrokerSymbols: Array<{ brokerSymbol: string; verified: boolean }>;
+        engineMaxVolume: number;
+      };
+      autonomous: { blocked: boolean; reason: string | null };
+      engineAutomationEnabled: boolean;
+    };
+    expect(config.engineAutomationEnabled).toBe(false);
+    expect(config.rollout.allowedInternalSymbols).toEqual(["R_10"]);
+    expect(config.rollout.resolvedBrokerSymbols[0]?.brokerSymbol).toBe("Volatility 10 Index");
+    expect(config.rollout.engineMaxVolume).toBe(0.01);
+    expect(config.autonomous.blocked).toBe(true);
+    expect(config.autonomous.reason).toBe("BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME");
+  });
+
   it("keeps paper and MT5 forward lanes separate", () => {
     const paperRow = {
       strategyId: "ema",

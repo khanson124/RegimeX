@@ -17,6 +17,8 @@ export * from "./mt5/fillingMode.js";
 export * from "./mt5/history.js";
 export * from "./mt5/demoAccess.js";
 export * from "./mt5/engineRollout.js";
+export * from "./mt5/brokerSymbolMapping.js";
+export * from "./mt5/engineVolume.js";
 export * from "./mt5/todayRealizedPnl.js";
 export * from "./ctrader/volume.js";
 export * from "./ctrader/symbolMap.js";

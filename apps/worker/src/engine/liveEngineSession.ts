@@ -529,11 +529,20 @@ export class LiveEngineSession {
         strategyId: null,
         direction: null
       });
-      await this.logDecision("NO_TRADE", selectionResult.reasons, {
-        regime: regime.regime,
-        regimeConfidence: regime.confidence,
-        correlationId
-      });
+      const regimeIncompatible = selectionResult.reasons.some((r) => r.includes("regime-incompatible"));
+      if (this.executionBackend === "broker_demo_mt5") {
+        await this.logAutonomousDecision(regimeIncompatible ? "REGIME_INCOMPATIBLE" : "NO_TRADE", selectionResult.reasons, {
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          correlationId
+        });
+      } else {
+        await this.logDecision("NO_TRADE", selectionResult.reasons, {
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          correlationId
+        });
+      }
       await publish(this.userId, "strategy.noTrade", { regime: regime.regime, reasons: selectionResult.reasons });
       return;
     }
@@ -619,13 +628,30 @@ export class LiveEngineSession {
         strategyId: chosen.strategy.id,
         direction: null
       });
-      await this.logDecision("NO_TRADE", decision.invalidationReason, {
-        regime: regime.regime,
-        regimeConfidence: regime.confidence,
-        strategyId: chosen.strategy.id,
-        action: "HOLD",
-        correlationId
-      });
+      if (this.executionBackend === "broker_demo_mt5") {
+        await this.logAutonomousDecision("STRATEGY_HOLD", decision.invalidationReason, {
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          strategyId: chosen.strategy.id,
+          action: "HOLD",
+          correlationId,
+          featureSummary: {
+            interval: this.interval,
+            internalSymbol: this.symbol,
+            strategyDecision: "HOLD",
+            lifecycle: mt5Forward?.lifecycle ?? null,
+            evidence: evidenceSummary
+          }
+        });
+      } else {
+        await this.logDecision("NO_TRADE", decision.invalidationReason, {
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          strategyId: chosen.strategy.id,
+          action: "HOLD",
+          correlationId
+        });
+      }
       await publish(this.userId, "strategy.noTrade", {
         strategyId: chosen.strategy.id,
         reasons: decision.invalidationReason
@@ -748,7 +774,12 @@ export class LiveEngineSession {
             requestedVolume: result.requestedVolume ?? null,
             acceptedVolume: result.acceptedVolume ?? null,
             lifecycle: mt5Forward?.lifecycle ?? null,
-            evidence: evidenceSummary
+            evidence: evidenceSummary,
+            interval: this.interval,
+            internalSymbol: this.symbol,
+            strategyDecision: decision.action,
+            volumePreflight: result.preflight ?? null,
+            ...(result.preflight ?? {})
           }
         });
       } else {
@@ -762,7 +793,12 @@ export class LiveEngineSession {
           featureSummary: {
             requestedVolume: result.requestedVolume ?? null,
             acceptedVolume: result.acceptedVolume ?? null,
-            evidence: evidenceSummary
+            evidence: evidenceSummary,
+            interval: this.interval,
+            internalSymbol: this.symbol,
+            strategyDecision: decision.action,
+            volumePreflight: result.preflight ?? null,
+            ...(result.preflight ?? {})
           }
         });
       }
@@ -1406,11 +1442,14 @@ export class LiveEngineSession {
     }
   ): Promise<void> {
     const eventType =
-      code === "BUY" || code === "SELL"
+      code === "BUY" || code === "SELL" || code === "OPENED"
         ? "TRADE_OPENED"
-        : code === "RISK_BLOCKED"
+        : code === "RISK_BLOCKED" ||
+            code === "MIN_VOLUME_EXCEEDS_RISK" ||
+            code === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
+            code === "STOP_INVALID"
           ? "RISK_REJECTED"
-          : code === "EVIDENCE_BLOCKED"
+          : code === "EVIDENCE_BLOCKED" || code === "LIFECYCLE_BLOCKED"
             ? "EVIDENCE_BLOCKED"
             : code === "EXECUTION_REJECTED"
               ? "EXECUTION_REJECTED"
@@ -1419,15 +1458,22 @@ export class LiveEngineSession {
       ...extra,
       featureSummary: {
         ...(extra.featureSummary ?? {}),
-        autonomousDecisionCode: code
+        autonomousDecisionCode: code,
+        internalSymbol: this.symbol,
+        interval: this.interval
       }
     });
     this.log.info(
       {
         autonomousDecisionCode: code,
+        internalSymbol: this.symbol,
+        brokerSymbol: extra.featureSummary?.brokerSymbol ?? null,
+        interval: this.interval,
         strategyId: extra.strategyId ?? null,
         regime: extra.regime ?? null,
-        reasons
+        signalDirection: extra.action ?? null,
+        reasons,
+        volumePreflight: extra.featureSummary?.volumePreflight ?? null
       },
       "Autonomous MT5 decision"
     );

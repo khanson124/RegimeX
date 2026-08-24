@@ -190,20 +190,26 @@ export function lifecycleBlocksNewEntries(lifecycle: StrategyEvidenceLifecycle |
 
 export function autonomousDecisionFromGate(
   action: "BUY" | "SELL" | "HOLD",
-  gateDecision:
-    | "SUBMIT"
-    | "MT5_ENGINE_DISABLED"
-    | "PAPER_MODE"
-    | "REAL_MONEY_BLOCKED"
-    | "ALLOWLIST"
-    | "MAX_CONCURRENT"
-    | "EVIDENCE_BLOCKED"
-    | "RISK_BLOCKED"
-    | "EXECUTION_REJECTED"
+  gateDecision: string
 ): AutonomousDecisionCode {
   if (gateDecision === "EVIDENCE_BLOCKED") return "EVIDENCE_BLOCKED";
+  if (gateDecision === "LIFECYCLE_BLOCKED") return "LIFECYCLE_BLOCKED";
   if (gateDecision === "RISK_BLOCKED") return "RISK_BLOCKED";
   if (gateDecision === "EXECUTION_REJECTED") return "EXECUTION_REJECTED";
-  if (gateDecision === "SUBMIT") return action === "SELL" ? "SELL" : "BUY";
+  if (gateDecision === "SYMBOL_NOT_ALLOWED") return "SYMBOL_NOT_ALLOWED";
+  if (gateDecision === "STRATEGY_NOT_ALLOWED") return "STRATEGY_NOT_ALLOWED";
+  if (gateDecision === "MAX_CONCURRENT" || gateDecision === "MAX_CONCURRENT_POSITIONS") {
+    return "MAX_CONCURRENT_POSITIONS";
+  }
+  if (gateDecision === "BROKER_SYMBOL_MAPPING_MISSING") return "BROKER_SYMBOL_MAPPING_MISSING";
+  if (gateDecision === "BROKER_SYMBOL_MAPPING_UNVERIFIED") return "BROKER_SYMBOL_MAPPING_UNVERIFIED";
+  if (gateDecision === "BROKER_SYMBOL_UNAVAILABLE") return "BROKER_SYMBOL_UNAVAILABLE";
+  if (gateDecision === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME") {
+    return "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME";
+  }
+  if (gateDecision === "SUBMIT") {
+    if (action === "HOLD") return "STRATEGY_HOLD";
+    return "SUBMIT";
+  }
   return "NO_TRADE";
 }

@@ -257,6 +257,36 @@ export default function DashboardScreen() {
               </Text>
             ) : null}
             <Row style={{ marginTop: spacing.md }}>
+              <Metric label="RegimeX" value={s.autonomous?.mapping?.internalSymbol ?? s.symbol ?? "—"} />
+              <Metric
+                label="MT5 symbol"
+                value={s.autonomous?.mapping?.brokerSymbol ?? "—"}
+              />
+              <Metric
+                label="Mapping"
+                value={s.autonomous?.mapping?.verified ? "Verified" : "Unverified"}
+                tone={s.autonomous?.mapping?.verified ? "up" : "warning"}
+              />
+            </Row>
+            <Row style={{ marginTop: spacing.sm }}>
+              <Metric
+                label="Broker min"
+                value={
+                  s.autonomous?.brokerMinVolume != null ? String(s.autonomous.brokerMinVolume) : "—"
+                }
+              />
+              <Metric
+                label="Broker step"
+                value={
+                  s.autonomous?.brokerVolumeStep != null ? String(s.autonomous.brokerVolumeStep) : "—"
+                }
+              />
+              <Metric
+                label="Engine max vol"
+                value={s.autonomous?.engineMaxVolume != null ? String(s.autonomous.engineMaxVolume) : "—"}
+              />
+            </Row>
+            <Row style={{ marginTop: spacing.md }}>
               <Metric label="Forward trades" value={String(s.mt5Forward?.trades ?? 0)} />
               <Metric
                 label="Expectancy R"

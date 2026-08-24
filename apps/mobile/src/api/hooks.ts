@@ -102,6 +102,25 @@ export interface DashboardSummary {
     decisionCode: string;
     mt5EngineEnabled: boolean;
     openEnginePositions: number;
+    mapping?: {
+      internalSymbol: string;
+      brokerSymbol: string | null;
+      verified: boolean;
+      minVolume: number | null;
+      volumeStep: number | null;
+      maxVolume?: number | null;
+    } | null;
+    allowedInternalSymbols?: string[];
+    resolvedBrokerSymbols?: Array<{
+      internalSymbol: string;
+      brokerSymbol: string | null;
+      verified: boolean;
+      minVolume?: number | null;
+    }>;
+    engineMaxVolume?: number;
+    engineMaxRiskPercent?: number;
+    brokerMinVolume?: number | null;
+    brokerVolumeStep?: number | null;
   };
   mt5Forward?: {
     trades: number;
@@ -118,6 +137,8 @@ export interface DashboardSummary {
     action: string | null;
     reasons: string[];
     at: string;
+    internalSymbol?: string | null;
+    brokerSymbol?: string | null;
   }>;
 }
 
@@ -722,6 +743,19 @@ export const useMt5Status = () =>
             expectedEnvironment?: string | null;
             magicNumber?: number | null;
             bridgeHost?: string | null;
+            rollout?: {
+              allowedInternalSymbols?: string[];
+              engineMaxVolume?: number;
+              resolvedBrokerSymbols?: Array<{
+                internalSymbol: string;
+                brokerSymbol: string | null;
+                verified: boolean;
+              }>;
+            };
+            autonomous?: {
+              blocked?: boolean;
+              reason?: string | null;
+            };
           };
           error?: string;
           message?: string;

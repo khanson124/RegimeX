@@ -115,8 +115,39 @@ model Symbol {
 
   candles Candle[]
   instrumentMetadata InstrumentMetadata?
+  brokerSymbolMappings BrokerSymbolMapping[]
 
   @@index([enabled])
+}
+
+/// Venue-specific execution name for an internal RegimeX catalogue symbol.
+/// Research/candles/evidence stay on Symbol.derivSymbol (e.g. R_10).
+/// MT5 DEMO orders use brokerSymbol (e.g. "Volatility 10 Index") only after verified=true.
+model BrokerSymbolMapping {
+  id               String   @id @default(cuid())
+  internalSymbolId String
+  broker           String   @default("Deriv")
+  venue            String   @default("MT5")
+  executionMode    String   @default("broker_demo_mt5")
+  brokerSymbol     String
+  verified         Boolean  @default(false)
+  source           String?
+  notes            String?
+  minVolume        Decimal? @db.Decimal(18, 8)
+  volumeStep       Decimal? @db.Decimal(18, 8)
+  maxVolume        Decimal? @db.Decimal(18, 8)
+  tickSize         Decimal? @db.Decimal(18, 8)
+  tickValue        Decimal? @db.Decimal(18, 8)
+  contractSize     Decimal? @db.Decimal(18, 8)
+  fillingMode      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  symbol Symbol @relation(fields: [internalSymbolId], references: [id], onDelete: Cascade)
+
+  @@unique([internalSymbolId, broker, venue, executionMode])
+  @@index([brokerSymbol, venue])
+  @@index([verified])
 }
 
 model Candle {

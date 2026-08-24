@@ -1,12 +1,14 @@
 import { type FastifyInstance } from "fastify";
-import { utcDayStart, type AutonomousDecisionCode, type DecisionLogEventType } from "@regimex/shared";
+import { utcDayStart, isAutonomousDecisionCode, type AutonomousDecisionCode, type DecisionLogEventType } from "@regimex/shared";
 import {
   describeMt5AutonomousAvailability,
   gateMt5EngineSubmission,
-  parseCsvAllowlist
+  parseCsvAllowlist,
+  publicMt5RolloutSnapshot
 } from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
+import { loadMt5BrokerMappings } from "../lib/mt5Mappings.js";
 
 const ENGINE_OUTCOME_EVENTS: DecisionLogEventType[] = [
   "NO_TRADE",
@@ -82,21 +84,13 @@ function autonomousCodeFromLog(row: DecisionRow): AutonomousDecisionCode {
       ? ((row as DecisionRow & { featureSummary?: Record<string, unknown> }).featureSummary ?? {})
       : {};
   const fromFeature = summary.autonomousDecisionCode;
-  if (
-    fromFeature === "BUY" ||
-    fromFeature === "SELL" ||
-    fromFeature === "NO_TRADE" ||
-    fromFeature === "RISK_BLOCKED" ||
-    fromFeature === "EVIDENCE_BLOCKED" ||
-    fromFeature === "EXECUTION_REJECTED"
-  ) {
+  if (isAutonomousDecisionCode(fromFeature)) {
     return fromFeature;
   }
   if (row.eventType === "EVIDENCE_BLOCKED") return "EVIDENCE_BLOCKED";
   if (row.eventType === "EXECUTION_REJECTED") return "EXECUTION_REJECTED";
   if (row.eventType === "RISK_REJECTED") return "RISK_BLOCKED";
-  if (row.eventType === "TRADE_OPENED" && row.action === "SELL") return "SELL";
-  if (row.eventType === "TRADE_OPENED") return "BUY";
+  if (row.eventType === "TRADE_OPENED") return "OPENED";
   return "NO_TRADE";
 }
 
@@ -113,7 +107,7 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
 
   app.get("/dashboard/summary", { preHandler: auth }, async (request) => {
     const dayStart = new Date(utcDayStart(Date.now()));
-    const [engine, account, paperAccount, riskProfile, todayPositions, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition, recentDecisions, mt5ForwardMetric, evidenceState, openEnginePositions] =
+    const [engine, account, paperAccount, riskProfile, todayPositions, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition, recentDecisions, mt5ForwardMetric, evidenceState, openEnginePositions, mt5Mappings] =
       await Promise.all([
       prisma.liveEngine.findUnique({
         where: { userId: request.userId },
@@ -158,7 +152,7 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       prisma.decisionLog.findMany({
         where: { userId: request.userId, eventType: { in: ENGINE_OUTCOME_EVENTS } },
         orderBy: { createdAt: "desc" },
-        take: 8,
+        take: 20,
         select: {
           eventType: true,
           strategyId: true,
@@ -178,7 +172,8 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       }),
       prisma.position.count({
         where: { userId: request.userId, status: "OPEN", origin: "ENGINE" }
-      })
+      }),
+      loadMt5BrokerMappings(prisma)
     ]);
 
     const openedToday = todayPositions.filter((p) => p.openedAt != null && p.openedAt >= dayStart);
@@ -269,23 +264,64 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
           ? "CTRADER_DEMO"
           : "PAPER_CFD";
 
-    const configAvailability = describeMt5AutonomousAvailability(ctx.config);
+    const configAvailability = describeMt5AutonomousAvailability(ctx.config, mt5Mappings);
+    const rollout = publicMt5RolloutSnapshot(ctx.config, mt5Mappings);
     const engineSymbol = engine?.configurations[0]?.symbol ?? "";
     const engineStrategy = currentSignal.strategyId ?? parseCsvAllowlist(ctx.config.MT5_ENGINE_STRATEGY_ALLOWLIST)[0] ?? "";
+    const activeMapping = mt5Mappings.find((m) => m.internalSymbol === engineSymbol) ?? null;
     const liveGate = gateMt5EngineSubmission({
       config: ctx.config,
       symbol: engineSymbol,
       strategyId: engineStrategy || "__none__",
       openOwnedCount: openEnginePositions,
-      lifecycle: (evidenceState?.lifecycle as import("@regimex/shared").StrategyEvidenceLifecycle | undefined) ?? "EXPERIMENTAL"
+      lifecycle: (evidenceState?.lifecycle as import("@regimex/shared").StrategyEvidenceLifecycle | undefined) ?? "EXPERIMENTAL",
+      mapping: activeMapping
     });
+    const mappingStatus = activeMapping
+      ? {
+          internalSymbol: engineSymbol,
+          brokerSymbol: activeMapping.brokerSymbol,
+          verified: activeMapping.verified,
+          minVolume: activeMapping.minVolume ?? null,
+          volumeStep: activeMapping.volumeStep ?? null,
+          maxVolume: activeMapping.maxVolume ?? null
+        }
+      : engineSymbol
+        ? {
+            internalSymbol: engineSymbol,
+            brokerSymbol: null,
+            verified: false,
+            minVolume: null,
+            volumeStep: null,
+            maxVolume: null
+          }
+        : null;
+    const availabilityReason =
+      configAvailability.decisionCode === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
+      configAvailability.decisionCode === "BROKER_SYMBOL_MAPPING_MISSING" ||
+      configAvailability.decisionCode === "BROKER_SYMBOL_MAPPING_UNVERIFIED"
+        ? configAvailability.reason
+        : (liveGate.reason ?? configAvailability.reason);
+    const availabilityCode =
+      configAvailability.decisionCode === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
+      configAvailability.decisionCode === "BROKER_SYMBOL_MAPPING_MISSING" ||
+      configAvailability.decisionCode === "BROKER_SYMBOL_MAPPING_UNVERIFIED"
+        ? configAvailability.decisionCode
+        : liveGate.decisionCode;
     const autonomous = {
       enabled: liveGate.allowed,
-      blocked: !liveGate.allowed,
-      reason: liveGate.reason ?? configAvailability.reason,
-      decisionCode: liveGate.decisionCode,
+      blocked: !liveGate.allowed || configAvailability.blocked,
+      reason: availabilityReason,
+      decisionCode: availabilityCode,
       mt5EngineEnabled: ctx.config.MT5_ENGINE_ENABLED === true,
-      openEnginePositions
+      openEnginePositions,
+      mapping: mappingStatus,
+      allowedInternalSymbols: rollout.allowedInternalSymbols,
+      resolvedBrokerSymbols: rollout.resolvedBrokerSymbols,
+      engineMaxVolume: ctx.config.MT5_ENGINE_MAX_VOLUME,
+      engineMaxRiskPercent: ctx.config.MT5_ENGINE_MAX_RISK_PERCENT,
+      brokerMinVolume: activeMapping?.minVolume ?? null,
+      brokerVolumeStep: activeMapping?.volumeStep ?? null
     };
     const mt5Forward = mt5ForwardMetric
       ? {
@@ -316,7 +352,13 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       strategyId: row.strategyId,
       action: row.action,
       reasons: Array.isArray(row.reasons) ? (row.reasons as string[]) : [],
-      at: row.createdAt.toISOString()
+      at: row.createdAt.toISOString(),
+      internalSymbol: typeof (row.featureSummary as { internalSymbol?: unknown } | undefined)?.internalSymbol === "string"
+        ? (row.featureSummary as { internalSymbol: string }).internalSymbol
+        : null,
+      brokerSymbol: typeof (row.featureSummary as { brokerSymbol?: unknown } | undefined)?.brokerSymbol === "string"
+        ? (row.featureSummary as { brokerSymbol: string }).brokerSymbol
+        : null
     }));
 
     return {

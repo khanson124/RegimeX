@@ -9,7 +9,8 @@ import {
   DEFAULT_STRATEGY_PARAMETERS,
   DEFAULT_REGIME_THRESHOLDS,
   REGIME_CLASSIFIER_VERSION,
-  STRATEGY_CATALOGUE
+  STRATEGY_CATALOGUE,
+  MT5_SYNTHETIC_MAPPING_CANDIDATES
 } from "@regimex/trading-engine";
 
 const prisma = getPrisma();
@@ -183,6 +184,55 @@ async function seedPilotInstrumentMetadata(): Promise<void> {
   console.warn("Seeded R_10 pilot paper instrument metadata (NOT Deriv-verified specs)");
 }
 
+async function seedUnverifiedBrokerMappings(): Promise<void> {
+  for (const candidate of MT5_SYNTHETIC_MAPPING_CANDIDATES) {
+    const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: candidate.internalSymbol } });
+    if (!symbol) continue;
+    const existing = await prisma.brokerSymbolMapping.findUnique({
+      where: {
+        internalSymbolId_broker_venue_executionMode: {
+          internalSymbolId: symbol.id,
+          broker: "Deriv",
+          venue: "MT5",
+          executionMode: "broker_demo_mt5"
+        }
+      }
+    });
+    if (existing?.verified) {
+      console.warn(`Keeping verified MT5 mapping ${candidate.internalSymbol} → ${existing.brokerSymbol}`);
+      continue;
+    }
+    await prisma.brokerSymbolMapping.upsert({
+      where: {
+        internalSymbolId_broker_venue_executionMode: {
+          internalSymbolId: symbol.id,
+          broker: "Deriv",
+          venue: "MT5",
+          executionMode: "broker_demo_mt5"
+        }
+      },
+      create: {
+        internalSymbolId: symbol.id,
+        broker: "Deriv",
+        venue: "MT5",
+        executionMode: "broker_demo_mt5",
+        brokerSymbol: candidate.brokerSymbol,
+        verified: false,
+        source: "candidate_seed",
+        notes: "Unverified candidate. Confirm the exact broker name via live MT5 discovery before trading."
+      },
+      update: existing
+        ? {}
+        : {
+            brokerSymbol: candidate.brokerSymbol,
+            verified: false,
+            source: "candidate_seed"
+          }
+    });
+  }
+  console.warn("Seeded unverified MT5 synthetic mapping candidates (not tradeable until live-verified)");
+}
+
 async function seedMockCandlesData(): Promise<void> {
   const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: "R_10" } });
   if (!symbol) return;
@@ -255,6 +305,7 @@ async function main(): Promise<void> {
   await seedStrategies();
   await seedRegimeConfiguration();
   await seedPilotInstrumentMetadata();
+  await seedUnverifiedBrokerMappings();
 
   const seedDevUser = process.env.SEED_DEV_USER !== "false";
   if (seedDevUser) {

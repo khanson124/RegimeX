@@ -11,8 +11,10 @@ import {
   buildMt5StatusEnvelope,
   isMt5DemoApiEnabled,
   isMt5RealPath,
-  REAL_MT5_NOT_IMPLEMENTED
+  REAL_MT5_NOT_IMPLEMENTED,
+  isVolatilityOneSecondVariant
 } from "@regimex/trading-engine";
+import { loadMt5BrokerMappings } from "../lib/mt5Mappings.js";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
 import { type FastifyInstance } from "fastify";
@@ -31,37 +33,43 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   const auth = requireAuth(ctx);
 
   app.get("/broker-demo/mt5/status", { preHandler: auth }, async () => {
+    const mappings = await loadMt5BrokerMappings(ctx.prisma);
     if (isMt5RealPath(ctx.config)) {
-      return buildMt5StatusEnvelope(ctx.config, null, REAL_MT5_NOT_IMPLEMENTED);
+      return buildMt5StatusEnvelope(ctx.config, null, REAL_MT5_NOT_IMPLEMENTED, mappings);
     }
     if (!isMt5DemoApiEnabled(ctx.config)) {
-      return buildMt5StatusEnvelope(ctx.config);
+      return buildMt5StatusEnvelope(ctx.config, null, null, mappings);
     }
     try {
       const adapter = await connectMt5Adapter(ctx);
       const live = adapter.getStatus();
       const positions = live.eaConnected ? await adapter.getOpenPositions() : [];
-      return buildMt5StatusEnvelope(ctx.config, {
-        ...live,
-        openPositions: positions.map((p) => ({
-          brokerPositionId: p.brokerPositionId,
-          symbol: p.symbol,
-          direction: p.direction,
-          volume: p.volume,
-          entryPrice: p.entryPrice,
-          stopLoss: p.stopLoss,
-          takeProfit: p.takeProfit,
-          floatingPnl: p.floatingPnl,
-          orderTicket: p.metadata?.orderTicket,
-          dealTicket: p.metadata?.dealTicket,
-          positionTicket: p.metadata?.positionTicket,
-          ownedByRegimeX: p.metadata?.ownedByRegimeX,
-          origin: p.metadata?.origin ?? null
-        }))
-      });
+      return buildMt5StatusEnvelope(
+        ctx.config,
+        {
+          ...live,
+          openPositions: positions.map((p) => ({
+            brokerPositionId: p.brokerPositionId,
+            symbol: p.symbol,
+            direction: p.direction,
+            volume: p.volume,
+            entryPrice: p.entryPrice,
+            stopLoss: p.stopLoss,
+            takeProfit: p.takeProfit,
+            floatingPnl: p.floatingPnl,
+            orderTicket: p.metadata?.orderTicket,
+            dealTicket: p.metadata?.dealTicket,
+            positionTicket: p.metadata?.positionTicket,
+            ownedByRegimeX: p.metadata?.ownedByRegimeX,
+            origin: p.metadata?.origin ?? null
+          }))
+        },
+        null,
+        mappings
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return buildMt5StatusEnvelope(ctx.config, { connected: false }, message);
+      return buildMt5StatusEnvelope(ctx.config, { connected: false }, message, mappings);
     }
   });
 
@@ -151,7 +159,118 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
       instrumentMetadata,
       verified: meta.verified,
       reasons: mapped.reasons,
-      note: "Registering a symbol does not enable autonomous execution. Allowlists and MT5_ENGINE_ENABLED remain separate gates."
+      note: "Registering a symbol does not enable autonomous execution. Allowlists and MT5_ENGINE_ENABLED remain separate gates. Prefer POST /broker-demo/mt5/register-mapping to bind an internal RegimeX symbol (R_10) to a broker-native MT5 name without creating a duplicate catalogue row."
+    };
+  });
+
+  app.post("/broker-demo/mt5/register-mapping", { preHandler: auth }, async (request) => {
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
+    }
+    if (!isMt5DemoApiEnabled(ctx.config)) {
+      throw new ValidationError("MT5 mapping registration requires broker_demo_mt5 or MT5_TEST_MODE");
+    }
+    const body = z
+      .object({
+        internalSymbol: z.string().min(1),
+        brokerSymbol: z.string().min(1)
+      })
+      .parse(request.body);
+
+    if (isVolatilityOneSecondVariant(body.brokerSymbol)) {
+      throw new ValidationError("Do not map (1s) variants onto R_10/R_25/R_50/R_75/R_100");
+    }
+
+    const internal = await ctx.prisma.symbol.findUnique({
+      where: { derivSymbol: body.internalSymbol }
+    });
+    if (!internal) {
+      throw new ValidationError(`Unknown internal RegimeX symbol: ${body.internalSymbol}`);
+    }
+
+    const adapter = await connectMt5Adapter(ctx);
+    const live = await adapter.getLiveSymbol(body.brokerSymbol);
+    if (!live) {
+      throw new ValidationError(`MT5 symbol not found: ${body.brokerSymbol}`);
+    }
+    if (isVolatilityOneSecondVariant(live.name)) {
+      throw new ValidationError("Live MT5 name is a (1s) variant and cannot map to R_10/R_25/…");
+    }
+
+    const mapped = mapMt5SymbolToInstrument(live, adapter.getStatus().currency ?? "USD");
+    const meta = mapped.instrument;
+    if (!meta.verified) {
+      throw new ValidationError(
+        `MT5 instrument ${live.name} is not verified (${mapped.reasons.join("; ") || "incomplete metadata"})`
+      );
+    }
+
+    const mapping = await ctx.prisma.brokerSymbolMapping.upsert({
+      where: {
+        internalSymbolId_broker_venue_executionMode: {
+          internalSymbolId: internal.id,
+          broker: "Deriv",
+          venue: "MT5",
+          executionMode: "broker_demo_mt5"
+        }
+      },
+      create: {
+        internalSymbolId: internal.id,
+        broker: "Deriv",
+        venue: "MT5",
+        executionMode: "broker_demo_mt5",
+        brokerSymbol: live.name,
+        verified: true,
+        source: "mt5_live_discovery",
+        notes: meta.notes ?? null,
+        minVolume: meta.minVolume,
+        volumeStep: meta.volumeStep,
+        maxVolume: meta.maxVolume,
+        tickSize: meta.tickSize,
+        tickValue: meta.tickValue,
+        contractSize: meta.contractSize,
+        fillingMode: mapped.selectedFillingMode
+      },
+      update: {
+        brokerSymbol: live.name,
+        verified: true,
+        source: "mt5_live_discovery",
+        notes: meta.notes ?? null,
+        minVolume: meta.minVolume,
+        volumeStep: meta.volumeStep,
+        maxVolume: meta.maxVolume,
+        tickSize: meta.tickSize,
+        tickValue: meta.tickValue,
+        contractSize: meta.contractSize,
+        fillingMode: mapped.selectedFillingMode
+      }
+    });
+
+    return {
+      mapping: {
+        id: mapping.id,
+        internalSymbol: internal.derivSymbol,
+        brokerSymbol: mapping.brokerSymbol,
+        broker: mapping.broker,
+        venue: mapping.venue,
+        executionMode: mapping.executionMode,
+        verified: mapping.verified,
+        source: mapping.source,
+        minVolume: Number(mapping.minVolume),
+        volumeStep: Number(mapping.volumeStep),
+        maxVolume: Number(mapping.maxVolume),
+        tickSize: Number(mapping.tickSize),
+        tickValue: Number(mapping.tickValue),
+        contractSize: Number(mapping.contractSize),
+        fillingMode: mapping.fillingMode
+      },
+      live: {
+        name: live.name,
+        tradeMode: live.tradeMode,
+        filling: mapped.selectedFillingMode
+      },
+      tradingEnabled: false,
+      note: "Mapping verified from live MT5 discovery. This does not enable autonomous execution."
     };
   });
 

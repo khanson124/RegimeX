@@ -3,6 +3,7 @@ import { type AppConfig } from "@regimex/config";
 import { type Logger } from "pino";
 import {
   resolveCfdRiskLimits,
+  roundMoney,
   type AutonomousDecisionCode,
   type Candle,
   type StrategyDecision
@@ -14,18 +15,22 @@ import {
   InstrumentMetadataRegistry,
   StopTargetValidator,
   assertLegacyBinaryReachable,
+  autonomousDecisionFromGate,
+  buildAutonomousExecutionPreflight,
   estimateMarginRequired,
-  engineSymbolToMt5BrokerSymbol,
   gateMt5EngineSubmission,
   isCfdCapableStrategy,
-  normalizeLotsToMt5Step,
+  mappingRecordFromRow,
   normalizeStopTargetProposal,
   planBrokerPositionReconciliation,
-  proposeCfdStopTarget
+  proposeCfdStopTarget,
+  resolveBrokerSymbolMapping,
+  resolveMt5EngineVolume,
+  type AutonomousExecutionPreflight
 } from "@regimex/trading-engine";
 import { type EventPublisher } from "../lib/events.js";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
-import { loadInstrumentMetadata, recordPositionEvent } from "./paperPersistence.js";
+import { recordPositionEvent } from "./paperPersistence.js";
 import {
   evidenceThresholdsFromConfig,
   loadLifecycle,
@@ -45,6 +50,7 @@ export interface Mt5ExecuteResult {
   decisionCode: AutonomousDecisionCode;
   requestedVolume?: number;
   acceptedVolume?: number;
+  preflight?: AutonomousExecutionPreflight;
 }
 
 /**
@@ -94,9 +100,11 @@ export class Mt5CfdRuntime {
       };
     }
     if (input.decision.action === "HOLD") {
-      return { opened: false, reasons: ["HOLD"], decisionCode: "NO_TRADE" };
+      return { opened: false, reasons: ["HOLD"], decisionCode: "STRATEGY_HOLD" };
     }
 
+    const mapping = await this.loadMapping(input.symbol);
+    const mapped = resolveBrokerSymbolMapping(input.symbol, mapping);
     const openOwned = await this.deps.prisma.position.count({
       where: { userId: this.userId, status: "OPEN", origin: "ENGINE" }
     });
@@ -111,52 +119,60 @@ export class Mt5CfdRuntime {
       symbol: input.symbol,
       strategyId: input.strategyId,
       openOwnedCount: openOwned,
-      lifecycle
+      lifecycle,
+      mapping
     });
     if (!gate.allowed) {
+      const decisionCode = autonomousDecisionFromGate(input.decision.action, gate.decisionCode);
       this.log.info(
         {
           reason: gate.reason,
           strategyId: input.strategyId,
-          symbol: input.symbol,
+          internalSymbol: input.symbol,
+          brokerSymbol: mapped.brokerSymbol,
+          mappingOk: mapped.ok,
+          mappingReason: mapped.reasonCode,
           regime: input.regime,
+          interval: input.interval,
           lifecycle,
-          decisionCode: gate.decisionCode
+          allowlistResult: gate.decisionCode,
+          decisionCode
         },
         "Autonomous MT5 submission blocked"
       );
       return {
         opened: false,
         reasons: [gate.reason ?? "blocked"],
-        decisionCode:
-          gate.decisionCode === "EVIDENCE_BLOCKED"
-            ? "EVIDENCE_BLOCKED"
-            : gate.decisionCode === "MAX_CONCURRENT"
-              ? "RISK_BLOCKED"
-              : "NO_TRADE"
+        decisionCode
       };
     }
 
-    const brokerSymbol = engineSymbolToMt5BrokerSymbol(input.symbol);
-    const instrument =
-      this.registry.get(input.symbol) ??
-      this.registry.get(brokerSymbol) ??
-      (await loadInstrumentMetadata(this.deps.prisma, input.symbol)) ??
-      (await loadInstrumentMetadata(this.deps.prisma, brokerSymbol));
-    if (!instrument) {
+    const brokerSymbol = mapped.brokerSymbol;
+    if (!brokerSymbol) {
       return {
         opened: false,
-        reasons: [`No instrument metadata configured for ${input.symbol}`],
-        decisionCode: "NO_TRADE"
+        reasons: [mapped.reasonCode ?? "BROKER_SYMBOL_MAPPING_MISSING"],
+        decisionCode: "BROKER_SYMBOL_MAPPING_MISSING"
       };
     }
-    if (!instrument.enabled || !instrument.verified) {
+
+    if (!this.adapter) this.adapter = await getOrConnectMt5Adapter(this.deps.config);
+    const liveInstrument = await this.adapter.getInstrumentMetadata(brokerSymbol);
+    if (!liveInstrument) {
       return {
         opened: false,
-        reasons: [`Instrument ${instrument.symbol} is not enabled and verified for CFD execution`],
-        decisionCode: "NO_TRADE"
+        reasons: [`MT5 instrument metadata missing for ${brokerSymbol}`],
+        decisionCode: "INSTRUMENT_METADATA_MISSING"
       };
     }
+    if (!liveInstrument.enabled || !liveInstrument.verified) {
+      return {
+        opened: false,
+        reasons: [`Instrument ${brokerSymbol} is not enabled and verified for CFD execution`],
+        decisionCode: "INSTRUMENT_METADATA_MISSING"
+      };
+    }
+    const instrument = liveInstrument;
     this.registry.register(instrument);
 
     const entryPrice = input.candle.close;
@@ -174,7 +190,7 @@ export class Mt5CfdRuntime {
       return {
         opened: false,
         reasons: ["Could not derive a valid stop-loss / take-profit for CFD entry"],
-        decisionCode: "NO_TRADE"
+        decisionCode: "STOP_INVALID"
       };
     }
 
@@ -202,13 +218,12 @@ export class Mt5CfdRuntime {
     });
 
     if (!this.adapter) this.adapter = await getOrConnectMt5Adapter(this.deps.config);
-    const quote =
-      (await this.adapter.getQuote(brokerSymbol)) ?? (await this.adapter.getQuote(input.symbol));
+    const quote = await this.adapter.getQuote(brokerSymbol);
     if (!quote) {
       return {
         opened: false,
-        reasons: ["No fresh MT5 quote — fail closed"],
-        decisionCode: "NO_TRADE"
+        reasons: [`No fresh MT5 quote for ${brokerSymbol} — fail closed`],
+        decisionCode: "QUOTE_STALE"
       };
     }
 
@@ -240,11 +255,11 @@ export class Mt5CfdRuntime {
       limits
     });
     if (!stopCheck.valid) {
-      return { opened: false, reasons: stopCheck.reasons, decisionCode: "RISK_BLOCKED" };
+      return { opened: false, reasons: stopCheck.reasons, decisionCode: "STOP_INVALID" };
     }
 
     const fillPrice = proposal.direction === "BUY" ? quote.ask : quote.bid;
-    const sizing = this.sizing.calculate({
+    const rawSizing = this.sizing.calculateRaw({
       equity: account.equity,
       direction: proposal.direction,
       entryPrice: fillPrice,
@@ -252,28 +267,55 @@ export class Mt5CfdRuntime {
       riskPerTradePercent: limits.riskPerTradePercent,
       instrument
     });
-    if (!sizing.success || sizing.volume === null) {
-      return { opened: false, reasons: sizing.rejectionReasons, decisionCode: "RISK_BLOCKED" };
+    if (!rawSizing.success || rawSizing.rawVolume == null || rawSizing.riskAmount == null) {
+      return { opened: false, reasons: rawSizing.rejectionReasons, decisionCode: "RISK_BLOCKED" };
     }
 
-    const stepped = normalizeLotsToMt5Step(sizing.volume, {
-      volumeMin: instrument.minVolume,
-      volumeMax: Math.min(instrument.maxVolume, this.deps.config.MT5_ENGINE_MAX_VOLUME),
-      volumeStep: instrument.volumeStep
+    const volumeDecision = resolveMt5EngineVolume({
+      equity: account.equity,
+      riskPerTradePercent: limits.riskPerTradePercent,
+      riskSizedVolume: rawSizing.rawVolume,
+      direction: proposal.direction,
+      entryPrice: fillPrice,
+      stopLoss: proposal.stopLoss,
+      instrument,
+      engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
     });
-    const volume = Math.min(stepped.lots, this.deps.config.MT5_ENGINE_MAX_VOLUME);
-    if (volume < instrument.minVolume) {
+    const preflight = buildAutonomousExecutionPreflight({
+      internalSymbol: input.symbol,
+      brokerSymbol,
+      strategyId: input.strategyId,
+      equity: account.equity,
+      entry: fillPrice,
+      stopLoss: proposal.stopLoss,
+      takeProfit: proposal.takeProfit,
+      volume: volumeDecision
+    });
+    this.log.info({ autonomousPreflight: preflight }, "Autonomous MT5 execution preflight");
+
+    if (!volumeDecision.wouldSubmit || volumeDecision.finalVolume == null) {
+      const code =
+        volumeDecision.reasonCode === "MIN_VOLUME_EXCEEDS_RISK" ||
+        volumeDecision.reasonCode === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
+        volumeDecision.reasonCode === "STOP_INVALID"
+          ? volumeDecision.reasonCode
+          : "RISK_BLOCKED";
       return {
         opened: false,
-        reasons: [`Normalized volume ${volume} is below instrument min ${instrument.minVolume}`],
-        decisionCode: "RISK_BLOCKED"
+        reasons: [volumeDecision.reasonCode ?? "volume blocked"],
+        decisionCode: code,
+        requestedVolume: volumeDecision.riskSizedVolume,
+        preflight
       };
     }
+    const volume = volumeDecision.finalVolume;
+    const riskAmount = roundMoney((rawSizing.perUnitLoss ?? 0) * volume);
     if (proposal.takeProfit == null) {
       return {
         opened: false,
         reasons: ["MT5 DEMO requires a take-profit on autonomous opens"],
-        decisionCode: "RISK_BLOCKED"
+        decisionCode: "STOP_INVALID",
+        preflight
       };
     }
     await this.deps.prisma.signal.update({
@@ -345,15 +387,19 @@ export class Mt5CfdRuntime {
         { reasons: riskDecision.reasons, strategyId: input.strategyId, code: riskDecision.rejectionCode },
         "Autonomous MT5 risk blocked"
       );
-      return { opened: false, reasons: riskDecision.reasons, decisionCode: "RISK_BLOCKED" };
+      return { opened: false, reasons: riskDecision.reasons, decisionCode: "RISK_BLOCKED", preflight };
     }
 
     const marginRequired = estimateMarginRequired(fillPrice, volume, instrument);
+    const symbolAudit = {
+      internalSymbol: input.symbol,
+      brokerSymbol
+    };
     const pending = await this.deps.prisma.position.create({
       data: {
         userId: this.userId,
         signalId: input.signalId,
-        symbol: brokerSymbol,
+        symbol: input.symbol,
         strategyId: input.strategyId,
         strategyVersion: input.decision.strategyVersion,
         regime: input.regime,
@@ -367,10 +413,10 @@ export class Mt5CfdRuntime {
         takeProfit: proposal.takeProfit,
         entryType: "MARKET",
         status: "PENDING",
-        initialRiskAmount: sizing.riskAmount,
+        initialRiskAmount: riskAmount,
         initialRiskPercent: limits.riskPerTradePercent,
         initialRiskReward: stopCheck.riskRewardRatio,
-        riskAmount: sizing.riskAmount,
+        riskAmount,
         riskPercent: limits.riskPerTradePercent,
         idempotencyKey,
         correlationId: input.correlationId,
@@ -379,24 +425,29 @@ export class Mt5CfdRuntime {
           stop: proposal.reasons,
           stopMethod: proposal.stopMethod,
           targetMethod: proposal.targetMethod,
-          requestedVolume: sizing.volume,
-          riskPercent: limits.riskPerTradePercent
+          requestedVolume: volumeDecision.riskSizedVolume,
+          riskPercent: limits.riskPerTradePercent,
+          volumePreflight: preflight
         } as object,
         metadata: {
           executionModel: "broker_demo_mt5",
           venue: "MT5_DEMO",
           ownedByRegimeX: true,
           engineSymbol: input.symbol,
-          brokerSymbol
+          ...symbolAudit,
+          volumePreflight: preflight
         } as object
       }
     });
     await recordPositionEvent(this.deps.prisma, pending.id, "OPEN_REQUESTED", {
       idempotencyKey,
-      requestedVolume: sizing.volume,
+      requestedVolume: volumeDecision.riskSizedVolume,
       volume,
       strategyId: input.strategyId,
-      regime: input.regime
+      regime: input.regime,
+      internalSymbol: input.symbol,
+      brokerSymbol,
+      volumePreflight: preflight
     });
 
     const result = await this.adapter.openMarketPosition({
@@ -408,14 +459,16 @@ export class Mt5CfdRuntime {
       takeProfit: proposal.takeProfit,
       quote,
       instrument,
-      riskAmount: sizing.riskAmount!,
+      riskAmount,
       riskPercent: limits.riskPerTradePercent,
       initialRiskReward: stopCheck.riskRewardRatio,
       marginRequired,
       metadata: {
         signalId: input.signalId,
         stopMethod: proposal.stopMethod,
-        targetMethod: proposal.targetMethod
+        targetMethod: proposal.targetMethod,
+        internalSymbol: input.symbol,
+        brokerSymbol
       }
     });
 
@@ -428,15 +481,16 @@ export class Mt5CfdRuntime {
         reasons: result.rejectionReasons
       });
       this.log.warn(
-        { reasons: result.rejectionReasons, signalId: input.signalId },
+        { reasons: result.rejectionReasons, signalId: input.signalId, internalSymbol: input.symbol, brokerSymbol },
         "MT5 rejected autonomous open"
       );
       return {
         opened: false,
         reasons: result.rejectionReasons,
         decisionCode: "EXECUTION_REJECTED",
-        requestedVolume: sizing.volume,
-        acceptedVolume: undefined
+        requestedVolume: volumeDecision.riskSizedVolume,
+        acceptedVolume: undefined,
+        preflight
       };
     }
 
@@ -458,7 +512,8 @@ export class Mt5CfdRuntime {
           venue: "MT5_DEMO",
           ownedByRegimeX: true,
           engineSymbol: input.symbol,
-          brokerSymbol,
+          ...symbolAudit,
+          volumePreflight: preflight,
           ...(result.position.metadata ?? {})
         } as object
       }
@@ -474,25 +529,33 @@ export class Mt5CfdRuntime {
     await recordPositionEvent(this.deps.prisma, pending.id, "OPENED", {
       brokerPositionId: result.brokerPositionId,
       entryPrice: result.entryPrice,
-      requestedVolume: sizing.volume,
-      acceptedVolume: result.position.volume
+      requestedVolume: volumeDecision.riskSizedVolume,
+      acceptedVolume: result.position.volume,
+      internalSymbol: input.symbol,
+      brokerSymbol
     });
     this.log.info(
       {
         positionId: pending.id,
         strategyId: input.strategyId,
         regime: input.regime,
-        requestedVolume: sizing.volume,
+        interval: input.interval,
+        internalSymbol: input.symbol,
+        brokerSymbol,
+        requestedVolume: volumeDecision.riskSizedVolume,
         acceptedVolume: result.position.volume,
         entryPrice: result.entryPrice,
         stopLoss: proposal.stopLoss,
-        takeProfit: proposal.takeProfit
+        takeProfit: proposal.takeProfit,
+        volumePreflight: preflight,
+        decisionCode: "OPENED"
       },
       "Autonomous MT5 DEMO position opened"
     );
     await this.deps.publish(this.userId, "trade.opened", {
       positionId: pending.id,
       symbol: input.symbol,
+      brokerSymbol,
       direction: proposal.direction,
       volume: result.position.volume,
       entryPrice: result.entryPrice,
@@ -501,10 +564,23 @@ export class Mt5CfdRuntime {
     return {
       opened: true,
       reasons: proposal.reasons,
-      decisionCode: proposal.direction,
-      requestedVolume: sizing.volume,
-      acceptedVolume: result.position.volume
+      decisionCode: "OPENED",
+      requestedVolume: volumeDecision.riskSizedVolume,
+      acceptedVolume: result.position.volume,
+      preflight
     };
+  }
+
+  private async loadMapping(internalSymbol: string) {
+    const row = await this.deps.prisma.brokerSymbolMapping.findFirst({
+      where: {
+        venue: "MT5",
+        executionMode: "broker_demo_mt5",
+        symbol: { derivSymbol: internalSymbol }
+      },
+      include: { symbol: true }
+    });
+    return row ? mappingRecordFromRow(row) : null;
   }
 
   async getQuote(engineSymbol: string): Promise<{
@@ -515,10 +591,10 @@ export class Mt5CfdRuntime {
     timestamp: number;
   } | null> {
     if (!this.adapter) this.adapter = await getOrConnectMt5Adapter(this.deps.config);
-    const brokerSymbol = engineSymbolToMt5BrokerSymbol(engineSymbol);
-    return (
-      (await this.adapter.getQuote(brokerSymbol)) ?? (await this.adapter.getQuote(engineSymbol))
-    );
+    const mapping = await this.loadMapping(engineSymbol);
+    const resolved = resolveBrokerSymbolMapping(engineSymbol, mapping);
+    if (!resolved.ok || !resolved.brokerSymbol) return null;
+    return this.adapter.getQuote(resolved.brokerSymbol);
   }
 
   async reconcileOpen(): Promise<void> {

@@ -120,6 +120,25 @@ export default function SettingsScreen() {
               k="Engine MT5 orders"
               v={mt5.engineAutomationEnabled ? "ON (MT5_ENGINE_ENABLED)" : "OFF"}
             />
+            {mt5.config?.rollout?.allowedInternalSymbols?.length ? (
+              <KeyValue
+                k="Allowlist"
+                v={(mt5.config.rollout.allowedInternalSymbols as string[]).join(", ")}
+              />
+            ) : null}
+            {Array.isArray(mt5.config?.rollout?.resolvedBrokerSymbols) &&
+            mt5.config.rollout.resolvedBrokerSymbols[0] ? (
+              <KeyValue
+                k="MT5 mapping"
+                v={`${mt5.config.rollout.resolvedBrokerSymbols[0].internalSymbol} → ${mt5.config.rollout.resolvedBrokerSymbols[0].brokerSymbol ?? "unmapped"} (${mt5.config.rollout.resolvedBrokerSymbols[0].verified ? "verified" : "unverified"})`}
+              />
+            ) : null}
+            {mt5.config?.rollout?.engineMaxVolume != null ? (
+              <KeyValue k="Engine max volume" v={String(mt5.config.rollout.engineMaxVolume)} />
+            ) : null}
+            {mt5.config?.autonomous?.blocked && mt5.config.autonomous.reason ? (
+              <KeyValue k="Autonomous block" v={String(mt5.config.autonomous.reason).replace(/_/g, " ")} />
+            ) : null}
           </>
         ) : null}
       </Card>
