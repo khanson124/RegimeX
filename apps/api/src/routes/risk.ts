@@ -24,7 +24,8 @@ export function registerRiskRoutes(app: FastifyInstance, ctx: AppContext): void 
           maxSimultaneousContracts: 1,
           minCooldownSeconds: 120,
           maxDrawdownPercent: 10,
-          minBalance: 100
+          minBalance: 100,
+          riskPerTradePercent: 0.5
         }
       });
     }
@@ -54,6 +55,9 @@ export function registerRiskRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (body.maxDrawdownPercent > 40) {
       warnings.push("Drawdown limit above 40% — unusually loose for risk control.");
     }
+    if (body.riskPerTradePercent != null && body.riskPerTradePercent > 2) {
+      warnings.push("Risk per trade above 2% of equity is aggressive for CFD sizing.");
+    }
 
     const existing = await activeProfile(request.userId);
     const profile = await prisma.riskProfile.update({
@@ -68,22 +72,28 @@ export function registerRiskRoutes(app: FastifyInstance, ctx: AppContext): void 
     const profile = await activeProfile(request.userId);
     const dayStart = new Date(utcDayStart(Date.now()));
 
-    const [todayTrades, openTrades, engine, account] = await Promise.all([
-      prisma.demoTrade.findMany({
-        where: { userId: request.userId, createdAt: { gte: dayStart } },
-        select: { profit: true, status: true, settledAt: true },
-        orderBy: { createdAt: "asc" }
+    const [todayPositions, openPositions, engine, paperAccount] = await Promise.all([
+      prisma.position.findMany({
+        where: {
+          userId: request.userId,
+          OR: [{ openedAt: { gte: dayStart } }, { closedAt: { gte: dayStart } }]
+        },
+        select: { status: true, realizedPnl: true, openedAt: true, closedAt: true },
+        orderBy: { closedAt: "desc" }
       }),
-      prisma.demoTrade.count({ where: { userId: request.userId, status: "OPEN" } }),
+      prisma.position.count({ where: { userId: request.userId, status: "OPEN" } }),
       prisma.liveEngine.findUnique({ where: { userId: request.userId } }),
-      prisma.tradingAccount.findFirst({ where: { userId: request.userId, status: "ACTIVE" } })
+      prisma.paperAccount.findUnique({ where: { userId: request.userId } })
     ]);
 
-    const settled = todayTrades.filter((t) => t.profit !== null);
-    const dailyPnl = settled.reduce((acc, t) => acc + Number(t.profit), 0);
+    const openedToday = todayPositions.filter((p) => p.openedAt != null && p.openedAt >= dayStart);
+    const closedToday = todayPositions
+      .filter((p) => p.status === "CLOSED" && p.closedAt != null && p.closedAt >= dayStart)
+      .sort((a, b) => (b.closedAt?.getTime() ?? 0) - (a.closedAt?.getTime() ?? 0));
+    const dailyPnl = closedToday.reduce((acc, p) => acc + Number(p.realizedPnl ?? 0), 0);
     let consecutiveLosses = 0;
-    for (let i = settled.length - 1; i >= 0; i--) {
-      if (Number(settled[i]!.profit) < 0) consecutiveLosses++;
+    for (const p of closedToday) {
+      if (Number(p.realizedPnl ?? 0) < 0) consecutiveLosses++;
       else break;
     }
 
@@ -91,13 +101,15 @@ export function registerRiskRoutes(app: FastifyInstance, ctx: AppContext): void 
       status: {
         dailyPnl: Number(dailyPnl.toFixed(2)),
         dailyPnlLimit: -Number(profile.maxDailyLoss),
-        dailyTrades: todayTrades.length,
+        dailyTrades: openedToday.length,
+        todayTrades: openedToday.length,
         dailyTradesLimit: profile.maxDailyTrades,
         consecutiveLosses,
         consecutiveLossesLimit: profile.maxConsecutiveLosses,
-        openContracts: openTrades,
+        openContracts: openPositions,
+        openPositions,
         openContractsLimit: profile.maxSimultaneousContracts,
-        balance: account?.lastKnownBalance !== null && account ? Number(account.lastKnownBalance) : null,
+        balance: paperAccount?.equity != null ? Number(paperAccount.equity) : null,
         minBalance: Number(profile.minBalance),
         emergencyStop: engine?.emergencyStop ?? false,
         engineState: engine?.state ?? "STOPPED"

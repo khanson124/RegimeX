@@ -107,7 +107,8 @@ export default function NewBacktestScreen() {
         ))}
       </Row>
       <Text style={styles.hint}>
-        CFD uses SL/TP, lot sizing, and variable hold time (cfd_v1). Requires verified InstrumentMetadata.
+        CFD uses SL/TP, lot sizing, and variable hold time (cfd_v1) — this is the live model. Legacy binary is
+        historical comparison only.
       </Text>
 
       <SectionTitle>Configuration</SectionTitle>

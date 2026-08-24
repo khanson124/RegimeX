@@ -121,7 +121,7 @@ export default function MarketScreen() {
         ) : (
           <CandleChart candles={candles} width={width - spacing.lg * 4} />
         )}
-        <Text style={styles.legend}>Live paper CFD — signals use BUY / SELL / HOLD (not CALL / PUT)</Text>
+        <Text style={styles.legend}>Live CFD — BUY / SELL / HOLD with SL, TP, and lot sizing</Text>
       </Card>
 
       <SectionTitle>Regime & signal</SectionTitle>
@@ -233,8 +233,8 @@ export default function MarketScreen() {
           </>
         ) : (
           <Text style={styles.hint}>
-            When the live paper CFD engine selects a strategy, the proposed BUY/SELL levels, sizing, and
-            risk appear here. HOLD and no-trade decisions stay in Explanation below.
+            When the live CFD engine selects a strategy, proposed BUY/SELL levels, sizing, and risk appear
+            here. HOLD and no-trade decisions stay in Explanation below.
           </Text>
         )}
       </Card>

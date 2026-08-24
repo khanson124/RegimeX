@@ -23,6 +23,7 @@ export const riskProfileUpdateSchema = z.object({
   minCooldownSeconds: z.number().int().min(0).max(86_400),
   maxDrawdownPercent: z.number().min(1).max(50),
   minBalance: z.number().min(0).max(1_000_000),
+  riskPerTradePercent: z.number().positive().max(5).optional(),
   sessionStartHourUtc: z.number().int().min(0).max(23).nullable(),
   sessionEndHourUtc: z.number().int().min(0).max(24).nullable()
 });

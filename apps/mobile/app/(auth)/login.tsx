@@ -50,7 +50,7 @@ export default function LoginScreen() {
   const form = (
     <>
       <Text style={styles.logo}>RegimeX</Text>
-      <Text style={styles.tagline}>Regime-aware demo trading lab</Text>
+      <Text style={styles.tagline}>Regime-aware CFD research lab · MT5 DEMO</Text>
       {Platform.OS === "web" ? (
         <Text style={styles.webHint}>Web · use http://localhost:4000 when running the API on this Mac</Text>
       ) : null}
@@ -71,7 +71,7 @@ export default function LoginScreen() {
         </Link>
       </Card>
       <Text style={styles.disclaimer}>
-        Experimental software. Demo accounts only. No profit is promised or implied.
+        Experimental software. CFD / MT5 DEMO only — not binary options. No profit is promised.
       </Text>
     </>
   );

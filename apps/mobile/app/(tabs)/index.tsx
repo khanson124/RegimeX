@@ -81,7 +81,7 @@ export default function DashboardScreen() {
       <Card>
         <Row>
           <Metric label="Engine" value={s.engineState.replace(/_/g, " ")} tone={engineRunning ? "up" : s.engineState === "EMERGENCY_STOPPED" ? "down" : "neutral"} />
-          <Metric label="Deriv" value={s.derivConnected ? "Connected" : "Offline"} tone={s.derivConnected ? "up" : "warning"} />
+          <Metric label="Market data" value={s.derivConnected ? "Connected" : "Offline"} tone={s.derivConnected ? "up" : "warning"} />
           <Metric label="Live feed" value={connected ? "Streaming" : "Reconnecting"} tone={connected ? "up" : "warning"} />
         </Row>
         {s.emergencyStop ? <Badge tone="down" text="EMERGENCY STOP ACTIVE" /> : null}
@@ -188,11 +188,17 @@ export default function DashboardScreen() {
                   : `Paper CFD ${s.currency ?? ""}`
             }
             value={
-              executionSource === "MT5_DEMO" && mt5?.account?.equity != null
-                ? String(mt5.account.equity)
-                : s.balance != null
-                  ? s.balance.toFixed(2)
+              executionSource === "MT5_DEMO"
+                ? mt5?.account?.equity != null
+                  ? String(mt5.account.equity)
                   : "—"
+                : executionSource === "CTRADER_DEMO" && brokerDemo?.status?.account?.equity != null
+                  ? String(brokerDemo.status.account.equity)
+                  : s.paperEquity != null
+                    ? s.paperEquity.toFixed(2)
+                    : s.balance != null
+                      ? s.balance.toFixed(2)
+                      : "—"
             }
             large
           />
@@ -203,9 +209,12 @@ export default function DashboardScreen() {
             large
           />
         </Row>
+        <Text style={{ color: colors.textDim, marginTop: spacing.xs, fontSize: font.caption }}>
+          Today P/L and opened-today are from realized CFD positions, not binary options contracts.
+        </Text>
         <Row>
           <Metric label="Symbol" value={s.symbol ?? "—"} />
-          <Metric label="Trades today" value={String(s.todayTrades)} />
+          <Metric label="Opened today" value={String(s.todayTrades)} />
           <Metric
             label="Consec. losses"
             value={String(s.consecutiveLosses)}
@@ -260,7 +269,8 @@ export default function DashboardScreen() {
       />
       {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
       <Text style={styles.disclaimer}>
-        Experimental system for demo accounts. Backtest results are not guarantees of future performance.
+        CFD research lab — MT5 DEMO is the primary forward path; paper CFD is fallback. Not binary options.
+        Backtests are not guarantees of future performance.
       </Text>
     </ScrollView>
   );

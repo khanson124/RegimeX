@@ -72,7 +72,7 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
 
   app.get("/dashboard/summary", { preHandler: auth }, async (request) => {
     const dayStart = new Date(utcDayStart(Date.now()));
-    const [engine, account, paperAccount, riskProfile, todayTrades, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition] =
+    const [engine, account, paperAccount, riskProfile, todayPositions, latestSignal, latestRegimeLog, latestEngineOutcome, latestStrategySelected, latestOpenPosition] =
       await Promise.all([
       prisma.liveEngine.findUnique({
         where: { userId: request.userId },
@@ -81,9 +81,13 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       prisma.tradingAccount.findFirst({ where: { userId: request.userId, status: "ACTIVE" } }),
       prisma.paperAccount.findUnique({ where: { userId: request.userId } }),
       prisma.riskProfile.findFirst({ where: { userId: request.userId, isActive: true } }),
-      prisma.demoTrade.findMany({
-        where: { userId: request.userId, createdAt: { gte: dayStart } },
-        orderBy: { createdAt: "asc" }
+      prisma.position.findMany({
+        where: {
+          userId: request.userId,
+          OR: [{ openedAt: { gte: dayStart } }, { closedAt: { gte: dayStart } }]
+        },
+        select: { status: true, realizedPnl: true, openedAt: true, closedAt: true },
+        orderBy: { closedAt: "desc" }
       }),
       prisma.signal.findFirst({ where: { userId: request.userId }, orderBy: { createdAt: "desc" } }),
       prisma.decisionLog.findFirst({
@@ -104,11 +108,14 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       })
     ]);
 
-    const settled = todayTrades.filter((t) => t.profit !== null);
-    const todayPnl = settled.reduce((acc, t) => acc + Number(t.profit), 0);
+    const openedToday = todayPositions.filter((p) => p.openedAt != null && p.openedAt >= dayStart);
+    const closedToday = todayPositions
+      .filter((p) => p.status === "CLOSED" && p.closedAt != null && p.closedAt >= dayStart)
+      .sort((a, b) => (b.closedAt?.getTime() ?? 0) - (a.closedAt?.getTime() ?? 0));
+    const todayPnl = closedToday.reduce((acc, p) => acc + Number(p.realizedPnl ?? 0), 0);
     let consecutiveLosses = 0;
-    for (let i = settled.length - 1; i >= 0; i--) {
-      if (Number(settled[i]!.profit) < 0) consecutiveLosses++;
+    for (const p of closedToday) {
+      if (Number(p.realizedPnl ?? 0) < 0) consecutiveLosses++;
       else break;
     }
 
@@ -197,8 +204,10 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
           paperIsFallback: executionSource !== "PAPER_CFD"
         },
         executionMode,
-        balance: account?.lastKnownBalance !== null && account ? Number(account.lastKnownBalance) : null,
-        currency: account?.currency ?? null,
+        paperEquity,
+        paperCurrency: paperAccount?.currency ?? null,
+        balance: paperEquity,
+        currency: paperAccount?.currency ?? account?.currency ?? null,
         symbol: engine?.configurations[0]?.symbol ?? null,
         interval: engine?.configurations[0]?.interval ?? null,
         mode: engine?.configurations[0]?.mode ?? null,
@@ -247,30 +256,31 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
             }
           : null,
         todayPnl: Number(todayPnl.toFixed(2)),
-        todayTrades: todayTrades.length,
+        todayTrades: openedToday.length,
         consecutiveLosses
       }
     };
   });
 
   app.get("/dashboard/performance", { preHandler: auth }, async (request) => {
-    const trades = await prisma.demoTrade.findMany({
-      where: { userId: request.userId, status: { in: ["WON", "LOST"] } },
-      orderBy: { settledAt: "asc" },
-      take: 500
+    const positions = await prisma.position.findMany({
+      where: { userId: request.userId, status: "CLOSED", closedAt: { not: null } },
+      orderBy: { closedAt: "asc" },
+      take: 500,
+      select: { realizedPnl: true, closedAt: true }
     });
     let cumulative = 0;
-    const curve = trades.map((t) => {
-      cumulative += Number(t.profit ?? 0);
-      return { time: t.settledAt?.getTime() ?? t.createdAt.getTime(), pnl: Number(cumulative.toFixed(2)) };
+    const curve = positions.map((p) => {
+      cumulative += Number(p.realizedPnl ?? 0);
+      return { time: p.closedAt?.getTime() ?? 0, pnl: Number(cumulative.toFixed(2)) };
     });
-    const wins = trades.filter((t) => Number(t.profit) > 0).length;
+    const wins = positions.filter((p) => Number(p.realizedPnl ?? 0) > 0).length;
     return {
       performance: {
-        totalTrades: trades.length,
+        totalTrades: positions.length,
         wins,
-        losses: trades.length - wins,
-        winRate: trades.length > 0 ? wins / trades.length : 0,
+        losses: positions.length - wins,
+        winRate: positions.length > 0 ? wins / positions.length : 0,
         netPnl: Number(cumulative.toFixed(2)),
         curve
       }

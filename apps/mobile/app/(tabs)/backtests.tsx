@@ -52,6 +52,11 @@ export default function BacktestsScreen() {
               <Row style={{ justifyContent: "space-between" }}>
                 <Text style={styles.title}>
                   {item.symbol} · {item.interval} · {item.selectionMode}
+                  {item.executionModel === "cfd_v1"
+                    ? " · CFD"
+                    : item.executionModel === "rise_fall_v1"
+                      ? " · Legacy binary"
+                      : ""}
                 </Text>
                 <Badge tone={statusTone(item.status)} text={item.status} />
               </Row>

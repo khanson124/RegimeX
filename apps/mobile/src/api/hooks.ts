@@ -21,6 +21,8 @@ export interface DashboardSummary {
     paperIsFallback: boolean;
   };
   executionMode?: string | null;
+  paperEquity?: number | null;
+  paperCurrency?: string | null;
   brokerDemo?: {
     connected: boolean;
     isDemo: boolean;
@@ -125,6 +127,7 @@ export interface BacktestRow {
   status: string;
   progress: number;
   selectionMode: string;
+  executionModel?: string | null;
   summary: Record<string, number> | null;
   createdAt: string;
   error?: string | null;

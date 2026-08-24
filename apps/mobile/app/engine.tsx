@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text } from "react-native";
 import { ApiError } from "../src/api/client";
-import { useConfigureEngine, useEngine, useEngineAction, useSymbols } from "../src/api/hooks";
+import { useConfigureEngine, useEngine, useEngineAction, useMt5Status, useSymbols } from "../src/api/hooks";
 import { Badge, Button, Card, ErrorView, Metric, Row, SectionTitle, Skeleton } from "../src/components/ui";
 import { colors, font, spacing } from "../src/theme";
 
 const INTERVALS = ["1m", "5m"] as const;
 const MODES = [
   { value: "ANALYSIS_ONLY", label: "Analysis only" },
-  { value: "DEMO_TRADING", label: "Demo trading" }
+  { value: "DEMO_TRADING", label: "CFD demo trading" }
 ] as const;
 
 function stateTone(state: string): "up" | "down" | "warning" | "neutral" {
@@ -21,6 +21,7 @@ function stateTone(state: string): "up" | "down" | "warning" | "neutral" {
 export default function EngineScreen() {
   const { data, isLoading, isError, error, refetch, isRefetching } = useEngine();
   const { data: symbolsData } = useSymbols();
+  const { data: mt5Data } = useMt5Status();
   const action = useEngineAction();
   const configure = useConfigureEngine();
 
@@ -52,6 +53,8 @@ export default function EngineScreen() {
   const emergencyStop = engine?.emergencyStop ?? false;
   const running = state.startsWith("RUNNING") || state === "PAUSED";
   const demoAllowed = engine?.demoTradingGloballyEnabled ?? false;
+  const mt5 = mt5Data?.status;
+  const mt5EngineOn = Boolean(mt5?.engineAutomationEnabled ?? mt5?.config?.mt5EngineEnabled);
 
   function runAction(actionName: "start" | "pause" | "resume" | "stop" | "emergency-stop"): void {
     setActionError(null);
@@ -134,10 +137,16 @@ export default function EngineScreen() {
         </Row>
         {!demoAllowed ? (
           <Text style={styles.hint}>
-            Demo trading is disabled server-side (DEMO_TRADING_ENABLED=false). Analysis-only mode still
+            CFD demo trading is disabled server-side (DEMO_TRADING_ENABLED=false). Analysis-only mode still
             classifies regimes, selects strategies, and logs every decision without placing trades.
           </Text>
-        ) : null}
+        ) : (
+          <Text style={styles.hint}>
+            CFD demo trading follows the server execution venue (MT5 DEMO, cTrader DEMO, or paper CFD).
+            Engine-driven MT5 orders stay off unless MT5_ENGINE_ENABLED is true
+            {mt5EngineOn ? " — currently ON." : " — currently OFF."}
+          </Text>
+        )}
         <Button title="Save configuration" variant="secondary" onPress={saveConfig} loading={configure.isPending} />
       </Card>
 
@@ -171,8 +180,8 @@ export default function EngineScreen() {
       <Button title="EMERGENCY STOP" variant="danger" onPress={() => runAction("emergency-stop")} loading={action.isPending} />
 
       <Text style={styles.disclaimer}>
-        Experimental research tool. Demo accounts only — live-money trading is blocked at every layer. Signals
-        and backtests are not financial advice and no profitability is promised.
+        Experimental CFD research tool. MT5 DEMO / paper fallback only — live-money trading is blocked.
+        Signals and backtests are not financial advice and no profitability is promised.
       </Text>
     </ScrollView>
   );

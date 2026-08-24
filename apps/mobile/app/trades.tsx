@@ -58,8 +58,8 @@ export default function TradesScreen() {
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.accent} />}
       ListEmptyComponent={
         <EmptyState
-          title="No demo trades yet"
-          hint="Trades appear here when the engine runs in demo-trading mode and a signal passes all risk checks."
+          title="No archived binary trades"
+          hint="This list is historical rise/fall (CALL/PUT) demo contracts. Live CFD positions are on Positions, not here."
         />
       }
       renderItem={({ item }) => {

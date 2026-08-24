@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { useClosePosition, usePaperAccount, usePositions } from "../src/api/hooks";
+import { useClosePosition, useMt5Status, usePaperAccount, usePositions } from "../src/api/hooks";
 import { alertMessage, confirmAsync } from "../src/lib/confirm";
 import { Badge, Button, Card, EmptyState, ErrorView, Metric, Row, SectionTitle, Skeleton } from "../src/components/ui";
 import { colors, font, spacing, REGIME_LABELS } from "../src/theme";
@@ -42,10 +42,13 @@ function currentR(item: Record<string, unknown>): string {
 export default function PositionsScreen() {
   const [tab, setTab] = useState<"OPEN" | "CLOSED">("OPEN");
   const { data: accountData, refetch: refetchAccount, isRefetching: acctRefetching } = usePaperAccount();
+  const { data: mt5Data, refetch: refetchMt5, isRefetching: mt5Refetching } = useMt5Status();
   const { data, isLoading, isError, error, refetch, isRefetching } = usePositions(tab);
   const closePos = useClosePosition();
   const account = accountData?.account;
   const items = data?.items ?? [];
+  const mt5 = mt5Data?.status;
+  const mt5Active = Boolean(mt5?.enabled);
 
   async function onClose(id: string): Promise<void> {
     const ok = await confirmAsync("Close position?", "Requests a broker/paper close. Status stays OPEN until confirmation.", "Close");
@@ -80,18 +83,58 @@ export default function PositionsScreen() {
       keyExtractor={(item) => String(item.id)}
       refreshControl={
         <RefreshControl
-          refreshing={isRefetching || acctRefetching}
+          refreshing={isRefetching || acctRefetching || mt5Refetching}
           onRefresh={() => {
             void refetch();
             void refetchAccount();
+            void refetchMt5();
           }}
           tintColor={colors.accent}
         />
       }
       ListHeaderComponent={
         <>
-          <SectionTitle>Paper CFD account</SectionTitle>
+          {mt5Active ? (
+            <>
+              <SectionTitle>MT5 DEMO account</SectionTitle>
+              <Card>
+                <Row>
+                  <Metric label="Balance" value={money(mt5?.account?.balance)} large />
+                  <Metric label="Equity" value={money(mt5?.account?.equity)} large />
+                </Row>
+                <Row>
+                  <Metric
+                    label="Link"
+                    value={mt5?.connected ? "Connected" : mt5?.error ? "Error" : "Offline"}
+                    tone={mt5?.connected ? "up" : "warning"}
+                  />
+                  <Metric
+                    label="Open"
+                    value={Array.isArray(mt5?.openPositions) ? String(mt5.openPositions.length) : "—"}
+                  />
+                </Row>
+                <Row>
+                  <Metric label="Used margin" value={money(mt5?.account?.usedMargin)} />
+                  <Metric label="Free margin" value={money(mt5?.account?.freeMargin)} />
+                </Row>
+                {mt5?.server ? (
+                  <Text style={styles.dim}>
+                    {mt5.server}
+                    {mt5.login ? ` · login ${mt5.login}` : ""}
+                    {mt5.company ? ` · ${mt5.company}` : ""}
+                  </Text>
+                ) : null}
+              </Card>
+            </>
+          ) : null}
+
+          <SectionTitle>{mt5Active ? "Paper CFD (fallback)" : "Paper CFD account"}</SectionTitle>
           <Card>
+            {mt5Active ? (
+              <Text style={styles.dim}>
+                Local paper account — not broker state. Used for development, tests, and when MT5 DEMO is offline.
+              </Text>
+            ) : null}
             {account ? (
               <>
                 <Row>
@@ -133,7 +176,7 @@ export default function PositionsScreen() {
       ListEmptyComponent={
         <EmptyState
           title={tab === "OPEN" ? "No open positions" : "No closed positions"}
-          hint="PAPER CFD, cTrader DEMO, and MT5 DEMO are separate venues. Paper is not broker state."
+          hint="CFD positions across MT5 DEMO, cTrader DEMO, and paper. Paper is a local fallback, not broker state."
         />
       }
       renderItem={({ item }) => {

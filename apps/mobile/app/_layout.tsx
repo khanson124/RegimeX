@@ -68,7 +68,7 @@ export default function RootLayout() {
             <Stack.Screen name="backtest/[id]" options={{ title: "Backtest" }} />
             <Stack.Screen name="backtest/new" options={{ title: "New Backtest" }} />
             <Stack.Screen name="engine" options={{ title: "Live Engine" }} />
-            <Stack.Screen name="positions" options={{ title: "Open Positions" }} />
+            <Stack.Screen name="positions" options={{ title: "Positions" }} />
             <Stack.Screen name="trades" options={{ title: "Legacy Demo Trades" }} />
             <Stack.Screen name="risk" options={{ title: "Risk Settings" }} />
             <Stack.Screen name="decisions" options={{ title: "Decision Log" }} />

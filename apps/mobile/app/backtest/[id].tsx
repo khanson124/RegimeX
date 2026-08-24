@@ -81,6 +81,11 @@ export default function BacktestDetailScreen() {
         <Row style={{ justifyContent: "space-between" }}>
           <Text style={styles.title}>
             {bt.symbol} · {bt.interval} · {bt.selectionMode}
+          {bt.executionModel === "cfd_v1"
+            ? " · CFD"
+            : bt.executionModel === "rise_fall_v1"
+              ? " · Legacy binary"
+              : ""}
           </Text>
           <Badge
             tone={done ? "up" : status === "FAILED" ? "down" : status === "RUNNING" ? "warning" : "neutral"}
@@ -183,7 +188,11 @@ export default function BacktestDetailScreen() {
         </>
       ) : null}
 
-      <Text style={styles.note}>Simulated results with assumed payouts. Not indicative of future performance.</Text>
+      <Text style={styles.note}>
+        {bt.executionModel === "rise_fall_v1"
+          ? "Legacy binary simulation with assumed payouts. Not indicative of future performance."
+          : "Simulated CFD results (spread, SL/TP, lot sizing). Not indicative of future performance."}
+      </Text>
     </ScrollView>
   );
 }

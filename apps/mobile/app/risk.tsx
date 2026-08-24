@@ -14,6 +14,7 @@ export default function RiskScreen() {
   const status = useRiskStatus();
   const update = useUpdateRiskProfile();
 
+  const [riskPct, setRiskPct] = useState("0.5");
   const [fixedStake, setFixedStake] = useState("0.5");
   const [maxStake, setMaxStake] = useState("1");
   const [maxDailyLoss, setMaxDailyLoss] = useState("5");
@@ -29,6 +30,7 @@ export default function RiskScreen() {
   useEffect(() => {
     const p = data?.profile as Record<string, number> | undefined;
     if (!p) return;
+    setRiskPct(numField(Number(p.riskPerTradePercent ?? 0.5)));
     setFixedStake(numField(p.fixedStake));
     setMaxStake(numField(p.maxStakePerTrade));
     setMaxDailyLoss(numField(p.maxDailyLoss));
@@ -59,6 +61,7 @@ export default function RiskScreen() {
     setWarnings([]);
     update.mutate(
       {
+        riskPerTradePercent: Number(riskPct),
         fixedStake: Number(fixedStake),
         maxStakePerTrade: Number(maxStake),
         maxDailyLoss: Number(maxDailyLoss),
@@ -85,26 +88,39 @@ export default function RiskScreen() {
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.accent} />}
     >
       <Card>
-        <Text style={styles.badge}>Demo accounts only — live-money trading is blocked</Text>
+        <Text style={styles.badge}>CFD demo only — live-money trading is blocked</Text>
         <Row>
           <Metric label="Today P/L" value={s?.dailyPnl != null ? Number(s.dailyPnl).toFixed(2) : "—"} />
-          <Metric label="Trades today" value={s?.todayTrades != null ? String(s.todayTrades) : "—"} />
+          <Metric
+            label="Opened today"
+            value={s?.dailyTrades != null ? String(s.dailyTrades) : s?.todayTrades != null ? String(s.todayTrades) : "—"}
+          />
           <Metric
             label="Consec. losses"
             value={s?.consecutiveLosses != null ? String(s.consecutiveLosses) : "—"}
             tone={Number(s?.consecutiveLosses) >= 2 ? "warning" : "neutral"}
           />
         </Row>
-        <KeyValue k="Open contracts" v={s?.openContracts != null ? String(s.openContracts) : "—"} />
+        <KeyValue
+          k="Open positions"
+          v={s?.openPositions != null ? String(s.openPositions) : s?.openContracts != null ? String(s.openContracts) : "—"}
+        />
         <KeyValue k="Emergency stop" v={s?.emergencyStop ? "ACTIVE" : "Off"} />
       </Card>
 
-      <SectionTitle>Stake & limits</SectionTitle>
+      <SectionTitle>CFD risk</SectionTitle>
       <Card>
-        <Input label="Fixed stake (per trade)" value={fixedStake} onChangeText={setFixedStake} keyboardType="decimal-pad" />
-        <Input label="Max stake per trade" value={maxStake} onChangeText={setMaxStake} keyboardType="decimal-pad" />
+        <Text style={styles.hint}>
+          Lot size is derived from this percent of equity, stop distance, and instrument metadata — not a fixed stake.
+        </Text>
+        <Input
+          label="Risk per trade (% of equity)"
+          value={riskPct}
+          onChangeText={setRiskPct}
+          keyboardType="decimal-pad"
+        />
         <Input label="Max daily loss" value={maxDailyLoss} onChangeText={setMaxDailyLoss} keyboardType="decimal-pad" />
-        <Input label="Max trades per day" value={maxDailyTrades} onChangeText={setMaxDailyTrades} keyboardType="number-pad" />
+        <Input label="Max positions per day" value={maxDailyTrades} onChangeText={setMaxDailyTrades} keyboardType="number-pad" />
         <Input
           label="Max consecutive losses"
           value={maxConsecLosses}
@@ -113,13 +129,13 @@ export default function RiskScreen() {
         />
         <Input label="Cooldown (seconds)" value={cooldown} onChangeText={setCooldown} keyboardType="number-pad" />
         <Input
-          label="Max simultaneous contracts"
+          label="Max simultaneous positions"
           value={maxSimultaneous}
           onChangeText={setMaxSimultaneous}
           keyboardType="number-pad"
         />
         <Input label="Max drawdown %" value={maxDrawdown} onChangeText={setMaxDrawdown} keyboardType="decimal-pad" />
-        <Input label="Min balance threshold" value={minBalance} onChangeText={setMinBalance} keyboardType="decimal-pad" />
+        <Input label="Min equity threshold" value={minBalance} onChangeText={setMinBalance} keyboardType="decimal-pad" />
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         {warnings.map((w) => (
           <Text key={w} style={styles.warning}>
@@ -129,9 +145,18 @@ export default function RiskScreen() {
         <Button title="Save risk profile" onPress={save} loading={update.isPending} />
       </Card>
 
+      <SectionTitle>Legacy binary (unused for CFD)</SectionTitle>
+      <Card>
+        <Text style={styles.hint}>
+          Fixed stake fields remain for archived rise/fall contracts. CFD sizing ignores them.
+        </Text>
+        <Input label="Fixed stake (per trade)" value={fixedStake} onChangeText={setFixedStake} keyboardType="decimal-pad" />
+        <Input label="Max stake per trade" value={maxStake} onChangeText={setMaxStake} keyboardType="decimal-pad" />
+      </Card>
+
       <Text style={styles.disclaimer}>
-        Conservative defaults are intentional. RegimeX does not use Martingale or loss-recovery staking.
-        Backtest and live results are experimental — no profitability is guaranteed.
+            Conservative defaults are intentional. CFD uses percent-of-equity risk, not Martingale or recovery staking.
+            Backtest and live results are experimental — no profitability is guaranteed.
       </Text>
     </ScrollView>
   );
@@ -140,6 +165,7 @@ export default function RiskScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   badge: { color: colors.warning, fontSize: font.caption, marginBottom: spacing.sm },
+  hint: { color: colors.textDim, fontSize: font.caption, marginBottom: spacing.sm, lineHeight: 18 },
   error: { color: colors.down, fontSize: font.caption, marginBottom: spacing.sm },
   warning: { color: colors.warning, fontSize: font.caption, marginBottom: 4 },
   disclaimer: { color: colors.textFaint, fontSize: font.caption, textAlign: "center", marginTop: spacing.lg, lineHeight: 18 }

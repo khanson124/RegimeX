@@ -6,14 +6,14 @@ import { Card } from "../../src/components/ui";
 import { colors, font, spacing } from "../../src/theme";
 
 const LINKS: Array<{ href: Href; icon: keyof typeof Ionicons.glyphMap; label: string; hint: string }> = [
-  { href: "/engine", icon: "play-circle-outline", label: "Live Engine", hint: "Start, pause, configure analysis or paper CFD trading" },
-  { href: "/positions", icon: "layers-outline", label: "Open Positions", hint: "Paper CFD positions, floating P/L, manual close" },
-  { href: "/trades", icon: "swap-horizontal-outline", label: "Legacy Demo Trades", hint: "Historical binary demo contracts (read-only)" },
-  { href: "/risk", icon: "shield-checkmark-outline", label: "Risk Settings", hint: "Risk %, loss limits, cooldowns, session hours" },
+  { href: "/engine", icon: "play-circle-outline", label: "Live Engine", hint: "Start, pause, analysis or CFD demo trading" },
+  { href: "/positions", icon: "layers-outline", label: "Positions", hint: "MT5 DEMO / paper CFD positions, floating P/L, close" },
+  { href: "/risk", icon: "shield-checkmark-outline", label: "Risk Settings", hint: "Risk % of equity, loss limits, cooldowns" },
+  { href: "/settings", icon: "settings-outline", label: "Settings", hint: "Market data (Deriv API), execution venue, account" },
   { href: "/decisions", icon: "document-text-outline", label: "Decision Log", hint: "Why the engine traded or did not trade" },
   { href: "/research", icon: "analytics-outline", label: "Research", hint: "Walk-forward validation, holdout, confidence scores" },
   { href: "/optimizer", icon: "options-outline", label: "Optimizer", hint: "Grid-search strategy parameters" },
-  { href: "/settings", icon: "settings-outline", label: "Settings", hint: "Deriv connection, data, account" }
+  { href: "/trades", icon: "swap-horizontal-outline", label: "Legacy Demo Trades", hint: "Archived binary options contracts (read-only)" }
 ];
 
 export default function MoreScreen() {
@@ -35,8 +35,8 @@ export default function MoreScreen() {
         </Pressable>
       ))}
       <Text style={styles.disclaimer}>
-        RegimeX is an experimental research tool for Deriv demo accounts only. Live-money trading is disabled.
-        Past performance, simulated or real, does not guarantee future results.
+        RegimeX is an experimental CFD research tool. Primary forward path is MT5 DEMO; paper CFD is fallback.
+        Live-money trading is disabled. Past performance does not guarantee future results.
       </Text>
     </ScrollView>
   );

@@ -4,9 +4,11 @@ import { useRouter } from "expo-router";
 import { ApiError } from "../src/api/client";
 import {
   useConnectDeriv,
+  useDashboard,
   useDerivAccount,
   useDisconnectDeriv,
   useDownloadMarketData,
+  useMt5Status,
   useTestDerivConnection
 } from "../src/api/hooks";
 import { useAuthStore } from "../src/stores/auth";
@@ -15,6 +17,8 @@ import { colors, font, spacing } from "../src/theme";
 
 export default function SettingsScreen() {
   const { data, isLoading, isError, error, refetch } = useDerivAccount();
+  const { data: mt5Data } = useMt5Status();
+  const { data: dashboard } = useDashboard();
   const connect = useConnectDeriv();
   const disconnect = useDisconnectDeriv();
   const testConn = useTestDerivConnection();
@@ -38,24 +42,26 @@ export default function SettingsScreen() {
   }
 
   const account = data?.account ?? null;
+  const mt5 = mt5Data?.status;
+  const executionSource = dashboard?.summary.execution?.source;
 
   function connectToken(): void {
     setFormError(null);
     if (!token.trim()) {
-      setFormError("Enter your Deriv demo API token");
+      setFormError("Enter your Deriv demo API token (market data only)");
       return;
     }
     connect.mutate(token.trim(), {
       onSuccess: () => {
         setToken("");
-        Alert.alert("Connected", "Demo account linked. Token is stored encrypted on the server.");
+        Alert.alert("Connected", "Market-data account linked. This token is not used for MT5 execution.");
       },
       onError: (err) => setFormError(err instanceof ApiError ? err.message : "Connection failed")
     });
   }
 
   function confirmDisconnect(): void {
-    Alert.alert("Disconnect Deriv?", "The encrypted token will be revoked on the server.", [
+    Alert.alert("Disconnect market data?", "The encrypted Deriv token will be revoked on the server.", [
       { text: "Cancel", style: "cancel" },
       { text: "Disconnect", style: "destructive", onPress: () => disconnect.mutate() }
     ]);
@@ -89,11 +95,43 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 48 }}>
-      <SectionTitle>Deriv demo account</SectionTitle>
+      <SectionTitle>Execution venue</SectionTitle>
       <Card>
+        <Text style={styles.hint}>
+          Order routing is configured on the server (EXECUTION_MODE). This app does not place real-money trades.
+        </Text>
+        <KeyValue
+          k="Venue"
+          v={
+            executionSource === "MT5_DEMO" || mt5?.enabled
+              ? "MT5 DEMO"
+              : executionSource === "CTRADER_DEMO" || mt5?.config?.executionMode === "broker_demo_cfd"
+                ? "cTrader DEMO"
+                : executionSource === "PAPER_CFD" || mt5?.config?.executionMode === "paper_cfd"
+                  ? "Paper CFD (fallback)"
+                  : mt5?.config?.executionMode ?? "—"
+          }
+        />
+        {mt5?.enabled ? (
+          <>
+            <KeyValue k="MT5 link" v={mt5.connected ? "Connected" : mt5.error ? "Error" : "Offline"} />
+            <KeyValue k="Server" v={mt5.server ?? "—"} />
+            <KeyValue
+              k="Engine MT5 orders"
+              v={mt5.engineAutomationEnabled ? "ON (MT5_ENGINE_ENABLED)" : "OFF"}
+            />
+          </>
+        ) : null}
+      </Card>
+
+      <SectionTitle>Market data (Deriv API)</SectionTitle>
+      <Card>
+        <Text style={styles.hint}>
+          The Deriv token is for candles and ticks only. It is not the MT5 login and cannot send broker orders.
+        </Text>
         {account ? (
           <>
-            <Badge tone="up" text="Demo account connected" />
+            <Badge tone="up" text="Market data connected" />
             <KeyValue k="Login ID" v={account.loginId} />
             <KeyValue k="Currency" v={account.currency} />
             <KeyValue k="Balance" v={account.balance != null ? account.balance.toFixed(2) : "—"} />
@@ -108,10 +146,6 @@ export default function SettingsScreen() {
           </>
         ) : (
           <>
-            <Text style={styles.hint}>
-              Paste a Deriv demo API token. Only virtual accounts are accepted. The token is encrypted server-side
-              and never returned to this app after submission.
-            </Text>
             <Input
               label="Deriv demo API token"
               value={token}
@@ -120,7 +154,7 @@ export default function SettingsScreen() {
               autoCapitalize="none"
             />
             {formError ? <Text style={styles.error}>{formError}</Text> : null}
-            <Button title="Connect demo account" onPress={connectToken} loading={connect.isPending} />
+            <Button title="Connect market data" onPress={connectToken} loading={connect.isPending} />
           </>
         )}
       </Card>
@@ -139,8 +173,8 @@ export default function SettingsScreen() {
       </Card>
 
       <Text style={styles.disclaimer}>
-        RegimeX is for research on Deriv synthetic indices using demo accounts only. Past performance does not
-        guarantee future results.
+        RegimeX researches CFD on synthetic indices. Primary forward path is MT5 DEMO; paper CFD is fallback.
+        Past performance does not guarantee future results.
       </Text>
     </ScrollView>
   );
