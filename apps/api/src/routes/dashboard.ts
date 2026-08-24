@@ -172,6 +172,14 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       signalReasons.find((r) => r.startsWith("Target method:"))?.replace("Target method:", "").trim() ??
       null;
 
+    const executionMode = ctx.config.EXECUTION_MODE;
+    const executionSource =
+      executionMode === "broker_demo_mt5"
+        ? "MT5_DEMO"
+        : executionMode === "broker_demo_cfd"
+          ? "CTRADER_DEMO"
+          : "PAPER_CFD";
+
     return {
       summary: {
         engineState: engine?.state ?? "STOPPED",
@@ -179,6 +187,16 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
         derivConnected: engine?.lastTickAt
           ? Date.now() - engine.lastTickAt.getTime() < 60_000
           : false,
+        execution: {
+          source: executionSource,
+          executionMode,
+          realMoneyEnabled: ctx.config.REAL_MONEY_ENABLED === true,
+          mt5EngineAutomationEnabled:
+            executionMode === "broker_demo_mt5" && ctx.config.MT5_ENGINE_ENABLED === true,
+          mt5TestMode: ctx.config.MT5_TEST_MODE === true,
+          paperIsFallback: executionSource !== "PAPER_CFD"
+        },
+        executionMode,
         balance: account?.lastKnownBalance !== null && account ? Number(account.lastKnownBalance) : null,
         currency: account?.currency ?? null,
         symbol: engine?.configurations[0]?.symbol ?? null,

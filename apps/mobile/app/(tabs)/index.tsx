@@ -67,6 +67,10 @@ export default function DashboardScreen() {
 
   const s = data.summary;
   const engineRunning = s.engineState.startsWith("RUNNING");
+  const executionSource = s.execution?.source ?? (mt5Status?.status?.enabled && s.executionMode === "broker_demo_mt5" ? "MT5_DEMO" : "PAPER_CFD");
+  const mt5 = mt5Status?.status;
+  const mt5Active = Boolean(mt5?.enabled) || executionSource === "MT5_DEMO";
+  const mt5EngineOn = Boolean(mt5?.engineAutomationEnabled ?? s.execution?.mt5EngineAutomationEnabled);
 
   return (
     <ScrollView
@@ -81,7 +85,29 @@ export default function DashboardScreen() {
           <Metric label="Live feed" value={connected ? "Streaming" : "Reconnecting"} tone={connected ? "up" : "warning"} />
         </Row>
         {s.emergencyStop ? <Badge tone="down" text="EMERGENCY STOP ACTIVE" /> : null}
-        {brokerDemo?.status?.enabled ? (
+        <Row style={{ marginTop: spacing.md }}>
+          <Metric
+            label="Execution"
+            value={
+              executionSource === "MT5_DEMO"
+                ? "MT5 DEMO"
+                : executionSource === "CTRADER_DEMO"
+                  ? "cTrader DEMO"
+                  : "PAPER CFD"
+            }
+            tone={executionSource === "PAPER_CFD" ? "neutral" : "warning"}
+          />
+          {executionSource === "MT5_DEMO" || mt5Active ? (
+            <Metric
+              label="MT5 engine"
+              value={mt5EngineOn ? "ON" : "OFF"}
+              tone={mt5EngineOn ? "warning" : "neutral"}
+            />
+          ) : (
+            <Metric label="Paper role" value="Dev / fallback" />
+          )}
+        </Row>
+        {brokerDemo?.status?.enabled && executionSource === "CTRADER_DEMO" ? (
           <Row style={{ marginTop: spacing.md }}>
             <Metric
               label="cTrader"
@@ -103,24 +129,50 @@ export default function DashboardScreen() {
             />
           </Row>
         ) : null}
-        {mt5Status?.status?.enabled ? (
-          <Row style={{ marginTop: spacing.md }}>
-            <Metric label="MT5" value={mt5Status.status.isDemo ? "DEMO" : "—"} tone="warning" />
-            <Metric
-              label="MT5 link"
-              value={mt5Status.status.connected ? "Connected" : mt5Status.status.error ? "Error" : "Offline"}
-              tone={mt5Status.status.connected ? "up" : "warning"}
-            />
-            <Metric
-              label="MT5 engine"
-              value={mt5Status.status.engineAutomationEnabled ? "ON" : "OFF"}
-              tone={mt5Status.status.engineAutomationEnabled ? "warning" : "neutral"}
-            />
-          </Row>
+        {mt5Active ? (
+          <>
+            <Row style={{ marginTop: spacing.md }}>
+              <Metric
+                label="MT5 DEMO"
+                value={mt5?.isDemo || mt5?.demo ? "DEMO" : mt5?.connected ? "—" : "Offline"}
+                tone={mt5?.isDemo || mt5?.demo ? "warning" : "neutral"}
+              />
+              <Metric
+                label="MT5 link"
+                value={mt5?.connected ? "Connected" : mt5?.error ? "Error" : "Offline"}
+                tone={mt5?.connected ? "up" : "warning"}
+              />
+              <Metric
+                label="Open MT5"
+                value={Array.isArray(mt5?.openPositions) ? String(mt5.openPositions.length) : "—"}
+              />
+            </Row>
+            <Row style={{ marginTop: spacing.sm }}>
+              <Metric
+                label="MT5 equity"
+                value={mt5?.account?.equity != null ? String(mt5.account.equity) : "—"}
+              />
+              <Metric
+                label="MT5 balance"
+                value={mt5?.account?.balance != null ? String(mt5.account.balance) : "—"}
+              />
+              <Metric
+                label="Broker"
+                value={mt5?.company || mt5?.server || "—"}
+              />
+            </Row>
+            {mt5?.server ? (
+              <Text style={{ color: colors.textDim, marginTop: spacing.xs, fontSize: font.caption }}>
+                {mt5.server}
+                {mt5.login ? ` · login ${mt5.login}` : ""}
+                {Array.isArray(mt5.openPositions) ? ` · ${mt5.openPositions.length} open` : ""}
+              </Text>
+            ) : null}
+          </>
         ) : null}
-        {!brokerDemo?.status?.enabled && !mt5Status?.status?.enabled ? (
+        {executionSource === "PAPER_CFD" && !mt5Active ? (
           <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
-            Execution: paper CFD (simulated). Broker DEMO requires EXECUTION_MODE=broker_demo_cfd or broker_demo_mt5.
+            PAPER CFD — local development / tests / fallback. Primary forward path is Deriv MT5 DEMO.
           </Text>
         ) : null}
       </Card>
@@ -128,8 +180,20 @@ export default function DashboardScreen() {
       <Card>
         <Row>
           <Metric
-            label={`Demo balance ${s.currency ?? ""}`}
-            value={s.balance != null ? s.balance.toFixed(2) : "—"}
+            label={
+              executionSource === "MT5_DEMO"
+                ? `MT5 DEMO ${mt5?.account?.currency ?? ""}`.trim()
+                : executionSource === "CTRADER_DEMO"
+                  ? `cTrader DEMO ${s.currency ?? ""}`
+                  : `Paper CFD ${s.currency ?? ""}`
+            }
+            value={
+              executionSource === "MT5_DEMO" && mt5?.account?.equity != null
+                ? String(mt5.account.equity)
+                : s.balance != null
+                  ? s.balance.toFixed(2)
+                  : "—"
+            }
             large
           />
           <Metric

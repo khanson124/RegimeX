@@ -90,12 +90,15 @@ export function createBrokerAdapter(options: {
   if (options.executionMode === "broker_real_mt5") {
     throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
   }
+  if (options.executionMode === "broker_real_cfd") {
+    throw new Error("REAL_CFD_EXECUTION_NOT_IMPLEMENTED");
+  }
   if (options.executionMode === "legacy_binary" && options.legacyBinaryEnabled) {
     return new LegacyDerivOptionsBrokerAdapter({ enabled: true });
   }
-  if (options.executionMode === "broker_demo_cfd" || options.executionMode === "broker_real_cfd") {
+  if (options.executionMode === "broker_demo_cfd") {
     if (!options.derivCfd) {
-      throw new Error("createBrokerAdapter: DerivCfdBrokerAdapter required for broker_*_cfd modes");
+      throw new Error("createBrokerAdapter: DerivCfdBrokerAdapter required for broker_demo_cfd");
     }
     return options.derivCfd;
   }

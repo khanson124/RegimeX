@@ -75,4 +75,17 @@ describe("executionMode", () => {
       })
     ).toThrow(/MT5_BRIDGE_SECRET/);
   });
+
+  it("allows broker_demo_mt5 with secret and REAL_MONEY_ENABLED=false", () => {
+    expect(
+      resolveExecutionBackend({
+        EXECUTION_MODE: "broker_demo_mt5",
+        LEGACY_BINARY_ENABLED: false,
+        REAL_MONEY_ENABLED: false,
+        MT5_BRIDGE_SECRET: "test-secret-value-32chars-long!",
+        MT5_BRIDGE_URL: "http://mt5-bridge:8765",
+        MT5_EXPECTED_ENVIRONMENT: "demo"
+      })
+    ).toBe("broker_demo_mt5");
+  });
 });

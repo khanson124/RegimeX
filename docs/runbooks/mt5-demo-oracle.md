@@ -2,7 +2,9 @@
 
 RegimeX remains the trading brain. MT5 is a thin execution layer.
 
-**This milestone is DEMO only. Do not enable `MT5_ENGINE_ENABLED`. Do not place a trade until you approve the guarded test endpoint.**
+**MT5 DEMO is the primary forward execution environment.** Paper CFD remains a local/dev/fallback mode. Automated engine trading stays off until you set `MT5_ENGINE_ENABLED=true`.
+
+Do not place a trade until you approve the guarded test endpoint.
 
 ## Architecture
 
@@ -127,17 +129,26 @@ Put it in `/opt/regimex/.env` as `MT5_BRIDGE_SECRET`. **Do not commit it.**
 9. RegimeX `.env` for DEMO verification (engine stays off):
 
 ```
-EXECUTION_MODE=paper_cfd
+EXECUTION_MODE=broker_demo_mt5
 REAL_MONEY_ENABLED=false
 MT5_ENGINE_ENABLED=false
 MT5_TEST_MODE=true
+STRATEGY_SELECTION_MODE=bootstrap
 MT5_BRIDGE_URL=http://mt5-bridge:8765
 MT5_BRIDGE_SECRET=<secret>
 MT5_EXPECTED_BROKER=Deriv
 MT5_EXPECTED_ENVIRONMENT=demo
 ```
 
-Keep `EXECUTION_MODE=paper_cfd` until you intentionally switch to `broker_demo_mt5`. `MT5_TEST_MODE=true` is enough for the guarded API.
+`paper_cfd` is no longer required before MT5 DEMO. Keep it for local development, tests, and broker-unavailable fallback.
+
+Boolean env values: use `true`/`false`. The API now parses `"false"` as false (`z.coerce.boolean` previously treated `"false"` as true).
+
+After changing `.env`, recreate containers so they pick up the file:
+
+```
+docker compose up -d --build --force-recreate api worker mt5-bridge
+```
 
 10. `docker compose up -d --build`
 
@@ -154,7 +165,15 @@ curl -H "Authorization: Bearer <access>" \
   http://localhost:4000/broker-demo/mt5/status
 ```
 
-Expect `connected`, `isDemo: true`, `tradeMode: DEMO`, `marginMode: HEDGING`.
+Expect `mode=broker_demo_mt5`, `enabled=true`, `engineAutomationEnabled=false`, `connected`, `isDemo: true`, `tradeMode: DEMO`, `marginMode: HEDGING`. `config.mt5EngineEnabled` must be false.
+
+Preflight (no order):
+
+```bash
+curl -X POST -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  http://localhost:4000/broker-demo/mt5/preflight \
+  -d '{"symbol":"<exact MT5 symbol>","direction":"BUY","stopLoss":<price>,"takeProfit":<price>}'
+```
 
 List symbols (do not guess R_10 names):
 
@@ -201,7 +220,7 @@ Confirm the ticket in the Deriv MT5 terminal. TEST origin is excluded from strat
 |------|----------|
 | Local PENDING + MT5 position | Adopt, mark OPEN |
 | Local OPEN + MT5 present | Broker SL/TP wins |
-| Local OPEN + MT5 gone | CLOSED + RECONCILED (history deal if available) |
+| Local OPEN + MT5 gone | Query history. CLOSED+RECONCILED only with deal evidence; otherwise `RECONCILIATION_PENDING_HISTORY` |
 | MT5 position, no local row | `externalUntracked` — not traded, not auto-closed |
 | Manual close in MT5 UI | Detected as broker-gone |
 

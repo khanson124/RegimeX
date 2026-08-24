@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "true",
+    "test": "vitest run",
     "build": "true"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "@regimex/tsconfig": "workspace:*",
     "@types/node": "^22.10.7",
     "eslint": "^9.18.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
   }
 }

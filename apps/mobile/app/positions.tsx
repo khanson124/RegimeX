@@ -29,7 +29,7 @@ function venueLabel(item: Record<string, unknown>): string {
   const model = String(meta.executionModel ?? "");
   if (model === "broker_demo_mt5" || String(item.idempotencyKey ?? "").startsWith("TEST:mt5:")) return "MT5 DEMO";
   if (model === "broker_demo_cfd") return "cTrader DEMO";
-  return "PAPER";
+  return "PAPER CFD";
 }
 
 function currentR(item: Record<string, unknown>): string {
@@ -133,7 +133,7 @@ export default function PositionsScreen() {
       ListEmptyComponent={
         <EmptyState
           title={tab === "OPEN" ? "No open positions" : "No closed positions"}
-          hint="Paper, cTrader DEMO, and MT5 DEMO positions appear here. TEST trades are tagged and excluded from ranking."
+          hint="PAPER CFD, cTrader DEMO, and MT5 DEMO are separate venues. Paper is not broker state."
         />
       }
       renderItem={({ item }) => {

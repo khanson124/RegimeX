@@ -2,12 +2,14 @@ import { type AppConfig } from "@regimex/config";
 import {
   DerivMT5BrokerAdapter,
   type DerivMt5BrokerConfig,
+  assertMt5DemoAdapterAllowed,
   resolveMt5BridgeUrl
 } from "@regimex/trading-engine";
 
 let sharedAdapter: DerivMT5BrokerAdapter | null = null;
 
 export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConfig {
+  assertMt5DemoAdapterAllowed(config);
   return {
     requireDemoAccount: true,
     bridgeUrl: resolveMt5BridgeUrl(config),

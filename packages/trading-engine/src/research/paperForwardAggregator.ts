@@ -23,6 +23,8 @@ export interface PaperForwardPositionRow {
   closeReason?: string | null;
   netR?: number | null;
   grossR?: number | null;
+  /** Keep paper / MT5 DEMO / cTrader DEMO lanes separate. Default PAPER. */
+  executionVenue?: "PAPER" | "MT5_DEMO" | "CTRADER_DEMO" | string;
 }
 
 export interface PaperForwardBucket {
@@ -41,15 +43,23 @@ function isEngineOrigin(row: PaperForwardPositionRow): boolean {
   return row.origin === "ENGINE" || row.origin === "engine" || !row.origin;
 }
 
+function isPaperVenue(row: PaperForwardPositionRow): boolean {
+  const venue = String(row.executionVenue ?? "PAPER").toUpperCase();
+  if (venue === "MT5_DEMO" || venue === "BROKER_DEMO_MT5") return false;
+  if (venue === "CTRADER_DEMO" || venue === "BROKER_DEMO_CFD") return false;
+  return true;
+}
+
 /**
  * Aggregate CLOSED paper CFD positions into per strategy×symbol×interval×regime
  * CFD summaries for validated selection forward evidence.
+ * Does not include MT5 broker-demo or cTrader broker-demo fills.
  */
 export function aggregatePaperForwardPerformance(
   rows: ReadonlyArray<PaperForwardPositionRow>,
   startingBalance = 10_000
 ): PaperForwardBucket[] {
-  const engineRows = rows.filter(isEngineOrigin);
+  const engineRows = rows.filter((row) => isEngineOrigin(row) && isPaperVenue(row));
   const groups = new Map<string, PaperForwardPositionRow[]>();
 
   for (const row of engineRows) {

@@ -1,8 +1,10 @@
 import "dotenv/config";
 import { z } from "zod";
+import { envBoolean } from "./envBoolean.js";
 
 export * from "./crypto.js";
 export * from "./redis.js";
+export { parseEnvBoolean, envBoolean } from "./envBoolean.js";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -27,14 +29,14 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("*"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   /** Feature flag: ensemble strategy voting. */
-  FEATURE_ENSEMBLE_VOTING: z.coerce.boolean().default(false),
+  FEATURE_ENSEMBLE_VOTING: envBoolean.default(false),
   /** Hard switch: demo trade execution. Defaults OFF. */
-  DEMO_TRADING_ENABLED: z.coerce.boolean().default(false),
+  DEMO_TRADING_ENABLED: envBoolean.default(false),
   /**
    * CFD execution backend:
-   * - paper_cfd: simulated PaperCFDBrokerAdapter (default)
+   * - broker_demo_mt5: primary Deriv MT5 DEMO forward path (EA/bridge, no public ports)
+   * - paper_cfd: local development / tests / broker-unavailable fallback (still supported)
    * - broker_demo_cfd: Deriv cTrader Open API DEMO
-   * - broker_demo_mt5: Deriv MT5 DEMO via local EA/bridge (no public ports)
    * - broker_real_cfd / broker_real_mt5: MUST remain unimplemented
    * - legacy_binary: quarantined options path
    */
@@ -49,9 +51,9 @@ const envSchema = z.object({
     ])
     .default("paper_cfd"),
   /** Must remain false. Real-money path is architecture-only. */
-  REAL_MONEY_ENABLED: z.coerce.boolean().default(false),
+  REAL_MONEY_ENABLED: envBoolean.default(false),
   /** Quarantined legacy Deriv rise/fall options path. Defaults OFF. */
-  LEGACY_BINARY_ENABLED: z.coerce.boolean().default(false),
+  LEGACY_BINARY_ENABLED: envBoolean.default(false),
   /** Initial balance for new paper CFD accounts (not Deriv options balance). */
   PAPER_INITIAL_BALANCE: z.coerce.number().positive().default(10_000),
   /** Global fallback paper spread/slippage when instrument metadata omits overrides. */
@@ -87,12 +89,12 @@ const envSchema = z.object({
   /**
    * Guarded connectivity test path. Does not enable automated engine trading.
    */
-  BROKER_DEMO_TEST_MODE: z.coerce.boolean().default(false),
+  BROKER_DEMO_TEST_MODE: envBoolean.default(false),
   /**
    * Allow engine-generated broker-demo trades. Keep false until one manual demo
    * connectivity trade is approved.
    */
-  BROKER_DEMO_ENGINE_ENABLED: z.coerce.boolean().default(false),
+  BROKER_DEMO_ENGINE_ENABLED: envBoolean.default(false),
   /** Spotware money field scale (cents → 100). */
   CTRADER_MONEY_SCALE: z.coerce.number().positive().default(100),
   /**
@@ -110,8 +112,13 @@ const envSchema = z.object({
   MT5_EXPECTED_SERVER: z.string().optional(),
   MT5_EXPECTED_LOGIN: z.string().optional(),
   MT5_MAGIC_NUMBER: z.coerce.number().int().positive().default(26082301),
-  MT5_ENGINE_ENABLED: z.coerce.boolean().default(false),
-  MT5_TEST_MODE: z.coerce.boolean().default(false),
+  /**
+   * Allow engine-generated MT5 DEMO orders. Keep false for status/preflight/TEST.
+   * String "false" must remain false (do not use z.coerce.boolean).
+   */
+  MT5_ENGINE_ENABLED: envBoolean.default(false),
+  /** Guarded TEST / status / preflight APIs. Does not enable engine automation. */
+  MT5_TEST_MODE: envBoolean.default(false),
   MT5_MAX_TEST_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_MAX_TEST_RISK_PERCENT: z.coerce.number().positive().default(0.1),
   MT5_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),

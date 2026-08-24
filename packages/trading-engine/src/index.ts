@@ -65,6 +65,7 @@ export * from "./research/researchMetrics.js";
 export * from "./research/baselines.js";
 export * from "./research/cfdBaselines.js";
 export * from "./research/paperForwardAggregator.js";
+export * from "./research/mt5BrokerDemoForwardAggregator.js";
 export * from "./research/degradationAnalysis.js";
 export * from "./research/researchVerdict.js";
 export * from "./research/demoForwardAggregator.js";

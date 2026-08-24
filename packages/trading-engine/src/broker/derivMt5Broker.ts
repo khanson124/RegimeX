@@ -96,7 +96,6 @@ export interface Mt5BrokerStatus {
   currency: string | null;
   account: BrokerAccountSnapshot | null;
   lastError: string | null;
-  engineAutomationEnabled: boolean;
 }
 
 export class DerivMT5BrokerAdapter implements BrokerAdapter {
@@ -128,8 +127,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       leverage: this.account?.leverage ?? null,
       currency: this.account?.currency ?? null,
       account: this.account ? this.mapAccount(this.account) : null,
-      lastError: this.lastError,
-      engineAutomationEnabled: false
+      lastError: this.lastError
     };
   }
 

@@ -29,6 +29,8 @@ export interface CfdPerformanceMetricRow {
 }
 
 const SEGMENT_PRIORITY = ["HOLDOUT", "WALK_FORWARD", "PAPER_FORWARD", "TEST", "OVERALL", "TRAIN"];
+// MT5_BROKER_DEMO_FORWARD is a separate evidence lane and is intentionally
+// not in this list — do not merge it into validated selection.
 
 /**
  * Pick the best research/paper metric row per strategy×regime for a symbol/interval,

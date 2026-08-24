@@ -5,7 +5,12 @@ import {
   measurePaperVsBrokerDivergence,
   planBrokerPositionReconciliation,
   resolveMt5BridgeUrl,
-  selectMt5PositionsForEmergencyClose
+  selectMt5PositionsForEmergencyClose,
+  assertMt5DemoAdapterAllowed,
+  buildMt5StatusEnvelope,
+  isMt5DemoApiEnabled,
+  isMt5RealPath,
+  REAL_MT5_NOT_IMPLEMENTED
 } from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
@@ -25,61 +30,45 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   const auth = requireAuth(ctx);
 
   app.get("/broker-demo/mt5/status", { preHandler: auth }, async () => {
-    const mode = ctx.config.EXECUTION_MODE;
-    if (mode !== "broker_demo_mt5" && !ctx.config.MT5_TEST_MODE) {
-      return {
-        status: {
-          mode,
-          enabled: false,
-          message: "Set EXECUTION_MODE=broker_demo_mt5 or MT5_TEST_MODE=true"
-        }
-      };
+    if (isMt5RealPath(ctx.config)) {
+      return buildMt5StatusEnvelope(ctx.config, null, REAL_MT5_NOT_IMPLEMENTED);
+    }
+    if (!isMt5DemoApiEnabled(ctx.config)) {
+      return buildMt5StatusEnvelope(ctx.config);
     }
     try {
       const adapter = await connectMt5Adapter(ctx);
-      const status = adapter.getStatus();
-      const positions = status.eaConnected ? await adapter.getOpenPositions() : [];
-      return {
-        status: {
-          mode: "broker_demo_mt5",
-          enabled: true,
-          demo: status.isDemo,
-          testMode: ctx.config.MT5_TEST_MODE,
-          ...status,
-          engineAutomationEnabled: ctx.config.MT5_ENGINE_ENABLED,
-          openPositions: positions.map((p) => ({
-            brokerPositionId: p.brokerPositionId,
-            symbol: p.symbol,
-            direction: p.direction,
-            volume: p.volume,
-            entryPrice: p.entryPrice,
-            stopLoss: p.stopLoss,
-            takeProfit: p.takeProfit,
-            floatingPnl: p.floatingPnl,
-            orderTicket: p.metadata?.orderTicket,
-            dealTicket: p.metadata?.dealTicket,
-            positionTicket: p.metadata?.positionTicket,
-            ownedByRegimeX: p.metadata?.ownedByRegimeX,
-            origin: p.metadata?.origin ?? null
-          }))
-        }
-      };
+      const live = adapter.getStatus();
+      const positions = live.eaConnected ? await adapter.getOpenPositions() : [];
+      return buildMt5StatusEnvelope(ctx.config, {
+        ...live,
+        openPositions: positions.map((p) => ({
+          brokerPositionId: p.brokerPositionId,
+          symbol: p.symbol,
+          direction: p.direction,
+          volume: p.volume,
+          entryPrice: p.entryPrice,
+          stopLoss: p.stopLoss,
+          takeProfit: p.takeProfit,
+          floatingPnl: p.floatingPnl,
+          orderTicket: p.metadata?.orderTicket,
+          dealTicket: p.metadata?.dealTicket,
+          positionTicket: p.metadata?.positionTicket,
+          ownedByRegimeX: p.metadata?.ownedByRegimeX,
+          origin: p.metadata?.origin ?? null
+        }))
+      });
     } catch (err) {
-      return {
-        status: {
-          mode: "broker_demo_mt5",
-          enabled: true,
-          demo: true,
-          connected: false,
-          error: err instanceof Error ? err.message : String(err),
-          engineAutomationEnabled: ctx.config.MT5_ENGINE_ENABLED
-        }
-      };
+      const message = err instanceof Error ? err.message : String(err);
+      return buildMt5StatusEnvelope(ctx.config, { connected: false }, message);
     }
   });
 
   app.get("/broker-demo/mt5/symbols", { preHandler: auth }, async () => {
-    if (!ctx.config.MT5_TEST_MODE && ctx.config.EXECUTION_MODE !== "broker_demo_mt5") {
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
+    }
+    if (!isMt5DemoApiEnabled(ctx.config)) {
       throw new ValidationError("MT5 symbol discovery requires broker_demo_mt5 or MT5_TEST_MODE");
     }
     const adapter = await connectMt5Adapter(ctx);
@@ -99,11 +88,11 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   });
 
   app.post("/broker-demo/mt5/preflight", { preHandler: auth }, async (request) => {
-    if (!ctx.config.MT5_TEST_MODE && ctx.config.EXECUTION_MODE !== "broker_demo_mt5") {
-      throw new ValidationError("MT5 preflight requires broker_demo_mt5 or MT5_TEST_MODE");
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
     }
-    if (ctx.config.REAL_MONEY_ENABLED || ctx.config.EXECUTION_MODE === "broker_real_mt5") {
-      throw new ValidationError("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
+    if (!isMt5DemoApiEnabled(ctx.config)) {
+      throw new ValidationError("MT5 preflight requires broker_demo_mt5 or MT5_TEST_MODE");
     }
     const body = preflightSchema.parse(request.body);
     const adapter = await connectMt5Adapter(ctx);
@@ -116,11 +105,11 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   });
 
   app.post("/broker-demo/mt5/test-trade", { preHandler: auth }, async (request, reply) => {
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
+    }
     if (!ctx.config.MT5_TEST_MODE) {
       throw new ValidationError("MT5_TEST_MODE must be true for test trades");
-    }
-    if (ctx.config.EXECUTION_MODE === "broker_real_mt5" || ctx.config.REAL_MONEY_ENABLED) {
-      throw new ValidationError("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
     }
     const body = testTradeSchema.parse(request.body);
     const adapter = await connectMt5Adapter(ctx);
@@ -244,6 +233,9 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   });
 
   app.post("/broker-demo/mt5/test-trade/:positionId/close", { preHandler: auth }, async (request) => {
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
+    }
     if (!ctx.config.MT5_TEST_MODE) {
       throw new ValidationError("MT5_TEST_MODE must be true");
     }
@@ -274,6 +266,12 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   });
 
   app.post("/broker-demo/mt5/reconcile", { preHandler: auth }, async (request) => {
+    if (isMt5RealPath(ctx.config)) {
+      throw new ValidationError(REAL_MT5_NOT_IMPLEMENTED);
+    }
+    if (!isMt5DemoApiEnabled(ctx.config)) {
+      throw new ValidationError("MT5 reconcile requires broker_demo_mt5 or MT5_TEST_MODE");
+    }
     const adapter = await connectMt5Adapter(ctx);
     const brokerOpen = await adapter.getOpenPositions();
     const localOpen = await ctx.prisma.position.findMany({
@@ -404,9 +402,7 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
 }
 
 export async function connectMt5Adapter(ctx: AppContext): Promise<DerivMT5BrokerAdapter> {
-  if (ctx.config.REAL_MONEY_ENABLED || ctx.config.EXECUTION_MODE === "broker_real_mt5") {
-    throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
-  }
+  assertMt5DemoAdapterAllowed(ctx.config);
   const adapter = new DerivMT5BrokerAdapter({
     requireDemoAccount: true,
     bridgeUrl: resolveMt5BridgeUrl(ctx.config),

@@ -26,6 +26,7 @@ import {
   buildCfdPerformanceRecords,
   computeStrategyConfigHash,
   aggregatePaperForwardPerformance,
+  gateMt5EngineOrders,
   type RegimeThresholds,
   type SelectionCandidate,
   type TradingStrategy,
@@ -125,9 +126,15 @@ export class LiveEngineSession {
         "broker_demo_cfd active but BROKER_DEMO_ENGINE_ENABLED=false — connect/status/test-trade only; no automated engine orders"
       );
     }
-    if (this.executionBackend === "broker_demo_mt5" && !config.MT5_ENGINE_ENABLED) {
+    const mt5EngineGate = gateMt5EngineOrders(config);
+    if (this.executionBackend === "broker_demo_mt5" && !mt5EngineGate.allowed) {
       this.log.warn(
-        "broker_demo_mt5 active but MT5_ENGINE_ENABLED=false — connect/status/test-trade only; no automated engine orders"
+        {
+          reason: mt5EngineGate.reason,
+          mt5EngineEnabled: config.MT5_ENGINE_ENABLED === true,
+          mt5TestMode: config.MT5_TEST_MODE === true
+        },
+        "broker_demo_mt5 active but automated MT5 engine orders are gated off — status/preflight/TEST only"
       );
     }
 
@@ -610,6 +617,30 @@ export class LiveEngineSession {
       return;
     }
 
+    if (this.executionBackend === "broker_demo_mt5") {
+      const gate = gateMt5EngineOrders(config);
+      if (!gate.allowed) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        await this.logDecision("NO_TRADE", [
+          `MT5 engine orders blocked (${gate.reason}). Status/preflight/TEST remain available.`
+        ], {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId
+        });
+        return;
+      }
+      await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+      await this.logDecision("NO_TRADE", [
+        "MT5_ENGINE_ENABLED=true but automated strategy routing to MT5 DEMO is not wired yet. Guarded TEST trades only."
+      ], {
+        strategyId: chosen.strategy.id,
+        action: decision.action,
+        correlationId
+      });
+      return;
+    }
+
     if (isPaperCfdExecution(config)) {
       if (!isCfdCapableStrategy(chosen.strategy.id)) {
         await this.deps.prisma.signal.update({
@@ -1031,7 +1062,13 @@ export class LiveEngineSession {
           openedAt: p.openedAt?.getTime() ?? p.createdAt.getTime(),
           closedAt: p.closedAt?.getTime() ?? p.updatedAt.getTime(),
           origin: p.origin,
-          closeReason: p.closeReason
+          closeReason: p.closeReason,
+          executionVenue: (() => {
+            const model = String((p.metadata as { executionModel?: string } | null)?.executionModel ?? "");
+            if (model === "broker_demo_mt5") return "MT5_DEMO";
+            if (model === "broker_demo_cfd") return "CTRADER_DEMO";
+            return "PAPER";
+          })()
         }))
       );
 

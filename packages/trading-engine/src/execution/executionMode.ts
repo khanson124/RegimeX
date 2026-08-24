@@ -32,7 +32,8 @@ export interface ExecutionModeConfig {
  * - broker_real_mt5 → REAL_MT5_EXECUTION_NOT_IMPLEMENTED (even with REAL_MONEY_ENABLED)
  * - REAL_MONEY_ENABLED=true is refused for every implemented mode
  * - broker_demo_cfd requires credentials + CTRADER_ENVIRONMENT=demo
- * - broker_demo_mt5 requires bridge URL/secret + expected demo environment
+ * - broker_demo_mt5 is the primary DEMO forward path (bridge URL/secret + demo env)
+ * - paper_cfd remains a supported local/dev/fallback backend
  */
 export function resolveExecutionBackend(config: ExecutionModeConfig): ExecutionBackend {
   // Real-money modes are architecture-only. Check these FIRST so

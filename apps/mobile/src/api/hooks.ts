@@ -12,6 +12,14 @@ export interface DashboardSummary {
   symbol: string | null;
   interval: string | null;
   mode: string | null;
+  execution?: {
+    source: "PAPER_CFD" | "MT5_DEMO" | "CTRADER_DEMO" | string;
+    executionMode: string;
+    realMoneyEnabled: boolean;
+    mt5EngineAutomationEnabled: boolean;
+    mt5TestMode: boolean;
+    paperIsFallback: boolean;
+  };
   executionMode?: string | null;
   brokerDemo?: {
     connected: boolean;
@@ -676,6 +684,17 @@ export const useMt5Status = () =>
           leverage?: number | null;
           account?: { balance: number; equity: number; usedMargin?: number; freeMargin?: number; currency: string } | null;
           engineAutomationEnabled?: boolean;
+          openPositions?: Array<Record<string, unknown>>;
+          config?: {
+            executionMode?: string;
+            mt5EngineEnabled?: boolean;
+            engineAutomationEnabled?: boolean;
+            mt5TestMode?: boolean;
+            expectedBroker?: string | null;
+            expectedEnvironment?: string | null;
+            magicNumber?: number | null;
+            bridgeHost?: string | null;
+          };
           error?: string;
           message?: string;
         };
