@@ -599,7 +599,7 @@ void HandleClose(string json, string requestId, string idempotencyKey, string co
       WriteReply(requestId, idempotencyKey, command, false, "CLOSE_FAILED", IntegerToString(res.retcode), "", false);
       return;
      }
-   double realized = res.profit;
+   double realized = 0;
    if(res.deal > 0 && HistoryDealSelect(res.deal))
       realized = HistoryDealGetDouble(res.deal, DEAL_PROFIT);
    string result = "{";
