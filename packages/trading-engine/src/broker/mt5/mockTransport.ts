@@ -112,6 +112,7 @@ export class MockMt5BridgeTransport implements Mt5BridgeTransport {
       const result = this.dispatch(command, payload, opts);
       return {
         requestId: opts.requestId,
+        mailboxFileId: "mock",
         idempotencyKey: opts.idempotencyKey,
         command,
         ok: true,
@@ -139,6 +140,7 @@ export class MockMt5BridgeTransport implements Mt5BridgeTransport {
   ): Mt5MailboxReply<T> {
     return {
       requestId: opts.requestId,
+      mailboxFileId: "mock",
       idempotencyKey: opts.idempotencyKey,
       command,
       ok: false,

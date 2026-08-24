@@ -2,9 +2,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomUUID } from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
 import {
-  ensureMailboxLayout,
   listUnackedProcessing,
-  removeStaleTempFiles,
+  prepareMailbox,
   verifyReply,
   waitForReply,
   writePendingCommand,
@@ -58,7 +57,19 @@ export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Ser
         send(res, 500, { error: err instanceof Error ? err.message : String(err) });
       });
     });
-    server.listen(config.port, config.host, () => resolve(server));
+    server.listen(config.port, config.host, () => {
+      void prepareMailbox(config.mailboxPath).then((prep) => {
+        if (prep.quarantined.length) {
+          console.warn(
+            JSON.stringify({
+              msg: "LEGACY_UNSAFE_MAILBOX_FILENAME",
+              quarantined: prep.quarantined.map((q) => q.from)
+            })
+          );
+        }
+        resolve(server);
+      }, reject);
+    });
     server.on("error", reject);
   });
 }
@@ -103,10 +114,9 @@ async function handle(
   const requestId = parsed.requestId || randomUUID();
   const idempotencyKey = parsed.idempotencyKey || requestId;
 
-  await ensureMailboxLayout(config.mailboxPath);
-  await removeStaleTempFiles(config.mailboxPath);
+  await prepareMailbox(config.mailboxPath);
 
-  await writePendingCommand(config.mailboxPath, config.secret, {
+  const written = await writePendingCommand(config.mailboxPath, config.secret, {
     requestId,
     idempotencyKey,
     command: parsed.command,
@@ -114,10 +124,11 @@ async function handle(
   });
 
   try {
-    const reply = await waitForReply(config.mailboxPath, requestId, config.commandTimeoutMs);
+    const reply = await waitForReply(config.mailboxPath, written.mailboxFileId, config.commandTimeoutMs);
     if (reply.authHmac && !verifyReply(config.secret, reply)) {
       send(res, 400, {
         requestId,
+        mailboxFileId: written.mailboxFileId,
         idempotencyKey,
         command: parsed.command,
         ok: false,
@@ -131,6 +142,7 @@ async function handle(
   } catch (err) {
     send(res, 504, {
       requestId,
+      mailboxFileId: written.mailboxFileId,
       idempotencyKey,
       command: parsed.command,
       ok: false,

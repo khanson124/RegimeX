@@ -10,6 +10,7 @@ export * from "./mt5/symbolMap.js";
 export * from "./mt5/demoGuard.js";
 export * from "./mt5/hmac.js";
 export * from "./mt5/mailbox.js";
+export * from "./mt5/mailboxFileId.js";
 export * from "./mt5/ownership.js";
 export * from "./mt5/mockTransport.js";
 export * from "./mt5/fillingMode.js";

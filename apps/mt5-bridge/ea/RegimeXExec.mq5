@@ -9,11 +9,13 @@
 //|   regimex/events/*.json                                          |
 //|                                                                  |
 //| Ignore files whose names start with .tmp- (partial writes).      |
+//| Physical filenames must be Windows/Wine-safe [A-Za-z0-9._-].     |
+//| Logical requestId lives in JSON; mailboxFileId is the file stem. |
 //| Never re-execute a command already in processing/.               |
 //| Native ACCOUNT_TRADE_MODE is authoritative for DEMO/REAL.        |
 //+------------------------------------------------------------------+
 #property copyright "RegimeX"
-#property version   "1.00"
+#property version   "1.01"
 #property strict
 
 input string InpMailboxRoot = "regimex";
@@ -22,6 +24,7 @@ input long   InpMagic = 26082301;
 input int    InpTimerMs = 200;
 
 int g_unackedProcessing = 0;
+string g_mailboxFileId = "";
 
 string MailboxPath(string sub)
   {
@@ -31,6 +34,38 @@ string MailboxPath(string sub)
 bool IsTempName(string name)
   {
    return StringFind(name, ".tmp-") == 0;
+  }
+
+string FilenameStem(string filename)
+  {
+   int dot = StringFind(filename, ".json");
+   if(dot <= 0)
+      return filename;
+   return StringSubstr(filename, 0, dot);
+  }
+
+bool IsSafeMailboxFileId(string stem)
+  {
+   int n = StringLen(stem);
+   if(n < 1 || n > 180)
+      return false;
+   if(StringFind(stem, "..") >= 0)
+      return false;
+   ushort first = (ushort)StringGetCharacter(stem, 0);
+   bool firstOk = (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') || (first >= '0' && first <= '9');
+   if(!firstOk)
+      return false;
+   for(int i = 0; i < n; i++)
+     {
+      int ch = StringGetCharacter(stem, i);
+      bool ok = (ch >= 'A' && ch <= 'Z') ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= '0' && ch <= '9') ||
+                ch == '.' || ch == '_' || ch == '-';
+      if(!ok)
+         return false;
+     }
+   return true;
   }
 
 string JsonGetString(string json, string key)
@@ -80,8 +115,12 @@ bool JsonGetBool(string json, string key)
 
 void WriteReply(string requestId, string idempotencyKey, string command, bool ok, string errorCode, string errorMessage, string resultJson, bool needsReconcile)
   {
+   string fileId = g_mailboxFileId;
+   if(!IsSafeMailboxFileId(fileId))
+      return;
    string body = "{";
    body += "\"requestId\":\"" + requestId + "\",";
+   body += "\"mailboxFileId\":\"" + fileId + "\",";
    body += "\"idempotencyKey\":\"" + idempotencyKey + "\",";
    body += "\"command\":\"" + command + "\",";
    body += "\"ok\":" + (ok ? "true" : "false") + ",";
@@ -98,8 +137,8 @@ void WriteReply(string requestId, string idempotencyKey, string command, bool ok
       body += "\"result\":null";
    body += "}";
 
-   string tmp = MailboxPath("replies") + "\\.tmp-" + requestId + ".json";
-   string dest = MailboxPath("replies") + "\\" + requestId + ".json";
+   string tmp = MailboxPath("replies") + "\\.tmp-" + fileId + ".json";
+   string dest = MailboxPath("replies") + "\\" + fileId + ".json";
    int h = FileOpen(tmp, FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(h == INVALID_HANDLE)
       return;
@@ -616,6 +655,9 @@ void ProcessCommandFile(string filename)
   {
    if(IsTempName(filename))
       return;
+   string stem = FilenameStem(filename);
+   if(!IsSafeMailboxFileId(stem))
+      return;
    string pending = MailboxPath("commands\\pending") + "\\" + filename;
    string processing = MailboxPath("commands\\processing") + "\\" + filename;
    if(!FileIsExist(pending))
@@ -634,6 +676,12 @@ void ProcessCommandFile(string filename)
    FileClose(h);
 
    string requestId = JsonGetString(json, "requestId");
+   string mailboxFileId = JsonGetString(json, "mailboxFileId");
+   if(mailboxFileId == "")
+      mailboxFileId = stem;
+   if(!IsSafeMailboxFileId(mailboxFileId))
+      return;
+   g_mailboxFileId = mailboxFileId;
    string idempotencyKey = JsonGetString(json, "idempotencyKey");
    string command = JsonGetString(json, "command");
    if(requestId == "" || command == "")
@@ -697,6 +745,7 @@ int OnInit()
    FolderCreate(MailboxPath("replies"));
    FolderCreate(MailboxPath("events"));
    EventSetMillisecondTimer(InpTimerMs);
+   g_mailboxFileId = "ea-ready";
    WriteReply("ea-ready", "ea-ready", "ping", true, "", "", AccountJson(), false);
    return INIT_SUCCEEDED;
   }

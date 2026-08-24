@@ -38,6 +38,7 @@ export class HttpMt5BridgeClient {
       if (!res.ok && !body.command) {
         return {
           requestId: opts.requestId,
+          mailboxFileId: "bridge-client",
           idempotencyKey: opts.idempotencyKey,
           command,
           ok: false,
@@ -52,6 +53,7 @@ export class HttpMt5BridgeClient {
       const aborted = err instanceof Error && err.name === "AbortError";
       return {
         requestId: opts.requestId,
+        mailboxFileId: "bridge-client",
         idempotencyKey: opts.idempotencyKey,
         command,
         ok: false,

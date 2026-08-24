@@ -473,14 +473,16 @@ describe("MT5 mailbox crash-safety", () => {
   it("signs commands and refuses tampered envelopes", async () => {
     const root = await mkdtemp(join(tmpdir(), "mt5-mbox-"));
     const secret = "mailbox-secret-value-16";
-    await writePendingCommand(root, secret, {
+    const written = await writePendingCommand(root, secret, {
       requestId: "req-1",
       idempotencyKey: "key-1",
       command: "ping",
       payload: { hello: true }
     });
-    const raw = await readFile(join(root, "commands/pending/req-1.json"), "utf8");
+    const raw = await readFile(join(root, "commands/pending", `${written.mailboxFileId}.json`), "utf8");
     const envelope = JSON.parse(raw);
+    expect(envelope.requestId).toBe("req-1");
+    expect(envelope.mailboxFileId).toBe(written.mailboxFileId);
     expect(verifyEnvelope(secret, envelope)).toBe(true);
     envelope.payload = { hello: false };
     expect(verifyEnvelope(secret, envelope)).toBe(false);
@@ -489,17 +491,18 @@ describe("MT5 mailbox crash-safety", () => {
   it("does not re-execute unacked processing commands after restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "mt5-mbox-"));
     const secret = "mailbox-secret-value-16";
-    await writePendingCommand(root, secret, {
+    const written = await writePendingCommand(root, secret, {
       requestId: "req-open",
       idempotencyKey: "trade-1",
       command: "openMarket",
       payload: { volume: 0.01 }
     });
-    await claimPendingForProcessing(root, "req-open");
+    await claimPendingForProcessing(root, written.mailboxFileId);
     const unacked = await listUnackedProcessing(root);
     expect(unacked).toContain("req-open");
     await writeReplyFile(root, secret, {
       requestId: "req-open",
+      mailboxFileId: written.mailboxFileId,
       idempotencyKey: "trade-1",
       command: "openMarket",
       ok: false,
@@ -507,8 +510,9 @@ describe("MT5 mailbox crash-safety", () => {
       needsReconcile: true,
       createdAt: new Date().toISOString()
     });
-    const reply = await readReplyIfPresent(root, "req-open");
+    const reply = await readReplyIfPresent(root, written.mailboxFileId);
     expect(reply?.needsReconcile).toBe(true);
+    expect(reply?.requestId).toBe("req-open");
     expect(await listUnackedProcessing(root)).not.toContain("req-open");
   });
 });

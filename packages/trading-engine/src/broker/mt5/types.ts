@@ -36,6 +36,8 @@ export type Mt5FillingMode = "FOK" | "IOC" | "RETURN";
 
 export interface Mt5MailboxEnvelope<TPayload = unknown> {
   requestId: string;
+  /** Physical Windows/Wine-safe file stem. Independent of requestId. */
+  mailboxFileId: string;
   idempotencyKey: string;
   command: Mt5CommandType;
   createdAt: string;
@@ -46,6 +48,7 @@ export interface Mt5MailboxEnvelope<TPayload = unknown> {
 
 export interface Mt5MailboxReply<TResult = unknown> {
   requestId: string;
+  mailboxFileId: string;
   idempotencyKey: string;
   command: Mt5CommandType;
   ok: boolean;
