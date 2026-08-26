@@ -1,6 +1,7 @@
 import { type ExecutionBackend } from "../../execution/executionMode.js";
 import { describeMt5AutonomousAvailability, publicMt5RolloutSnapshot } from "./engineRollout.js";
 import { type BrokerSymbolMappingRecord } from "./brokerSymbolMapping.js";
+import { type Mt5BridgeCircuitSnapshot } from "./bridgeCircuit.js";
 
 export const REAL_MT5_NOT_IMPLEMENTED = "REAL_MT5_EXECUTION_NOT_IMPLEMENTED";
 export const MT5_ENGINE_DISABLED = "MT5_ENGINE_DISABLED";
@@ -127,6 +128,21 @@ export function publicMt5ConfigSnapshot(
   };
 }
 
+export type Mt5BridgeReachability = "online" | "unhealthy" | "offline";
+export type Mt5EaReachability = "online" | "offline" | "unknown";
+export type Mt5ReconciliationFreshness = "fresh" | "stale" | "unknown";
+
+export interface Mt5LinkHealth {
+  bridge: Mt5BridgeReachability;
+  ea: Mt5EaReachability;
+  reconciliation: Mt5ReconciliationFreshness;
+  circuit: Mt5BridgeCircuitSnapshot | null;
+  lastBridgeSuccessAt: number | null;
+  lastEaSuccessAt: number | null;
+  executionBlockReason: string | null;
+  ready: boolean;
+}
+
 export function buildMt5StatusEnvelope(
   config: Mt5AccessConfig,
   live?: {
@@ -145,7 +161,8 @@ export function buildMt5StatusEnvelope(
     openPositions?: unknown[];
   } | null,
   error?: string | null,
-  mappings: BrokerSymbolMappingRecord[] = []
+  mappings: BrokerSymbolMappingRecord[] = [],
+  health?: Mt5LinkHealth | null
 ): { status: Record<string, unknown> } {
   const snapshot = publicMt5ConfigSnapshot(config, mappings);
 
@@ -157,7 +174,11 @@ export function buildMt5StatusEnvelope(
         connected: false,
         engineAutomationEnabled: false,
         error: REAL_MT5_NOT_IMPLEMENTED,
-        config: snapshot
+        config: snapshot,
+        bridge: "offline",
+        ea: "unknown",
+        reconciliation: "unknown",
+        ready: false
       }
     };
   }
@@ -171,10 +192,19 @@ export function buildMt5StatusEnvelope(
         engineAutomationEnabled: false,
         message:
           "MT5 DEMO APIs idle. Set EXECUTION_MODE=broker_demo_mt5 (primary) or MT5_TEST_MODE=true. paper_cfd remains the local/dev fallback.",
-        config: snapshot
+        config: snapshot,
+        bridge: "offline",
+        ea: "unknown",
+        reconciliation: "unknown",
+        ready: false
       }
     };
   }
+
+  const bridge = health?.bridge ?? (live?.connected ? "online" : "offline");
+  const httpLive = bridge === "online";
+  const ea = health?.ea ?? (live?.eaConnected ? "online" : live?.connected ? "offline" : "unknown");
+  const ready = httpLive && Boolean(health?.ready ?? live?.connected);
 
   return {
     status: {
@@ -183,8 +213,8 @@ export function buildMt5StatusEnvelope(
       demo: live?.isDemo ?? live?.tradeMode === "DEMO",
       isDemo: live?.isDemo ?? live?.tradeMode === "DEMO",
       testMode: snapshot.mt5TestMode,
-      connected: live?.connected ?? false,
-      eaConnected: live?.eaConnected ?? false,
+      connected: httpLive,
+      eaConnected: ea === "online",
       tradeMode: live?.tradeMode ?? null,
       marginMode: live?.marginMode ?? null,
       login: live?.login ?? null,
@@ -193,11 +223,21 @@ export function buildMt5StatusEnvelope(
       leverage: live?.leverage ?? null,
       currency: live?.currency ?? null,
       account: live?.account ?? null,
-      lastError: live?.lastError ?? null,
+      lastError: live?.lastError ?? error ?? null,
       engineAutomationEnabled: snapshot.engineAutomationEnabled,
       openPositions: live?.openPositions ?? [],
       error: error ?? null,
-      config: snapshot
+      config: snapshot,
+      bridge,
+      ea,
+      reconciliation: health?.reconciliation ?? "unknown",
+      circuitState: health?.circuit?.circuitState ?? null,
+      consecutiveFailures: health?.circuit?.consecutiveFailures ?? 0,
+      lastBridgeSuccessAt: health?.lastBridgeSuccessAt ?? health?.circuit?.lastSuccessAt ?? null,
+      lastEaSuccessAt: health?.lastEaSuccessAt ?? null,
+      nextProbeAt: health?.circuit?.nextProbeAt ?? null,
+      executionBlockReason: health?.executionBlockReason ?? error ?? null,
+      ready
     }
   };
 }

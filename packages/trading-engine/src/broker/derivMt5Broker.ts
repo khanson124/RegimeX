@@ -15,6 +15,8 @@ import {
 } from "@regimex/shared";
 import { isQuoteFresh, lossAtStopPerUnitVolume } from "../execution/cfdMath.js";
 import { HttpMt5BridgeClient } from "./mt5/bridgeClient.js";
+import { isMt5BridgeFailureCode } from "./mt5/bridgeCircuit.js";
+import { Mt5BrokerError } from "./mt5/mt5BrokerError.js";
 import { assertMt5DemoAccount, assertMt5HedgingMode } from "./mt5/demoGuard.js";
 import { FILLING_MODE_UNSUPPORTED, selectFillingMode, parseSupportedFillingModes } from "./mt5/fillingMode.js";
 import { reconstructClosedPositionFromDeals, type Mt5ClosedPositionEvidence } from "./mt5/history.js";
@@ -148,9 +150,9 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       });
     const ping = await this.transport.request<{ pong?: boolean }>("ping", {}, this.ids("connect"));
     if (!ping.ok) {
-      this.lastError = ping.errorMessage ?? "ping failed";
+      this.lastError = ping.errorMessage ?? ping.errorCode ?? "ping failed";
       this.connected = false;
-      throw new Error(this.lastError);
+      throw new Mt5BrokerError(ping.errorCode ?? "MT5_BRIDGE_UNAVAILABLE", this.lastError);
     }
     const account = await this.fetchAccount();
     const demo = assertMt5DemoAccount({
@@ -219,7 +221,10 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       { symbol },
       this.ids(`instr:${symbol}`)
     );
-    if (!reply.ok || !reply.result) return null;
+    if (!reply.ok || !reply.result) {
+      this.throwIfTransportFailed(reply, "getInstrument failed");
+      return null;
+    }
     const mapped = mapMt5SymbolToInstrument(reply.result, this.account?.currency ?? "USD");
     return mapped.instrument;
   }
@@ -230,7 +235,10 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       { symbol },
       this.ids(`quote:${symbol}`)
     );
-    if (!reply.ok || !reply.result) return null;
+    if (!reply.ok || !reply.result) {
+      this.throwIfTransportFailed(reply, "getQuote failed");
+      return null;
+    }
     const q = reply.result;
     if (!isQuoteFresh(q.timestamp, Date.now(), this.config.maxQuoteAgeMs)) return null;
     return {
@@ -248,7 +256,10 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       { symbol },
       this.ids(`instr:${symbol}`)
     );
-    if (!reply.ok || !reply.result) return null;
+    if (!reply.ok || !reply.result) {
+      this.throwIfTransportFailed(reply, "getInstrument failed");
+      return null;
+    }
     return reply.result;
   }
 
@@ -531,7 +542,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       {},
       this.ids("opens")
     );
-    if (!reply.ok || !reply.result) throw new Error(reply.errorMessage ?? "getOpenPositions failed");
+    if (!reply.ok || !reply.result) throw new Mt5BrokerError(reply.errorCode ?? "MT5_BRIDGE_UNAVAILABLE", reply.errorMessage ?? "getOpenPositions failed");
     return reply.result.map((p) => this.bridgePosToOpen(p));
   }
 
@@ -632,9 +643,22 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   private async fetchAccount(): Promise<Mt5AccountInfo> {
     const reply = await this.requireTransport().request<Mt5AccountInfo>("getAccount", {}, this.ids("account"));
     if (!reply.ok || !reply.result) {
-      throw new Error(reply.errorMessage ?? "getAccount failed");
+      throw new Mt5BrokerError(reply.errorCode ?? "MT5_BRIDGE_UNAVAILABLE", reply.errorMessage ?? "getAccount failed");
     }
     return reply.result;
+  }
+
+  private throwIfTransportFailed(reply: { ok: boolean; errorCode?: string | null; errorMessage?: string | null }, fallback: string): void {
+    if (reply.ok) return;
+    const code = reply.errorCode ?? "MT5_BRIDGE_UNAVAILABLE";
+    if (
+      isMt5BridgeFailureCode(code) ||
+      code === "MT5_EA_TIMEOUT" ||
+      code === "MT5_EA_OFFLINE" ||
+      code === "MT5_MAILBOX_BACKLOG"
+    ) {
+      throw new Mt5BrokerError(code, reply.errorMessage ?? fallback);
+    }
   }
 
   private requireTransport(): Mt5BridgeTransport {

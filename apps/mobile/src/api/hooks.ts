@@ -725,6 +725,15 @@ export const useMt5Status = () =>
           isDemo?: boolean;
           connected?: boolean;
           eaConnected?: boolean;
+          bridge?: "online" | "unhealthy" | "offline";
+          ea?: "online" | "offline" | "unknown";
+          reconciliation?: "fresh" | "stale" | "unknown";
+          circuitState?: "CLOSED" | "OPEN" | "HALF_OPEN" | null;
+          consecutiveFailures?: number;
+          lastBridgeSuccessAt?: number | null;
+          lastEaSuccessAt?: number | null;
+          executionBlockReason?: string | null;
+          ready?: boolean;
           tradeMode?: string | null;
           marginMode?: string | null;
           login?: string | null;

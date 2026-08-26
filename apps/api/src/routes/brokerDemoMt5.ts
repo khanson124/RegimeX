@@ -9,10 +9,13 @@ import {
   selectMt5PositionsForEmergencyClose,
   assertMt5DemoAdapterAllowed,
   buildMt5StatusEnvelope,
+  getSharedMt5BridgeCircuit,
   isMt5DemoApiEnabled,
   isMt5RealPath,
+  probeMt5BridgeLive,
   REAL_MT5_NOT_IMPLEMENTED,
-  isVolatilityOneSecondVariant
+  isVolatilityOneSecondVariant,
+  type Mt5LinkHealth
 } from "@regimex/trading-engine";
 import { loadMt5BrokerMappings } from "../lib/mt5Mappings.js";
 import { type AppContext } from "../context.js";
@@ -41,13 +44,67 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
       return buildMt5StatusEnvelope(ctx.config, null, null, mappings);
     }
     try {
+      const bridgeUrl = resolveMt5BridgeUrl(ctx.config);
+      const probe = await probeMt5BridgeLive(bridgeUrl, 2_000);
+      const circuit = getSharedMt5BridgeCircuit().snapshot();
+      if (!probe.ok) {
+        const bridge = probe.errorCode === "MT5_BRIDGE_TIMEOUT" ? "unhealthy" : "offline";
+        const health: Mt5LinkHealth = {
+          bridge,
+          ea: "unknown",
+          reconciliation: "stale",
+          circuit,
+          lastBridgeSuccessAt: circuit.lastSuccessAt,
+          lastEaSuccessAt: null,
+          executionBlockReason: probe.errorCode,
+          ready: false
+        };
+        return buildMt5StatusEnvelope(
+          ctx.config,
+          { connected: false, lastError: probe.errorCode },
+          probe.errorCode,
+          mappings,
+          health
+        );
+      }
+      let ea: Mt5LinkHealth["ea"] = "unknown";
+      let lastEaSuccessAt: number | null = null;
+      try {
+        const readyRes = await fetch(`${bridgeUrl.replace(/\/$/, "")}/health/ready`, {
+          signal: AbortSignal.timeout(800)
+        });
+        if (readyRes.ok) {
+          const ready = (await readyRes.json()) as {
+            eaHealth?: string;
+            lastSuccessfulEaReplyAt?: number | null;
+          };
+          if (ready.eaHealth === "online" || ready.eaHealth === "offline" || ready.eaHealth === "unknown") {
+            ea = ready.eaHealth;
+          }
+          lastEaSuccessAt = ready.lastSuccessfulEaReplyAt ?? null;
+        }
+      } catch {
+        ea = "unknown";
+      }
+
       const adapter = await connectMt5Adapter(ctx);
       const live = adapter.getStatus();
       const positions = live.eaConnected ? await adapter.getOpenPositions() : [];
+      const health: Mt5LinkHealth = {
+        bridge: "online",
+        ea: live.eaConnected ? "online" : ea,
+        reconciliation: live.eaConnected ? "fresh" : "stale",
+        circuit: getSharedMt5BridgeCircuit().snapshot(),
+        lastBridgeSuccessAt: Date.now(),
+        lastEaSuccessAt,
+        executionBlockReason: live.eaConnected ? null : "MT5_EA_OFFLINE",
+        ready: true
+      };
       return buildMt5StatusEnvelope(
         ctx.config,
         {
           ...live,
+          connected: true,
           openPositions: positions.map((p) => ({
             brokerPositionId: p.brokerPositionId,
             symbol: p.symbol,
@@ -65,11 +122,28 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
           }))
         },
         null,
-        mappings
+        mappings,
+        health
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return buildMt5StatusEnvelope(ctx.config, { connected: false }, message, mappings);
+      const circuit = getSharedMt5BridgeCircuit().snapshot();
+      return buildMt5StatusEnvelope(
+        ctx.config,
+        { connected: false },
+        message,
+        mappings,
+        {
+          bridge: "unhealthy",
+          ea: "unknown",
+          reconciliation: "stale",
+          circuit,
+          lastBridgeSuccessAt: circuit.lastSuccessAt,
+          lastEaSuccessAt: null,
+          executionBlockReason: message,
+          ready: false
+        }
+      );
     }
   });
 

@@ -72,6 +72,26 @@ export default function DashboardScreen() {
   const mt5Active = Boolean(mt5?.enabled) || executionSource === "MT5_DEMO";
   const mt5EngineOn = Boolean(mt5?.engineAutomationEnabled ?? s.execution?.mt5EngineAutomationEnabled);
 
+  function formatAgo(ts: number | null | undefined): string {
+    if (ts == null || !Number.isFinite(ts)) return "—";
+    const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+    if (mins < 1) return "just now";
+    if (mins === 1) return "1m ago";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    return hours === 1 ? "1h ago" : `${hours}h ago`;
+  }
+
+  const bridgeLabel =
+    mt5?.bridge === "online" ? "Online" : mt5?.bridge === "unhealthy" ? "Unhealthy" : mt5?.connected ? "Online" : "Offline";
+  const eaLabel =
+    mt5?.ea === "online" ? "Online" : mt5?.ea === "offline" ? "Offline" : mt5?.eaConnected ? "Online" : "Unknown";
+  const reconcileLabel =
+    mt5?.reconciliation === "fresh" ? "Fresh" : mt5?.reconciliation === "stale" ? "Stale" : "Unknown";
+  const mt5Ready = Boolean(mt5?.ready) && mt5?.bridge === "online";
+  const executionBlocked = Boolean(mt5?.executionBlockReason) || !mt5Ready;
+  const executionReason = mt5?.executionBlockReason ?? s.autonomous?.decisionCode ?? s.autonomous?.reason ?? null;
+
   return (
     <ScrollView
       style={styles.container}
@@ -134,19 +154,45 @@ export default function DashboardScreen() {
             <Row style={{ marginTop: spacing.md }}>
               <Metric
                 label="MT5 DEMO"
-                value={mt5?.isDemo || mt5?.demo ? "DEMO" : mt5?.connected ? "—" : "Offline"}
+                value={mt5?.isDemo || mt5?.demo ? "DEMO" : "—"}
                 tone={mt5?.isDemo || mt5?.demo ? "warning" : "neutral"}
               />
               <Metric
-                label="MT5 link"
-                value={mt5?.connected ? "Connected" : mt5?.error ? "Error" : "Offline"}
-                tone={mt5?.connected ? "up" : "warning"}
+                label="Bridge"
+                value={bridgeLabel}
+                tone={bridgeLabel === "Online" ? "up" : "warning"}
               />
               <Metric
-                label="Open MT5"
-                value={Array.isArray(mt5?.openPositions) ? String(mt5.openPositions.length) : "—"}
+                label="EA"
+                value={eaLabel}
+                tone={eaLabel === "Online" ? "up" : "warning"}
               />
             </Row>
+            <Row style={{ marginTop: spacing.sm }}>
+              <Metric
+                label="Reconcile"
+                value={reconcileLabel}
+                tone={reconcileLabel === "Fresh" ? "up" : "warning"}
+              />
+              <Metric
+                label="Circuit"
+                value={mt5?.circuitState ?? "—"}
+                tone={mt5?.circuitState === "CLOSED" ? "up" : "warning"}
+              />
+              <Metric
+                label="Execution"
+                value={executionBlocked ? "Blocked" : "Ready"}
+                tone={executionBlocked ? "warning" : "up"}
+              />
+            </Row>
+            {executionReason ? (
+              <Text style={{ color: colors.textDim, marginTop: spacing.xs, fontSize: font.caption }}>
+                Reason: {String(executionReason).replace(/_/g, " ")}
+                {mt5?.lastBridgeSuccessAt
+                  ? ` · Last healthy: ${formatAgo(mt5.lastBridgeSuccessAt)}`
+                  : ""}
+              </Text>
+            ) : null}
             <Row style={{ marginTop: spacing.sm }}>
               <Metric
                 label="MT5 equity"

@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { closeSync, fsyncSync, openSync, renameSync, writeSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   mailboxCanonical,
@@ -55,6 +55,9 @@ export async function ensureMailboxLayout(root: string): Promise<void> {
  * Crash-safe JSON write: temp file → fsync → atomic rename.
  * EA / readers MUST ignore files whose names start with `.tmp-`.
  * Temp names are derived from the already-safe destination basename.
+ *
+ * Sync variant is for tests. The bridge MUST use atomicWriteJson so a hung
+ * Wine/CIFS fsync cannot freeze the Node event loop.
  */
 export function atomicWriteJsonSync(targetPath: string, value: unknown): void {
   const dir = dirname(targetPath);
@@ -74,6 +77,55 @@ export function atomicWriteJsonSync(targetPath: string, value: unknown): void {
     closeSync(fd);
   }
   renameSync(tmp, targetPath);
+}
+
+function mailboxTempPath(targetPath: string): string {
+  const dir = dirname(targetPath);
+  const destBase = basename(targetPath);
+  if (!destBase.endsWith(".json") || destBase.startsWith(".tmp-")) {
+    throw new Error(`UNSAFE_MAILBOX_TARGET:${destBase}`);
+  }
+  const stem = destBase.slice(0, -".json".length);
+  assertSafeMailboxFileId(stem);
+  return join(dir, `.tmp-${stem}-${process.pid}-${randomBytes(4).toString("hex")}`);
+}
+
+/** Async atomic write. IO runs on the libuv threadpool so HTTP /health/live stays responsive. */
+export async function atomicWriteJson(
+  targetPath: string,
+  value: unknown,
+  timeoutMs = 5_000
+): Promise<void> {
+  const tmp = mailboxTempPath(targetPath);
+  const data = Buffer.from(JSON.stringify(value), "utf8");
+  const write = (async () => {
+    const fh = await open(tmp, "w");
+    try {
+      await fh.write(data);
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+    await rename(tmp, targetPath);
+  })();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      write,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error("MT5_MAILBOX_IO_TIMEOUT");
+          (err as Error & { code: string }).code = "MT5_MAILBOX_IO_TIMEOUT";
+          reject(err);
+        }, timeoutMs);
+      })
+    ]);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export function isPartialMailboxFile(name: string): boolean {
@@ -163,7 +215,7 @@ export async function writePendingCommand(
     payload: input.payload
   });
   const target = joinMailboxFile(mailboxPaths(root).pending, mailboxFileId);
-  atomicWriteJsonSync(target, envelope);
+  await atomicWriteJson(target, envelope);
   return { path: target, mailboxFileId, requestId: input.requestId };
 }
 
@@ -185,7 +237,7 @@ export async function waitForReply(
   root: string,
   mailboxFileId: string,
   timeoutMs: number,
-  pollMs = 50
+  pollMs = 100
 ): Promise<Mt5MailboxReply> {
   assertSafeMailboxFileId(mailboxFileId);
   const start = Date.now();
@@ -252,7 +304,7 @@ export async function writeReplyFile(
   const mailboxFileId = assertSafeMailboxFileId(reply.mailboxFileId);
   const signed = signReply(secret, { ...reply, mailboxFileId });
   const target = joinMailboxFile(mailboxPaths(root).replies, mailboxFileId);
-  atomicWriteJsonSync(target, signed);
+  await atomicWriteJson(target, signed);
 }
 
 export async function removeStaleTempFiles(root: string): Promise<number> {
@@ -317,4 +369,23 @@ export async function prepareMailbox(root: string): Promise<{
   const removedTemps = await removeStaleTempFiles(root);
   const { quarantined } = await quarantineUnsafeMailboxFiles(root);
   return { quarantined, removedTemps };
+}
+
+export async function mailboxDepthSnapshot(
+  root: string
+): Promise<{ pending: number; processing: number; replies: number }> {
+  const paths = mailboxPaths(root);
+  const count = async (dir: string) => {
+    try {
+      const names = await readdir(dir);
+      return names.filter((n) => n.endsWith(".json") && !n.startsWith(".tmp-")).length;
+    } catch {
+      return -1;
+    }
+  };
+  return {
+    pending: await count(paths.pending),
+    processing: await count(paths.processing),
+    replies: await count(paths.replies)
+  };
 }

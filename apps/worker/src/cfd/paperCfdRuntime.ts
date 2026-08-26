@@ -14,7 +14,7 @@ import {
   PaperCFDBrokerAdapter,
   StopTargetValidator,
   applyExecutableFill,
-  assertLegacyBinaryReachable,
+  assertCfdExecutionReachable,
   estimateMarginRequired,
   floatingPnl,
   isPaperCfdExecution,
@@ -337,7 +337,7 @@ export class PaperCfdRuntime {
     features: import("@regimex/shared").MarketFeatureSnapshot;
     candles: Candle[];
   }): Promise<{ opened: boolean; reasons: string[] }> {
-    assertLegacyBinaryReachable(this.deps.config);
+    assertCfdExecutionReachable(this.deps.config);
 
     if (!isCfdCapableStrategy(input.strategyId)) {
       return {

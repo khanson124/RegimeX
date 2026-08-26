@@ -13,4 +13,6 @@ RUN pnpm install --frozen-lockfile --prod=false
 
 # Internal Docker network only. Do NOT publish this port on the host.
 EXPOSE 8765
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=4 \
+  CMD wget -qO- -T 2 http://127.0.0.1:8765/health/live || exit 1
 CMD ["pnpm", "--filter", "@regimex/mt5-bridge", "start"]

@@ -1,3 +1,9 @@
+import { classifyBridgeFetchError, probeMt5BridgeLive } from "./bridgeHealth.js";
+import {
+  getSharedMt5BridgeCircuit,
+  MT5_BRIDGE_UNHEALTHY,
+  type Mt5BridgeCircuitBreaker
+} from "./bridgeCircuit.js";
 import { type Mt5CommandType, type Mt5MailboxReply } from "./types.js";
 
 export interface HttpMt5BridgeClientOptions {
@@ -5,16 +11,29 @@ export interface HttpMt5BridgeClientOptions {
   secret: string;
   timeoutMs: number;
   fetchImpl?: typeof fetch;
+  circuit?: Mt5BridgeCircuitBreaker;
 }
 
 export class HttpMt5BridgeClient {
   constructor(private readonly options: HttpMt5BridgeClientOptions) {}
+
+  private get circuit(): Mt5BridgeCircuitBreaker {
+    return this.options.circuit ?? getSharedMt5BridgeCircuit();
+  }
+
+  async probeLive(timeoutMs = 2_000) {
+    return probeMt5BridgeLive(this.options.baseUrl, timeoutMs, this.options.fetchImpl);
+  }
 
   async request<T>(
     command: Mt5CommandType,
     payload: unknown,
     opts: { requestId: string; idempotencyKey: string }
   ): Promise<Mt5MailboxReply<T>> {
+    if (!this.circuit.allowRequest()) {
+      return this.fail<T>(command, opts, MT5_BRIDGE_UNHEALTHY, "MT5 bridge circuit is open");
+    }
+
     const url = `${this.options.baseUrl.replace(/\/$/, "")}/v1/command`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeoutMs);
@@ -36,36 +55,68 @@ export class HttpMt5BridgeClient {
       });
       const body = (await res.json()) as Mt5MailboxReply<T> & { error?: string };
       if (!res.ok && !body.command) {
-        return {
-          requestId: opts.requestId,
-          mailboxFileId: "bridge-client",
-          idempotencyKey: opts.idempotencyKey,
-          command,
-          ok: false,
-          errorCode: res.status === 401 ? "MT5_BRIDGE_UNAUTHENTICATED" : "MT5_BRIDGE_HTTP_ERROR",
-          errorMessage: body.error ?? `HTTP ${res.status}`,
-          createdAt: new Date().toISOString(),
-          authHmac: ""
-        };
+        const errorCode =
+          res.status === 401
+            ? "MT5_BRIDGE_UNAUTHENTICATED"
+            : res.status === 504
+              ? (body.errorCode ?? "MT5_EA_TIMEOUT")
+              : res.status === 503
+                ? (body.errorCode ?? "MT5_MAILBOX_BACKLOG")
+                : "MT5_BRIDGE_HTTP_ERROR";
+        this.recordReply(errorCode);
+        return this.fail<T>(command, opts, errorCode, body.error ?? `HTTP ${res.status}`, res.status === 504);
       }
+      if (body.ok) this.circuit.recordSuccess();
+      else this.recordReply(body.errorCode ?? "MT5_BRIDGE_HTTP_ERROR");
       return body;
     } catch (err) {
-      const aborted = err instanceof Error && err.name === "AbortError";
-      return {
-        requestId: opts.requestId,
-        mailboxFileId: "bridge-client",
-        idempotencyKey: opts.idempotencyKey,
+      const errorCode = classifyBridgeFetchError(err);
+      this.circuit.recordFailure(errorCode);
+      return this.fail<T>(
         command,
-        ok: false,
-        errorCode: aborted ? "MT5_EA_TIMEOUT" : "MT5_BRIDGE_UNREACHABLE",
-        errorMessage: err instanceof Error ? err.message : String(err),
-        needsReconcile: aborted,
-        createdAt: new Date().toISOString(),
-        authHmac: ""
-      };
+        opts,
+        errorCode,
+        err instanceof Error ? err.message : String(err),
+        errorCode === "MT5_EA_TIMEOUT"
+      );
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private recordReply(errorCode: string): void {
+    if (
+      errorCode === "MT5_BRIDGE_UNAVAILABLE" ||
+      errorCode === "MT5_BRIDGE_TIMEOUT" ||
+      errorCode === "MT5_BRIDGE_UNHEALTHY" ||
+      errorCode === "MT5_BRIDGE_UNREACHABLE" ||
+      errorCode === "MT5_BRIDGE_HTTP_ERROR"
+    ) {
+      this.circuit.recordFailure(errorCode);
+    } else {
+      this.circuit.recordSuccess();
+    }
+  }
+
+  private fail<T>(
+    command: Mt5CommandType,
+    opts: { requestId: string; idempotencyKey: string },
+    errorCode: string,
+    errorMessage: string,
+    needsReconcile = true
+  ): Mt5MailboxReply<T> {
+    return {
+      requestId: opts.requestId,
+      mailboxFileId: "bridge-client",
+      idempotencyKey: opts.idempotencyKey,
+      command,
+      ok: false,
+      errorCode,
+      errorMessage,
+      needsReconcile,
+      createdAt: new Date().toISOString(),
+      authHmac: ""
+    };
   }
 
   async close(): Promise<void> {

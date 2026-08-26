@@ -124,14 +124,53 @@ export function resolveMt5BridgeUrl(config: ExecutionModeConfig): string {
   return `http://${host}:${port}`;
 }
 
+/**
+ * CFD BUY/SELL path (paper, MT5 DEMO, cTrader DEMO).
+ * Never used by legacy binary proposal/buy.
+ */
+export function assertCfdExecutionReachable(config: ExecutionModeConfig): void {
+  if (config.REAL_MONEY_ENABLED) {
+    throw new Error(
+      "REAL_MONEY_ENABLED=true is refused. Real CFD/MT5 execution is not implemented. Refusing unsafe config."
+    );
+  }
+  if (config.EXECUTION_MODE === "broker_real_mt5") {
+    throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
+  }
+  if (config.EXECUTION_MODE === "broker_real_cfd") {
+    throw new Error("REAL_CFD_EXECUTION_NOT_IMPLEMENTED");
+  }
+  if (config.EXECUTION_MODE === "legacy_binary") {
+    throw new Error("CFD execution is blocked while EXECUTION_MODE is legacy_binary");
+  }
+  const mode = resolveExecutionBackend(config);
+  if (mode !== "paper_cfd" && mode !== "broker_demo_cfd" && mode !== "broker_demo_mt5") {
+    throw new Error(`CFD execution is not reachable for EXECUTION_MODE=${mode}`);
+  }
+}
+
+/**
+ * Legacy Deriv binary proposal/buy/proposal_open_contract only.
+ * Must NOT be called from paper/MT5/cTrader CFD runtimes.
+ */
 export function assertLegacyBinaryReachable(config: ExecutionModeConfig): void {
+  if (config.REAL_MONEY_ENABLED) {
+    throw new Error(
+      "REAL_MONEY_ENABLED=true is refused. Real CFD/MT5 execution is not implemented. Refusing unsafe config."
+    );
+  }
   if (
-    isPaperCfdExecution(config) ||
-    isBrokerDemoCfdExecution(config) ||
-    isBrokerDemoMt5Execution(config)
+    config.EXECUTION_MODE === "paper_cfd" ||
+    config.EXECUTION_MODE === "broker_demo_cfd" ||
+    config.EXECUTION_MODE === "broker_demo_mt5" ||
+    config.EXECUTION_MODE === "broker_real_cfd" ||
+    config.EXECUTION_MODE === "broker_real_mt5"
   ) {
     throw new Error(
       "Legacy binary execution (proposal/buy/proposal_open_contract) is blocked while EXECUTION_MODE is CFD"
     );
+  }
+  if (config.EXECUTION_MODE !== "legacy_binary" || !config.LEGACY_BINARY_ENABLED) {
+    throw new Error("Legacy binary execution is not reachable");
   }
 }

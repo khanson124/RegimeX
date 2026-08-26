@@ -31,6 +31,8 @@ describe("MT5 demo access / status diagnostics", () => {
     expect(status.status.enabled).toBe(true);
     expect(status.status.engineAutomationEnabled).toBe(false);
     expect(status.status.error).toBeNull();
+    expect(status.status.ready).toBe(false);
+    expect(status.status.bridge).toBe("offline");
   });
 
   it("does not construct/use a real adapter for broker_demo_mt5", () => {
@@ -57,6 +59,41 @@ describe("MT5 demo access / status diagnostics", () => {
       REAL_MONEY_ENABLED: false,
       MT5_ENGINE_ENABLED: false
     }).reason).toBe("MT5_ENGINE_DISABLED");
+  });
+
+  it("does not report Ready when HTTP health is dead", () => {
+    const status = buildMt5StatusEnvelope(
+      {
+        EXECUTION_MODE: "broker_demo_mt5",
+        REAL_MONEY_ENABLED: false,
+        MT5_ENGINE_ENABLED: false,
+        MT5_TEST_MODE: true
+      },
+      { connected: true, eaConnected: true },
+      "MT5_BRIDGE_TIMEOUT",
+      [],
+      {
+        bridge: "unhealthy",
+        ea: "unknown",
+        reconciliation: "stale",
+        circuit: {
+          circuitState: "OPEN",
+          consecutiveFailures: 3,
+          lastFailureAt: Date.now(),
+          lastSuccessAt: null,
+          nextProbeAt: Date.now() + 30_000,
+          lastFailureCode: "MT5_BRIDGE_TIMEOUT"
+        },
+        lastBridgeSuccessAt: null,
+        lastEaSuccessAt: null,
+        executionBlockReason: "MT5_BRIDGE_TIMEOUT",
+        ready: false
+      }
+    );
+    expect(status.status.connected).toBe(false);
+    expect(status.status.ready).toBe(false);
+    expect(status.status.bridge).toBe("unhealthy");
+    expect(status.status.executionBlockReason).toBe("MT5_BRIDGE_TIMEOUT");
   });
 
   it("broker_real_mt5 is always blocked", () => {

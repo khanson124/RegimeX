@@ -81,6 +81,7 @@ export * from "./research/strategyLifecycle.js";
 export * from "./research/mt5ForwardLedger.js";
 export * from "./research/evidenceRanking.js";
 export * from "./logging/redactSecrets.js";
+export * from "./logging/oncePerCode.js";
 
 // ML readiness (no ML implementation)
 export * from "./scoring/tradeScoringService.js";

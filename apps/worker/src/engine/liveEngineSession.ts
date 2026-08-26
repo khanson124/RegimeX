@@ -21,7 +21,13 @@ import {
   DEFAULT_STRATEGY_PARAMETERS,
   isPaperCfdExecution,
   assertLegacyBinaryReachable,
+  getSharedMt5BridgeCircuit,
+  Mt5BridgeCircuitBreaker,
+  OncePerCodeLogger,
+  probeMt5BridgeLive,
+  resetSharedMt5BridgeCircuit,
   resolveExecutionBackend,
+  resolveMt5BridgeUrl,
   isCfdCapableStrategy,
   buildCfdPerformanceRecords,
   computeStrategyConfigHash,
@@ -98,6 +104,8 @@ export class LiveEngineSession {
   private paperCfd: PaperCfdRuntime | null = null;
   private mt5Cfd: Mt5CfdRuntime | null = null;
   private executionBackend: import("@regimex/trading-engine").ExecutionBackend = "paper_cfd";
+  private readonly heartbeatReconcileLog = new OncePerCodeLogger();
+  private heartbeatInFlight = false;
 
   constructor(
     readonly userId: string,
@@ -245,6 +253,13 @@ export class LiveEngineSession {
     }
 
     if (this.executionBackend === "broker_demo_mt5") {
+      resetSharedMt5BridgeCircuit(
+        new Mt5BridgeCircuitBreaker({
+          onTransition: (from, to, snapshot) => {
+            this.log.warn({ from, to, ...snapshot }, "MT5 bridge circuit state");
+          }
+        })
+      );
       this.mt5Cfd = new Mt5CfdRuntime(this.userId, {
         prisma,
         config,
@@ -779,7 +794,8 @@ export class LiveEngineSession {
             internalSymbol: this.symbol,
             strategyDecision: decision.action,
             volumePreflight: result.preflight ?? null,
-            ...(result.preflight ?? {})
+            ...(result.preflight ?? {}),
+            ...(this.mt5Cfd?.getHealthSnapshot() ?? {})
           }
         });
       } else {
@@ -1153,6 +1169,8 @@ export class LiveEngineSession {
   private async heartbeat(): Promise<void> {
     const { prisma, publish } = this.deps;
     if (!this.engineId) return;
+    if (this.heartbeatInFlight) return;
+    this.heartbeatInFlight = true;
     try {
       const engine = await prisma.liveEngine.findUnique({ where: { id: this.engineId } });
       if (!engine) return;
@@ -1177,15 +1195,55 @@ export class LiveEngineSession {
         }
       });
       if (this.executionBackend === "broker_demo_mt5" && this.mt5Cfd) {
-        await this.mt5Cfd.reconcileOpen();
+        await this.heartbeatMt5Reconcile();
       }
     } catch (err) {
       this.log.warn({ err }, "Heartbeat failed");
+    } finally {
+      this.heartbeatInFlight = false;
+    }
+  }
+
+  private async heartbeatMt5Reconcile(): Promise<void> {
+    if (!this.mt5Cfd) return;
+    const circuit = getSharedMt5BridgeCircuit();
+    const probe = await probeMt5BridgeLive(resolveMt5BridgeUrl(this.deps.config), 2_000);
+    if (!probe.ok) {
+      circuit.recordFailure(probe.errorCode);
+      this.heartbeatReconcileLog.emit(probe.errorCode ?? "MT5_BRIDGE_UNAVAILABLE", () => {
+        this.log.warn(
+          { errorCode: probe.errorCode, latencyMs: probe.latencyMs, circuit: circuit.snapshot() },
+          "MT5 heartbeat: bridge liveness failed"
+        );
+      });
+      return;
+    }
+    if (circuit.snapshot().circuitState !== "CLOSED") {
+      circuit.recordSuccess();
+    }
+    try {
+      await this.mt5Cfd.reconcileOpen();
+      const health = this.mt5Cfd.getHealthSnapshot();
+      if (health.reconciliationFresh && this.heartbeatReconcileLog.reset("OK")) {
+        this.log.info({ circuit: health.circuit }, "MT5 heartbeat reconciliation recovered");
+      } else if (!health.reconciliationFresh && health.lastReconcileError) {
+        this.heartbeatReconcileLog.emit(health.lastReconcileError, () => {
+          this.log.warn(
+            { errorCode: health.lastReconcileError, circuit: health.circuit },
+            "MT5 heartbeat: reconciliation unavailable"
+          );
+        });
+      }
+    } catch (err) {
+      this.heartbeatReconcileLog.emit("RECONCILIATION_UNAVAILABLE", () => {
+        this.log.warn({ err, errorCode: "RECONCILIATION_UNAVAILABLE" }, "MT5 heartbeat reconcile failed");
+      });
     }
   }
 
   private async pollMt5Quote(): Promise<void> {
     if (!this.mt5Cfd) return;
+    if (getSharedMt5BridgeCircuit().snapshot().circuitState === "OPEN") return;
     try {
       const quote = await this.mt5Cfd.getQuote(this.symbol);
       if (!quote) return;
@@ -1463,17 +1521,24 @@ export class LiveEngineSession {
         interval: this.interval
       }
     });
+    const summary = extra.featureSummary ?? {};
+    const circuitSnap =
+      summary.circuit && typeof summary.circuit === "object"
+        ? (summary.circuit as { circuitState?: string })
+        : null;
     this.log.info(
       {
         autonomousDecisionCode: code,
         internalSymbol: this.symbol,
-        brokerSymbol: extra.featureSummary?.brokerSymbol ?? null,
+        brokerSymbol: typeof summary.brokerSymbol === "string" ? summary.brokerSymbol : null,
         interval: this.interval,
         strategyId: extra.strategyId ?? null,
         regime: extra.regime ?? null,
         signalDirection: extra.action ?? null,
+        circuitState: circuitSnap?.circuitState ?? (typeof summary.circuitState === "string" ? summary.circuitState : null),
+        reconciliationFresh: typeof summary.reconciliationFresh === "boolean" ? summary.reconciliationFresh : null,
         reasons,
-        volumePreflight: extra.featureSummary?.volumePreflight ?? null
+        volumePreflight: summary.volumePreflight ?? null
       },
       "Autonomous MT5 decision"
     );

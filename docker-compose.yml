@@ -86,6 +86,16 @@ services:
       - "8765"
     volumes:
       - ${MT5_MAILBOX_HOST_PATH:-./var/mt5-mailbox}:/mt5-mailbox
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- -T 2 http://127.0.0.1:8765/health/live | grep -q '\"ok\":true'"
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

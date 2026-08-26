@@ -1,5 +1,6 @@
 import { loadConfig } from "@regimex/config";
 import { startMt5BridgeServer } from "./server.js";
+import { startMt5BridgeWatchdog } from "./watchdog.js";
 
 function log(message: string, extra?: Record<string, unknown>): void {
   process.stdout.write(
@@ -28,7 +29,13 @@ async function main(): Promise<void> {
     mailboxPath,
     commandTimeoutMs: config.MT5_COMMAND_TIMEOUT_MS
   });
-  log("mt5-bridge listening", { host, port });
+  const watchdog = startMt5BridgeWatchdog({ port, parentPid: process.pid });
+  log("mt5-bridge listening", {
+    host,
+    port,
+    watchdog: watchdog != null,
+    healthcheck: "GET /health/live is event-loop liveness only"
+  });
 }
 
 main().catch((err) => {
