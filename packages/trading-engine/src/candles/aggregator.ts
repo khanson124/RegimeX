@@ -5,6 +5,7 @@ import {
   roundPrice,
   type Candle,
   type CandleInterval,
+  type CandleSource,
   type Tick
 } from "@regimex/shared";
 
@@ -12,6 +13,8 @@ export interface CandleAggregatorOptions {
   symbol: string;
   interval: CandleInterval;
   pricePrecision: number;
+  /** Provenance tag stamped on emitted candles. Defaults to LIVE_TICKS (Deriv). */
+  source?: CandleSource;
   /** Called exactly once per completed candle, in order. */
   onCandleClosed: (candle: Candle) => void;
   /** Called on updates to the in-progress candle (throttling is the caller's job). */
@@ -32,8 +35,11 @@ export class CandleAggregator {
   private current: Candle | null = null;
   private lastTickEpoch = 0;
   private readonly gaps: Array<{ fromCloseTime: number; toOpenTime: number }> = [];
+  private readonly candleSource: CandleSource;
 
-  constructor(private readonly options: CandleAggregatorOptions) {}
+  constructor(private readonly options: CandleAggregatorOptions) {
+    this.candleSource = options.source ?? "LIVE_TICKS";
+  }
 
   /** Restore the in-progress candle after a process restart. */
   restore(candle: Candle | null): void {
@@ -82,7 +88,7 @@ export class CandleAggregator {
         close: quote,
         tickCount: 1,
         isComplete: false,
-        source: "LIVE_TICKS"
+        source: this.candleSource
       };
     } else {
       this.current = {

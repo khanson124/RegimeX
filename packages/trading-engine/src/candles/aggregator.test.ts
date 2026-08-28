@@ -73,6 +73,20 @@ describe("CandleAggregator", () => {
     expect(closed).toHaveLength(1);
   });
 
+  it("emits configured provenance source", () => {
+    const closed: Candle[] = [];
+    const agg = new CandleAggregator({
+      symbol: "R_10",
+      interval: "1m",
+      pricePrecision: 3,
+      source: "MT5_LIVE_TICKS",
+      onCandleClosed: (c) => closed.push(c)
+    });
+    agg.processTick({ symbol: "R_10", epochMs: T0 + 1000, quote: 100 });
+    agg.processTick({ symbol: "R_10", epochMs: T0 + 61_000, quote: 101 });
+    expect(closed[0]!.source).toBe("MT5_LIVE_TICKS");
+  });
+
   it("restores state after a restart", () => {
     const { agg, closed } = makeAggregator();
     agg.restore({

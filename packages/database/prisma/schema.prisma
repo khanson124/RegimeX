@@ -162,7 +162,7 @@ model Candle {
   close      Decimal  @db.Decimal(18, 5)
   tickCount  Int      @default(0)
   isComplete Boolean  @default(false)
-  source     String // LIVE_TICKS | HISTORY_API | SEED
+  source     String // LIVE_TICKS | HISTORY_API | SEED | MT5_LIVE_TICKS
   createdAt  DateTime @default(now())
 
   symbol Symbol @relation(fields: [symbolId], references: [id], onDelete: Cascade)

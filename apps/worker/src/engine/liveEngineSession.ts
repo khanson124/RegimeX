@@ -37,6 +37,11 @@ import {
   applyMt5StrategySelectionAllowlist,
   gateMt5FixedStrategySelection,
   resolveMt5EngineStrategyAllowlist,
+  isMt5MarketDataReady,
+  resolveMt5WarmupRequirement,
+  shouldIngestMt5ClosedCandle,
+  validateIncomingMt5Candle,
+  type Mt5WarmupRequirement,
   rankEvidenceScore,
   type RegimeThresholds,
   type SelectionCandidate,
@@ -50,6 +55,12 @@ import { loadLifecycle } from "../cfd/mt5ForwardEvidence.js";
 import { type Logger } from "pino";
 import { type EventPublisher } from "../lib/events.js";
 import { recordTradeCandidate } from "../lib/tradeCandidates.js";
+import {
+  mapRestoredSessionCandles,
+  resolvePersistedCandleSources,
+  shouldFeedDerivTicksToAggregator,
+  shouldSubscribeDerivTicks
+} from "./liveEngineMarketData.js";
 
 export interface SessionDeps {
   prisma: PrismaClient;
@@ -112,6 +123,11 @@ export class LiveEngineSession {
   private fixedStrategyId: string | null = null;
   private readonly heartbeatReconcileLog = new OncePerCodeLogger();
   private heartbeatInFlight = false;
+  private mt5WarmupRequirement: Mt5WarmupRequirement = {
+    status: "NO_ELIGIBLE_STRATEGIES",
+    reason: "NO_MT5_ELIGIBLE_STRATEGIES"
+  };
+  private mt5WarmupLogged = false;
 
   constructor(
     readonly userId: string,
@@ -282,44 +298,80 @@ export class LiveEngineSession {
     const symbolRow = await prisma.symbol.findUnique({ where: { derivSymbol: this.symbol } });
     if (!symbolRow) throw new Error(`Symbol ${this.symbol} is not in the catalogue`);
 
+    const restorableSources = resolvePersistedCandleSources(this.executionBackend);
     const history = await prisma.candle.findMany({
-      where: { symbolId: symbolRow.id, interval: this.interval, isComplete: true },
+      where: {
+        symbolId: symbolRow.id,
+        interval: this.interval,
+        isComplete: true,
+        ...(restorableSources ? { source: { in: restorableSources } } : {})
+      },
       orderBy: { openTime: "desc" },
       take: CANDLE_BUFFER
     });
     history.reverse();
-    this.candles = history.map((r) => ({
+    const restored = mapRestoredSessionCandles({
+      executionBackend: this.executionBackend,
       symbol: this.symbol,
       interval: this.interval,
-      openTime: r.openTime.getTime(),
-      closeTime: r.closeTime.getTime(),
-      open: Number(r.open),
-      high: Number(r.high),
-      low: Number(r.low),
-      close: Number(r.close),
-      tickCount: r.tickCount,
-      isComplete: true,
-      source: r.source as Candle["source"]
-    }));
+      rows: history
+    });
+    this.candles = restored.candles;
+    if (this.executionBackend === "broker_demo_mt5") {
+      this.mt5WarmupRequirement = resolveMt5WarmupRequirement({
+        strategies: this.strategies.map((s) => ({
+          strategyId: s.strategy.id,
+          minimumHistory: s.strategy.minimumHistory
+        })),
+        executionBackend: this.executionBackend,
+        config,
+        selectionMode: this.engineSelectionMode,
+        fixedStrategyId: this.fixedStrategyId
+      });
+      if (restored.rejected) {
+        this.log.warn(
+          { reason: restored.reason, persistedRows: history.length },
+          "Rejected incompatible persisted candles for broker_demo_mt5 — starting MT5 warm-up from empty buffer"
+        );
+      } else {
+        this.log.info(
+          {
+            restoredBars: this.candles.length,
+            mt5WarmupRequirement: this.mt5WarmupRequirement
+          },
+          "Restored MT5-provenance candle buffer"
+        );
+      }
+      if (this.mt5WarmupRequirement.status === "NO_ELIGIBLE_STRATEGIES") {
+        this.log.warn(
+          { reason: this.mt5WarmupRequirement.reason },
+          "broker_demo_mt5 has no rollout-eligible strategies — market data and autonomous execution remain blocked"
+        );
+      }
+    }
     this.candleIndex = this.candles.length;
 
     this.aggregator = new CandleAggregator({
       symbol: this.symbol,
       interval: this.interval,
       pricePrecision: symbolRow.pricePrecision,
+      source: this.executionBackend === "broker_demo_mt5" ? "MT5_LIVE_TICKS" : "LIVE_TICKS",
       onCandleClosed: (candle) => void this.onCandleClosed(candle, symbolRow.id),
       onCandleUpdated: (candle) =>
         void publish(this.userId, "market.tick", { symbol: candle.symbol, price: candle.close, time: this.lastTickAt })
     });
 
-    await this.client.subscribeTicks(this.symbol, (tick) => {
-      this.lastTickAt = tick.epochMs;
-      void this.paperCfd?.onQuote(this.symbol, tick.quote, tick.epochMs);
-      this.aggregator?.processTick(tick);
-    }).catch((err: unknown) => {
-      if (this.executionBackend !== "broker_demo_mt5") throw err;
-      this.log.warn({ err }, "Deriv tick subscribe failed; MT5 quotes will drive candles");
-    });
+    if (shouldSubscribeDerivTicks(this.executionBackend)) {
+      await this.client.subscribeTicks(this.symbol, (tick) => {
+        this.lastTickAt = tick.epochMs;
+        void this.paperCfd?.onQuote(this.symbol, tick.quote, tick.epochMs);
+        if (shouldFeedDerivTicksToAggregator(this.executionBackend)) {
+          this.aggregator?.processTick(tick);
+        }
+      });
+    } else {
+      this.log.info("broker_demo_mt5: skipping Deriv tick subscription — MT5 quotes drive candles");
+    }
 
     if (this.executionBackend === "broker_demo_mt5") {
       this.log.info(
@@ -443,6 +495,15 @@ export class LiveEngineSession {
   private async onCandleClosed(candle: Candle, symbolId: string): Promise<void> {
     const { prisma, publish } = this.deps;
     try {
+      if (this.executionBackend === "broker_demo_mt5") {
+        const previousClose = this.candles[this.candles.length - 1]?.close ?? null;
+        if (!shouldIngestMt5ClosedCandle(candle, previousClose)) {
+          const accepted = validateIncomingMt5Candle(candle, previousClose);
+          this.log.warn({ reason: accepted.reason, openTime: candle.openTime }, "Rejected MT5 candle — fail closed");
+          return;
+        }
+      }
+
       // Persist (idempotent thanks to the unique constraint).
       await prisma.candle.upsert({
         where: {
@@ -525,6 +586,28 @@ export class LiveEngineSession {
   private async analyze(candle: Candle): Promise<void> {
     const { publish, config } = this.deps;
     const correlationId = randomUUID();
+
+    if (this.executionBackend === "broker_demo_mt5") {
+      const readiness = isMt5MarketDataReady(this.candles, this.mt5WarmupRequirement);
+      if (!readiness.ready) {
+        if (!this.mt5WarmupLogged) {
+          this.mt5WarmupLogged = true;
+          this.log.info({ reason: readiness.reason }, "broker_demo_mt5 market-data warm-up in progress");
+        }
+        await this.logAutonomousDecision("NO_TRADE", [readiness.reason ?? "MT5 market data not ready"], {
+          regime: this.lastRegime?.regime ?? "UNKNOWN",
+          regimeConfidence: this.lastRegime?.confidence ?? 0,
+          correlationId,
+          featureSummary: {
+            interval: this.interval,
+            internalSymbol: this.symbol,
+            mt5WarmupBars: this.candles.length,
+            mt5WarmupRequirement: this.mt5WarmupRequirement
+          }
+        });
+        return;
+      }
+    }
 
     const features = extractFeatures(this.candles);
     const latest = features[features.length - 1]!;
@@ -789,6 +872,17 @@ export class LiveEngineSession {
     }
 
     if (this.executionBackend === "broker_demo_mt5") {
+      const readiness = isMt5MarketDataReady(this.candles, this.mt5WarmupRequirement);
+      if (!readiness.ready) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        await this.logAutonomousDecision("NO_TRADE", [readiness.reason ?? "MT5 market data not ready"], {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId,
+          regime: regime.regime
+        });
+        return;
+      }
       if (!isCfdCapableStrategy(chosen.strategy.id)) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
         await this.logAutonomousDecision("NO_TRADE", [

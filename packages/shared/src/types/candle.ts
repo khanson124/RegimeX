@@ -7,7 +7,11 @@ export const CANDLE_INTERVAL_SECONDS: Record<CandleInterval, number> = {
   "5m": 300
 };
 
-export type CandleSource = "LIVE_TICKS" | "HISTORY_API" | "SEED";
+export type CandleSource =
+  | "LIVE_TICKS" // Deriv live ticks (legacy name retained for backward compatibility)
+  | "HISTORY_API" // Deriv historical / research backfill
+  | "SEED"
+  | "MT5_LIVE_TICKS"; // MT5 broker live quotes — broker_demo_mt5 session domain
 
 /**
  * Engine-facing candle. Times are epoch milliseconds (UTC).

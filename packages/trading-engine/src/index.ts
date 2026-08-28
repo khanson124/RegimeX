@@ -26,6 +26,8 @@ export * from "./ensemble/ensemble.js";
 
 // Candles
 export * from "./candles/aggregator.js";
+export * from "./candles/candleIntegrity.js";
+export * from "./candles/mt5MarketData.js";
 
 // Backtesting
 export * from "./backtest/contractSimulator.js";
