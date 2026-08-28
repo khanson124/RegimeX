@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { ensureMailboxLayout, mailboxPaths } from "@regimex/trading-engine";
+import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AddressInfo } from "node:net";
@@ -6,6 +7,11 @@ import { describe, expect, it } from "vitest";
 import { isMt5BridgeLivePayload, startMt5BridgeServer } from "./server.js";
 
 const SECRET = "test-secret-value-32chars-long!";
+
+async function touchOld(path: string, ageMinutes: number): Promise<void> {
+  const t = new Date(Date.now() - ageMinutes * 60_000);
+  await utimes(path, t, t);
+}
 
 describe("mt5-bridge server", () => {
   it("treats only ok+service JSON as a passing live healthcheck", () => {
@@ -16,12 +22,20 @@ describe("mt5-bridge server", () => {
 
   it("/health/live stays independent of a hung EA mailbox wait", async () => {
     const root = await mkdtemp(join(tmpdir(), "mt5-bridge-"));
-    const server = await startMt5BridgeServer({
+    const { server } = await startMt5BridgeServer({
       host: "127.0.0.1",
       port: 0,
       secret: SECRET,
       mailboxPath: root,
-      commandTimeoutMs: 5_000
+      commandTimeoutMs: 5_000,
+      cleanup: {
+        enabled: true,
+        processingRetentionMinutes: 60,
+        replyRetentionMinutes: 1440,
+        orphanRetentionMinutes: 1440,
+        intervalSeconds: 3600,
+        maxFilesPerRun: 500
+      }
     });
     try {
       const addr = server.address() as AddressInfo;
@@ -43,9 +57,14 @@ describe("mt5-bridge server", () => {
       await new Promise((r) => setTimeout(r, 80));
       const ready = await fetch(`${base}/health/ready`);
       expect(ready.status).toBe(200);
-      const readyBody = (await ready.json()) as { inFlight: number; eaHealth: string };
+      const readyBody = (await ready.json()) as {
+        inFlight: number;
+        eaHealth: string;
+        mailboxCleanupHealthy?: boolean;
+      };
       expect(readyBody.inFlight).toBeGreaterThanOrEqual(1);
       expect(readyBody.eaHealth).toBe("unknown");
+      expect(readyBody.mailboxCleanupHealthy).toBe(true);
 
       const reply = await command;
       expect(reply.status).toBe(504);
@@ -56,4 +75,48 @@ describe("mt5-bridge server", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 15_000);
+
+  it("/health/live stays responsive while mailbox cleanup runs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mt5-clean-live-"));
+    await ensureMailboxLayout(root);
+    for (let i = 0; i < 120; i++) {
+      const id = `getQuote_live${i}`;
+      const p = join(mailboxPaths(root).processing, `${id}.json`);
+      const r = join(mailboxPaths(root).replies, `${id}.json`);
+      await writeFile(p, "{}");
+      await writeFile(r, "{}");
+      await touchOld(p, 120);
+    }
+    const { server, cleanup } = await startMt5BridgeServer({
+      host: "127.0.0.1",
+      port: 0,
+      secret: SECRET,
+      mailboxPath: root,
+      commandTimeoutMs: 5_000,
+      cleanup: {
+        enabled: true,
+        processingRetentionMinutes: 60,
+        replyRetentionMinutes: 1440,
+        orphanRetentionMinutes: 1440,
+        intervalSeconds: 3600,
+        maxFilesPerRun: 200
+      }
+    });
+    try {
+      const addr = server.address() as AddressInfo;
+      const base = `http://127.0.0.1:${addr.port}`;
+      await cleanup?.runOnce();
+      const started = Date.now();
+      const live = await fetch(`${base}/health/live`);
+      expect(live.status).toBe(200);
+      expect(Date.now() - started).toBeLessThan(500);
+      const ready = await fetch(`${base}/health/ready`);
+      const body = (await ready.json()) as { processing: number; cleanupDeletedProcessing?: number };
+      expect(body.processing).toBeLessThan(120);
+      expect((body.cleanupDeletedProcessing ?? 0) > 0 || body.processing < 120).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

@@ -122,6 +122,13 @@ const envSchema = z.object({
   MT5_MAX_TEST_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_MAX_TEST_RISK_PERCENT: z.coerce.number().positive().default(0.1),
   MT5_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /** Bounded retention for completed MT5 mailbox files (bridge only). */
+  MT5_MAILBOX_PROCESSING_RETENTION_MINUTES: z.coerce.number().int().positive().default(60),
+  MT5_MAILBOX_REPLY_RETENTION_MINUTES: z.coerce.number().int().positive().default(1440),
+  MT5_MAILBOX_ORPHAN_RETENTION_MINUTES: z.coerce.number().int().positive().default(1440),
+  MT5_MAILBOX_CLEANUP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  MT5_MAILBOX_CLEANUP_MAX_FILES_PER_RUN: z.coerce.number().int().positive().default(500),
+  MT5_MAILBOX_CLEANUP_ENABLED: envBoolean.default(true),
   /**
    * Autonomous MT5 DEMO rollout. Empty allowlist = fail-closed (no engine orders).
    * Internal RegimeX symbols (R_10), not broker-native MT5 names.

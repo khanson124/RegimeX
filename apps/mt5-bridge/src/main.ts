@@ -27,7 +27,15 @@ async function main(): Promise<void> {
     port,
     secret: config.MT5_BRIDGE_SECRET || "unconfigured-mt5-bridge",
     mailboxPath,
-    commandTimeoutMs: config.MT5_COMMAND_TIMEOUT_MS
+    commandTimeoutMs: config.MT5_COMMAND_TIMEOUT_MS,
+    cleanup: {
+      enabled: config.MT5_MAILBOX_CLEANUP_ENABLED,
+      processingRetentionMinutes: config.MT5_MAILBOX_PROCESSING_RETENTION_MINUTES,
+      replyRetentionMinutes: config.MT5_MAILBOX_REPLY_RETENTION_MINUTES,
+      orphanRetentionMinutes: config.MT5_MAILBOX_ORPHAN_RETENTION_MINUTES,
+      intervalSeconds: config.MT5_MAILBOX_CLEANUP_INTERVAL_SECONDS,
+      maxFilesPerRun: config.MT5_MAILBOX_CLEANUP_MAX_FILES_PER_RUN
+    }
   });
   const watchdog = startMt5BridgeWatchdog({ port, parentPid: process.pid });
   log("mt5-bridge listening", {

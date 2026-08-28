@@ -10,6 +10,20 @@ import {
   writePendingCommand,
   type Mt5CommandType
 } from "@regimex/trading-engine";
+import {
+  createMailboxCleanupScheduler,
+  mailboxCleanupReadySnapshot,
+  type MailboxCleanupScheduler
+} from "./mailboxCleanupRunner.js";
+
+export interface Mt5BridgeMailboxCleanupConfig {
+  enabled: boolean;
+  processingRetentionMinutes: number;
+  replyRetentionMinutes: number;
+  orphanRetentionMinutes: number;
+  intervalSeconds: number;
+  maxFilesPerRun: number;
+}
 
 export interface Mt5BridgeServerConfig {
   host: string;
@@ -20,6 +34,12 @@ export interface Mt5BridgeServerConfig {
   maxInFlight?: number;
   mailboxIoTimeoutMs?: number;
   readyTimeoutMs?: number;
+  cleanup?: Mt5BridgeMailboxCleanupConfig;
+}
+
+export interface Mt5BridgeServerHandle {
+  server: Server;
+  cleanup: MailboxCleanupScheduler | null;
 }
 
 export interface Mt5BridgeRuntimeState {
@@ -115,7 +135,7 @@ export function isMt5BridgeLivePayload(body: string): boolean {
  *
  * /health/live is event-loop liveness only — no mailbox, no EA wait.
  */
-export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Server> {
+export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Mt5BridgeServerHandle> {
   const state: Mt5BridgeRuntimeState = {
     inFlight: 0,
     lastSuccessfulEaReplyAt: null,
@@ -124,7 +144,37 @@ export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Ser
     oldestInFlightStartedAt: null
   };
   const inFlightStarted = new Map<string, number>();
+  const inFlightMailboxFileIds = new Set<string>();
   const maxInFlight = config.maxInFlight ?? DEFAULT_MAX_IN_FLIGHT;
+
+  const cleanup =
+    config.cleanup?.enabled === false
+      ? null
+      : createMailboxCleanupScheduler({
+          mailboxPath: config.mailboxPath,
+          config: {
+            processingRetentionMinutes: config.cleanup?.processingRetentionMinutes ?? 60,
+            replyRetentionMinutes: config.cleanup?.replyRetentionMinutes ?? 1440,
+            orphanRetentionMinutes: config.cleanup?.orphanRetentionMinutes ?? 1440,
+            maxFilesPerRun: config.cleanup?.maxFilesPerRun ?? 500
+          },
+          intervalSeconds: config.cleanup?.intervalSeconds ?? 60,
+          enabled: config.cleanup?.enabled ?? true,
+          getInFlightMailboxFileIds: () => inFlightMailboxFileIds,
+          onPassComplete: ({ counters }) => {
+            const total = counters.deletedProcessing + counters.deletedReplies + counters.deletedPending;
+            if (total > 0) {
+              console.info(
+                JSON.stringify({
+                  msg: "MT5_MAILBOX_CLEANUP",
+                  deletedProcessing: counters.deletedProcessing,
+                  deletedReplies: counters.deletedReplies,
+                  deletedPending: counters.deletedPending
+                })
+              );
+            }
+          }
+        });
 
   const refreshOldest = () => {
     let oldest: number | null = null;
@@ -137,9 +187,10 @@ export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Ser
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      void handle(req, res, config, state, {
+      void handle(req, res, config, state, cleanup, {
         maxInFlight,
         inFlightStarted,
+        inFlightMailboxFileIds,
         refreshOldest
       }).catch((err) => {
         const code =
@@ -167,10 +218,12 @@ export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Ser
             })
           );
         }
-        resolve(server);
+        resolve({ server, cleanup });
       }, reject);
     });
     server.on("error", reject);
+
+    cleanup?.start();
 
     const prepareTimer = setInterval(() => {
       void prepareMailbox(config.mailboxPath).catch((err) => {
@@ -183,7 +236,10 @@ export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Ser
       });
     }, 60_000);
     prepareTimer.unref();
-    server.on("close", () => clearInterval(prepareTimer));
+    server.on("close", () => {
+      clearInterval(prepareTimer);
+      cleanup?.stop();
+    });
   });
 }
 
@@ -192,9 +248,11 @@ async function handle(
   res: ServerResponse,
   config: Mt5BridgeServerConfig,
   state: Mt5BridgeRuntimeState,
+  cleanup: MailboxCleanupScheduler | null,
   flight: {
     maxInFlight: number;
     inFlightStarted: Map<string, number>;
+    inFlightMailboxFileIds: Set<string>;
     refreshOldest: () => void;
   }
 ): Promise<void> {
@@ -224,6 +282,19 @@ async function handle(
       state.oldestInFlightStartedAt != null ? Date.now() - state.oldestInFlightStartedAt : null;
     const eaRecent =
       state.lastSuccessfulEaReplyAt != null && Date.now() - state.lastSuccessfulEaReplyAt < 30_000;
+    const cleanupSnapshot =
+      cleanup != null
+        ? mailboxCleanupReadySnapshot(cleanup, config.cleanup?.intervalSeconds ?? 60)
+        : {
+            cleanupLastRunAt: null,
+            cleanupLastSuccessAt: null,
+            cleanupDeletedProcessing: 0,
+            cleanupDeletedReplies: 0,
+            cleanupDeletedPending: 0,
+            oldestProcessingAgeMs: null,
+            mailboxCleanupHealthy: true,
+            cleanupLastError: null
+          };
     send(res, 200, {
       ok: true,
       service: "mt5-bridge",
@@ -237,7 +308,8 @@ async function handle(
       lastEaTimeoutAt: state.lastEaTimeoutAt,
       lastCommandAt: state.lastCommandAt,
       eaRecent,
-      eaHealth: eaRecent ? "online" : state.lastSuccessfulEaReplyAt ? "offline" : "unknown"
+      eaHealth: eaRecent ? "online" : state.lastSuccessfulEaReplyAt ? "offline" : "unknown",
+      ...cleanupSnapshot
     });
     return;
   }
@@ -283,6 +355,7 @@ async function handle(
   state.lastCommandAt = Date.now();
   flight.inFlightStarted.set(requestId, Date.now());
   flight.refreshOldest();
+  let activeMailboxFileId: string | null = null;
 
   try {
     const written = await writePendingCommand(config.mailboxPath, config.secret, {
@@ -291,6 +364,8 @@ async function handle(
       command: parsed.command,
       payload: parsed.payload ?? {}
     });
+    activeMailboxFileId = written.mailboxFileId;
+    flight.inFlightMailboxFileIds.add(written.mailboxFileId);
 
     try {
       const reply = await waitForReply(config.mailboxPath, written.mailboxFileId, config.commandTimeoutMs);
@@ -361,6 +436,7 @@ async function handle(
     });
   } finally {
     flight.inFlightStarted.delete(requestId);
+    if (activeMailboxFileId) flight.inFlightMailboxFileIds.delete(activeMailboxFileId);
     flight.refreshOldest();
   }
 }
