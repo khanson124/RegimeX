@@ -1,4 +1,5 @@
 import { type StrategyEvidenceLifecycle } from "@regimex/shared";
+import { type ExecutionBackend } from "../../execution/executionMode.js";
 import { type Mt5AccessConfig } from "./demoAccess.js";
 import {
   BROKER_SYMBOL_MAPPING_MISSING,
@@ -29,6 +30,63 @@ export function parseCsvAllowlist(raw: string | null | undefined): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** Parsed MT5_ENGINE_STRATEGY_ALLOWLIST — empty means fail-closed for broker_demo_mt5 selection. */
+export function resolveMt5EngineStrategyAllowlist(config: Mt5EngineRolloutConfig): string[] {
+  return parseCsvAllowlist(config.MT5_ENGINE_STRATEGY_ALLOWLIST);
+}
+
+/**
+ * Restricts broker_demo_mt5 strategy candidates to MT5_ENGINE_STRATEGY_ALLOWLIST.
+ * Other execution backends pass through unchanged.
+ */
+export function applyMt5StrategySelectionAllowlist<T>(
+  strategies: readonly T[],
+  getStrategyId: (strategy: T) => string,
+  executionBackend: ExecutionBackend,
+  config: Mt5EngineRolloutConfig
+): T[] {
+  if (executionBackend !== "broker_demo_mt5") return [...strategies];
+  const allowlist = resolveMt5EngineStrategyAllowlist(config);
+  if (allowlist.length === 0) return [];
+  return strategies.filter((s) => allowlist.includes(getStrategyId(s)));
+}
+
+export interface Mt5FixedStrategySelectionGate {
+  allowed: boolean;
+  reason: string | null;
+  decisionCode: "FIXED_STRATEGY_ALLOWED" | "FIXED_STRATEGY_NOT_CONFIGURED" | "ALLOWLIST" | "STRATEGY_NOT_ALLOWED";
+}
+
+/** Fail-closed gate for broker_demo_mt5 SINGLE/fixed strategy mode. */
+export function gateMt5FixedStrategySelection(input: {
+  config: Mt5EngineRolloutConfig;
+  fixedStrategyId: string | null | undefined;
+}): Mt5FixedStrategySelectionGate {
+  if (!input.fixedStrategyId) {
+    return {
+      allowed: false,
+      reason: "FIXED_STRATEGY_NOT_CONFIGURED",
+      decisionCode: "FIXED_STRATEGY_NOT_CONFIGURED"
+    };
+  }
+  const allowlist = resolveMt5EngineStrategyAllowlist(input.config);
+  if (allowlist.length === 0) {
+    return {
+      allowed: false,
+      reason: MT5_ENGINE_STRATEGY_ALLOWLIST_EMPTY,
+      decisionCode: "ALLOWLIST"
+    };
+  }
+  if (!allowlist.includes(input.fixedStrategyId)) {
+    return {
+      allowed: false,
+      reason: MT5_ENGINE_STRATEGY_NOT_ALLOWED,
+      decisionCode: "STRATEGY_NOT_ALLOWED"
+    };
+  }
+  return { allowed: true, reason: null, decisionCode: "FIXED_STRATEGY_ALLOWED" };
 }
 
 /** Allowlist contains internal RegimeX symbols (R_10), never broker-native MT5 names. */

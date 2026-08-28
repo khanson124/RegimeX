@@ -6,7 +6,8 @@ import {
   type Candle,
   type CandleInterval,
   type EngineState,
-  type StrategyKind
+  type StrategyKind,
+  type StrategySelectionResult
 } from "@regimex/shared";
 import {
   CandleAggregator,
@@ -33,6 +34,9 @@ import {
   computeStrategyConfigHash,
   aggregatePaperForwardPerformance,
   gateMt5EngineOrders,
+  applyMt5StrategySelectionAllowlist,
+  gateMt5FixedStrategySelection,
+  resolveMt5EngineStrategyAllowlist,
   rankEvidenceScore,
   type RegimeThresholds,
   type SelectionCandidate,
@@ -104,6 +108,8 @@ export class LiveEngineSession {
   private paperCfd: PaperCfdRuntime | null = null;
   private mt5Cfd: Mt5CfdRuntime | null = null;
   private executionBackend: import("@regimex/trading-engine").ExecutionBackend = "paper_cfd";
+  private engineSelectionMode: "AUTO" | "SINGLE" | "ENSEMBLE" = "AUTO";
+  private fixedStrategyId: string | null = null;
   private readonly heartbeatReconcileLog = new OncePerCodeLogger();
   private heartbeatInFlight = false;
 
@@ -164,6 +170,8 @@ export class LiveEngineSession {
 
     this.symbol = configuration.symbol;
     this.interval = configuration.interval as CandleInterval;
+    this.engineSelectionMode = configuration.selectionMode as "AUTO" | "SINGLE" | "ENSEMBLE";
+    this.fixedStrategyId = configuration.fixedStrategyId;
 
     // After a restart, default to analysis-only unless explicitly configured.
     const wantsTrading = configuration.mode === "DEMO_TRADING" && config.DEMO_TRADING_ENABLED;
@@ -314,6 +322,10 @@ export class LiveEngineSession {
     });
 
     if (this.executionBackend === "broker_demo_mt5") {
+      this.log.info(
+        { mt5StrategySelectionAllowlist: resolveMt5EngineStrategyAllowlist(config) },
+        "MT5 strategy selection allowlist resolved"
+      );
       this.mt5QuoteTimer = setInterval(() => void this.pollMt5Quote(), 2_000);
       void this.pollMt5Quote();
     }
@@ -479,6 +491,37 @@ export class LiveEngineSession {
     }
   }
 
+  private async recordNoStrategySelection(
+    latest: NonNullable<typeof this.lastFeatures>,
+    regime: { regime: string; confidence: number },
+    correlationId: string,
+    reasons: string[]
+  ): Promise<void> {
+    const { publish } = this.deps;
+    await this.recordCandidate(latest, correlationId, {
+      decisionCode: "NO_STRATEGY",
+      rejectionCode: null,
+      reasons,
+      strategyId: null,
+      direction: null
+    });
+    const regimeIncompatible = reasons.some((r) => r.includes("regime-incompatible"));
+    if (this.executionBackend === "broker_demo_mt5") {
+      await this.logAutonomousDecision(regimeIncompatible ? "REGIME_INCOMPATIBLE" : "NO_TRADE", reasons, {
+        regime: regime.regime,
+        regimeConfidence: regime.confidence,
+        correlationId
+      });
+    } else {
+      await this.logDecision("NO_TRADE", reasons, {
+        regime: regime.regime,
+        regimeConfidence: regime.confidence,
+        correlationId
+      });
+    }
+    await publish(this.userId, "strategy.noTrade", { regime: regime.regime, reasons });
+  }
+
   private async analyze(candle: Candle): Promise<void> {
     const { publish, config } = this.deps;
     const correlationId = randomUUID();
@@ -507,7 +550,7 @@ export class LiveEngineSession {
     // Strategy selection.
     const paperCfd = isPaperCfdExecution(config);
     const cfdVenue = paperCfd || this.executionBackend === "broker_demo_mt5";
-    const eligible = this.strategies.filter(
+    let eligible = this.strategies.filter(
       (s) =>
         s.enabled &&
         s.strategy.supportedRegimes.includes(regime.regime) &&
@@ -515,6 +558,32 @@ export class LiveEngineSession {
         this.candles.length >= s.strategy.minimumHistory &&
         (!cfdVenue || isCfdCapableStrategy(s.strategy.id))
     );
+    eligible = applyMt5StrategySelectionAllowlist(
+      eligible,
+      (s) => s.strategy.id,
+      this.executionBackend,
+      config
+    );
+
+    if (
+      this.executionBackend === "broker_demo_mt5" &&
+      this.engineSelectionMode === "SINGLE" &&
+      this.fixedStrategyId
+    ) {
+      const fixedGate = gateMt5FixedStrategySelection({
+        config,
+        fixedStrategyId: this.fixedStrategyId
+      });
+      if (!fixedGate.allowed) {
+        const reasons = [
+          fixedGate.decisionCode === "STRATEGY_NOT_ALLOWED"
+            ? `Fixed strategy ${this.fixedStrategyId} is not in MT5_ENGINE_STRATEGY_ALLOWLIST`
+            : (fixedGate.reason ?? "Fixed strategy blocked by MT5 rollout")
+        ];
+        await this.recordNoStrategySelection(latest, regime, correlationId, reasons);
+        return;
+      }
+    }
 
     const performanceById = cfdVenue
       ? await this.loadCfdSelectionPerformance(regime.regime)
@@ -534,31 +603,36 @@ export class LiveEngineSession {
         expectedConfigHash: configHash
       };
     });
-    const selectionResult = this.selection.select(regime.regime, regime.confidence, candidates);
+
+    let selectionResult: StrategySelectionResult;
+    if (
+      this.executionBackend === "broker_demo_mt5" &&
+      this.engineSelectionMode === "SINGLE" &&
+      this.fixedStrategyId
+    ) {
+      const fixed = eligible.find((s) => s.strategy.id === this.fixedStrategyId);
+      if (!fixed) {
+        selectionResult = this.selection.select(regime.regime, regime.confidence, []);
+      } else {
+        selectionResult = {
+          selectedStrategyId: fixed.strategy.id,
+          regime: regime.regime,
+          selectionScore: null,
+          confidence: null,
+          alternatives: [],
+          reasons: [`Fixed strategy: ${this.fixedStrategyId}`],
+          selectionMode:
+            this.deps.config.STRATEGY_SELECTION_MODE === "validated" ? "VALIDATED" : "BOOTSTRAP",
+          componentScores: null,
+          eligibilityRejections: []
+        };
+      }
+    } else {
+      selectionResult = this.selection.select(regime.regime, regime.confidence, candidates);
+    }
 
     if (!selectionResult.selectedStrategyId) {
-      await this.recordCandidate(latest, correlationId, {
-        decisionCode: "NO_STRATEGY",
-        rejectionCode: null,
-        reasons: selectionResult.reasons,
-        strategyId: null,
-        direction: null
-      });
-      const regimeIncompatible = selectionResult.reasons.some((r) => r.includes("regime-incompatible"));
-      if (this.executionBackend === "broker_demo_mt5") {
-        await this.logAutonomousDecision(regimeIncompatible ? "REGIME_INCOMPATIBLE" : "NO_TRADE", selectionResult.reasons, {
-          regime: regime.regime,
-          regimeConfidence: regime.confidence,
-          correlationId
-        });
-      } else {
-        await this.logDecision("NO_TRADE", selectionResult.reasons, {
-          regime: regime.regime,
-          regimeConfidence: regime.confidence,
-          correlationId
-        });
-      }
-      await publish(this.userId, "strategy.noTrade", { regime: regime.regime, reasons: selectionResult.reasons });
+      await this.recordNoStrategySelection(latest, regime, correlationId, selectionResult.reasons);
       return;
     }
 

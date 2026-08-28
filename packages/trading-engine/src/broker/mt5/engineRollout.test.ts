@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyMt5StrategySelectionAllowlist,
   describeMt5AutonomousAvailability,
   gateMt5EngineSubmission,
+  gateMt5FixedStrategySelection,
   parseCsvAllowlist,
-  publicMt5RolloutSnapshot
+  publicMt5RolloutSnapshot,
+  resolveMt5EngineStrategyAllowlist
 } from "./engineRollout.js";
 import { BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME } from "./engineVolume.js";
 import { BROKER_SYMBOL_MAPPING_MISSING, BROKER_SYMBOL_MAPPING_UNVERIFIED } from "./brokerSymbolMapping.js";
@@ -246,5 +249,66 @@ describe("MT5 engine rollout gates", () => {
       })
     ]);
     expect(snapshot.engineMaxVolume).toBe(0.01);
+  });
+});
+
+describe("MT5 strategy selection allowlist", () => {
+  const strategies = [
+    { strategy: { id: "ema-pullback-v1" } },
+    { strategy: { id: "breakout-momentum-v1" } }
+  ];
+
+  it("A: broker_demo_mt5 excludes non-allowlisted strategies before selection", () => {
+    const filtered = applyMt5StrategySelectionAllowlist(
+      strategies,
+      (s) => s.strategy.id,
+      "broker_demo_mt5",
+      { ...demoBase, MT5_ENGINE_STRATEGY_ALLOWLIST: "ema-pullback-v1" }
+    );
+    expect(filtered.map((s) => s.strategy.id)).toEqual(["ema-pullback-v1"]);
+    expect(filtered.some((s) => s.strategy.id === "breakout-momentum-v1")).toBe(false);
+  });
+
+  it("B: broker_demo_mt5 with empty strategy allowlist yields zero eligible strategies", () => {
+    expect(resolveMt5EngineStrategyAllowlist({ ...demoBase, MT5_ENGINE_STRATEGY_ALLOWLIST: "" })).toEqual([]);
+    expect(
+      applyMt5StrategySelectionAllowlist(
+        strategies,
+        (s) => s.strategy.id,
+        "broker_demo_mt5",
+        { ...demoBase, MT5_ENGINE_STRATEGY_ALLOWLIST: "" }
+      )
+    ).toEqual([]);
+  });
+
+  it("C: paper_cfd ignores MT5 strategy allowlist for selection filtering", () => {
+    const filtered = applyMt5StrategySelectionAllowlist(
+      strategies,
+      (s) => s.strategy.id,
+      "paper_cfd",
+      { ...demoBase, MT5_ENGINE_STRATEGY_ALLOWLIST: "ema-pullback-v1" }
+    );
+    expect(filtered).toEqual(strategies);
+  });
+
+  it("D: broker_demo_mt5 fixed strategy not in allowlist is blocked", () => {
+    const gate = gateMt5FixedStrategySelection({
+      config: { ...demoBase, MT5_ENGINE_STRATEGY_ALLOWLIST: "ema-pullback-v1" },
+      fixedStrategyId: "breakout-momentum-v1"
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.decisionCode).toBe("STRATEGY_NOT_ALLOWED");
+  });
+
+  it("E: submission gate still independently rejects non-allowlisted strategies", () => {
+    expect(
+      gateMt5EngineSubmission({
+        config: demoBase,
+        symbol: "R_10",
+        strategyId: "breakout-momentum-v1",
+        openOwnedCount: 0,
+        mapping: v10Mapping
+      }).decisionCode
+    ).toBe("STRATEGY_NOT_ALLOWED");
   });
 });
