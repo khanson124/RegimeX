@@ -7,6 +7,7 @@ import {
 } from "@regimex/shared";
 import { type MarketFeatureSnapshot } from "@regimex/shared";
 import { type Candle } from "@regimex/shared";
+import { mergeCfdParams } from "./cfdParams.js";
 
 export interface BreakoutMomentumCfdParams {
   /** Target as multiple of initial stop distance (R). Default 2R. */
@@ -40,7 +41,7 @@ export function proposeBreakoutMomentumStopTarget(input: {
   params?: Partial<BreakoutMomentumCfdParams>;
   metadata?: Record<string, unknown>;
 }): StopTargetProposal | null {
-  const p = { ...DEFAULT_BREAKOUT_CFD_PARAMS, ...input.params };
+  const p = mergeCfdParams(DEFAULT_BREAKOUT_CFD_PARAMS, input.params);
   const reasons: string[] = [];
   const { direction, entryPrice } = input;
   const f = input.features;
@@ -84,6 +85,7 @@ export function proposeBreakoutMomentumStopTarget(input: {
   const targetDistance = stopDistance * p.targetRMultiple;
   const takeProfit =
     direction === "BUY" ? entryPrice + targetDistance : entryPrice - targetDistance;
+  if (!Number.isFinite(takeProfit) || targetDistance <= 0) return null;
 
   reasons.push(`Target at ${p.targetRMultiple}R (${targetDistance.toFixed(4)} from entry)`);
 

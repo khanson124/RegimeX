@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { type Candle, type MarketFeatureSnapshot } from "@regimex/shared";
+import { type Candle, type MarketFeatureSnapshot, type StopTargetProposal } from "@regimex/shared";
 import { proposeEmaPullbackStopTarget } from "./emaPullbackCfd.js";
+import { proposeCfdStopTarget } from "./cfdCapability.js";
 import { DefaultPositionSizingService } from "../execution/positionSizing.js";
 import { StopTargetValidator } from "../execution/stopTargetValidator.js";
 import { DEFAULT_CFD_RISK_LIMITS, type InstrumentMetadata } from "@regimex/shared";
@@ -56,7 +57,106 @@ function candle(partial: Partial<Candle> & { low: number; high: number; close: n
   };
 }
 
+function assertFiniteProposal(proposal: StopTargetProposal): void {
+  expect(Number.isFinite(proposal.stopLoss)).toBe(true);
+  expect(Number.isFinite(proposal.takeProfit)).toBe(true);
+  expect(proposal.stopDistance).toBeGreaterThan(0);
+  expect(proposal.targetDistance).toBeGreaterThan(0);
+}
+
 describe("proposeEmaPullbackStopTarget", () => {
+  it("A: undefined optional params use defaults and produce a finite proposal", () => {
+    const proposal = proposeEmaPullbackStopTarget({
+      direction: "BUY",
+      entryPrice: 1000,
+      features: baseFeatures,
+      candles: [candle({ low: 995, high: 1002, close: 1000 })],
+      metadata: { pullbackLow: 995, pullbackHigh: 1002 },
+      params: {
+        tickSize: instrument.tickSize,
+        targetRMultiple: undefined,
+        stopAtrMultiple: undefined,
+        structureBufferAtr: undefined
+      }
+    });
+    expect(proposal).not.toBeNull();
+    assertFiniteProposal(proposal!);
+    expect(proposal!.stopLoss).toBe(994);
+    expect(proposal!.takeProfit).toBe(1012);
+    expect(proposal!.riskRewardRatio).toBe(2);
+  });
+
+  it("B: ATR fallback works when stopAtrMultiple input is undefined", () => {
+    const proposal = proposeEmaPullbackStopTarget({
+      direction: "BUY",
+      entryPrice: 1000,
+      features: baseFeatures,
+      candles: [candle({ low: 1001, high: 1005, close: 1000 })],
+      metadata: { pullbackLow: 1001 },
+      params: {
+        tickSize: instrument.tickSize,
+        stopAtrMultiple: undefined,
+        structureBufferAtr: undefined
+      }
+    });
+    expect(proposal).not.toBeNull();
+    assertFiniteProposal(proposal!);
+    expect(proposal!.stopMethod).toBe("atr_fallback");
+    expect(proposal!.stopLoss).toBe(1000 - 4 * 1.5);
+  });
+
+  it("C: default targetRMultiple still produces 2R when undefined is supplied", () => {
+    const proposal = proposeEmaPullbackStopTarget({
+      direction: "BUY",
+      entryPrice: 1000,
+      features: baseFeatures,
+      candles: [candle({ low: 995, high: 1002, close: 1000 })],
+      metadata: { pullbackLow: 995 },
+      params: {
+        tickSize: instrument.tickSize,
+        targetRMultiple: undefined
+      }
+    });
+    expect(proposal).not.toBeNull();
+    assertFiniteProposal(proposal!);
+    expect(proposal!.riskRewardRatio).toBe(2);
+    expect(proposal!.takeProfit).toBe(1012);
+  });
+
+  it("D: explicit non-undefined targetRMultiple override is honored", () => {
+    const proposal = proposeEmaPullbackStopTarget({
+      direction: "BUY",
+      entryPrice: 1000,
+      features: baseFeatures,
+      candles: [candle({ low: 995, high: 1002, close: 1000 })],
+      metadata: { pullbackLow: 995 },
+      params: {
+        tickSize: instrument.tickSize,
+        targetRMultiple: 3
+      }
+    });
+    expect(proposal).not.toBeNull();
+    assertFiniteProposal(proposal!);
+    expect(proposal!.riskRewardRatio).toBe(3);
+    expect(proposal!.takeProfit).toBe(1018);
+  });
+
+  it("F: live dispatcher path with omitted optional params produces a finite proposal", () => {
+    const proposal = proposeCfdStopTarget({
+      strategyId: "ema-pullback-v1",
+      direction: "BUY",
+      entryPrice: 1000,
+      features: baseFeatures,
+      candles: [candle({ low: 995, high: 1002, close: 1000 })],
+      metadata: { pullbackLow: 995, pullbackHigh: 1002 },
+      tickSize: instrument.tickSize
+    });
+    expect(proposal).not.toBeNull();
+    assertFiniteProposal(proposal!);
+    expect(proposal!.stopLoss).toBe(994);
+    expect(proposal!.takeProfit).toBe(1012);
+  });
+
   it("BUY: structure stop below pullback swing low + 2R target", () => {
     const c = candle({ low: 995, high: 1002, close: 1000, open: 996 });
     const proposal = proposeEmaPullbackStopTarget({

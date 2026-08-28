@@ -4,6 +4,7 @@ import {
   type PositionDirection,
   type StopTargetProposal
 } from "@regimex/shared";
+import { mergeCfdParams } from "./cfdParams.js";
 
 export interface BollingerReversionCfdParams {
   /** Fallback target as multiple of stop distance when mid-band R:R is insufficient. */
@@ -45,7 +46,7 @@ export function proposeBollingerReversionStopTarget(input: {
   params?: Partial<BollingerReversionCfdParams>;
   metadata?: Record<string, unknown>;
 }): StopTargetProposal | null {
-  const p = { ...DEFAULT_BOLLINGER_REVERSION_CFD_PARAMS, ...input.params };
+  const p = mergeCfdParams(DEFAULT_BOLLINGER_REVERSION_CFD_PARAMS, input.params);
   const reasons: string[] = [];
   const { direction, entryPrice } = input;
   const f = input.features;

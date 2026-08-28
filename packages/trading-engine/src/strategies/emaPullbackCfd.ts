@@ -4,6 +4,7 @@ import {
   type PositionDirection,
   type StopTargetProposal
 } from "@regimex/shared";
+import { mergeCfdParams } from "./cfdParams.js";
 
 export interface EmaPullbackCfdParams {
   /** Target as multiple of initial stop distance (R). Default 2R. */
@@ -45,7 +46,7 @@ export function proposeEmaPullbackStopTarget(input: {
   params?: Partial<EmaPullbackCfdParams>;
   metadata?: Record<string, unknown>;
 }): StopTargetProposal | null {
-  const p = { ...DEFAULT_EMA_PULLBACK_CFD_PARAMS, ...input.params };
+  const p = mergeCfdParams(DEFAULT_EMA_PULLBACK_CFD_PARAMS, input.params);
   const reasons: string[] = [];
   const { direction, entryPrice } = input;
   const f = input.features;
@@ -101,6 +102,7 @@ export function proposeEmaPullbackStopTarget(input: {
   const targetDistance = stopDistance * p.targetRMultiple;
   const takeProfit =
     direction === "BUY" ? entryPrice + targetDistance : entryPrice - targetDistance;
+  if (!Number.isFinite(takeProfit) || targetDistance <= 0) return null;
   const targetMethod = "fixed_r";
   reasons.push(`Target at ${p.targetRMultiple}R (${targetDistance.toFixed(4)} from entry)`);
 
