@@ -387,6 +387,8 @@ export function defaultVolatilitySymbol(): Mt5SymbolInfo {
     volumeMin: 0.01,
     volumeMax: 100,
     volumeStep: 0.01,
+    stopsLevel: 0,
+    freezeLevel: 0,
     tradeMode: "FULL",
     tradeAllowed: true,
     fillingModeMask: 3,

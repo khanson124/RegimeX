@@ -10,6 +10,11 @@ export interface MappedMt5Symbol {
   supportedFillingModes: Mt5FillingMode[];
   selectedFillingMode: Mt5FillingMode | null;
   fillingModeMask: number | null;
+  /** SYMBOL_TRADE_STOPS_LEVEL; null when EA did not provide the field. */
+  stopsLevel: number | null;
+  /** SYMBOL_TRADE_FREEZE_LEVEL; null when EA did not provide the field. */
+  freezeLevel: number | null;
+  point: number | null;
   reasons: string[];
 }
 
@@ -98,6 +103,15 @@ export function mapMt5SymbolToInstrument(
     supportedFillingModes,
     selectedFillingMode,
     fillingModeMask: symbol.fillingModeMask ?? null,
+    stopsLevel:
+      typeof symbol.stopsLevel === "number" && Number.isFinite(symbol.stopsLevel)
+        ? symbol.stopsLevel
+        : null,
+    freezeLevel:
+      typeof symbol.freezeLevel === "number" && Number.isFinite(symbol.freezeLevel)
+        ? symbol.freezeLevel
+        : null,
+    point: typeof symbol.point === "number" && Number.isFinite(symbol.point) ? symbol.point : null,
     reasons
   };
 }

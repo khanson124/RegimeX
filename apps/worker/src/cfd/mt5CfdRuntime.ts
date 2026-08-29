@@ -33,6 +33,9 @@ import {
   resolveMt5BridgeUrl,
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
+  validateAndNormalizeMt5Stops,
+  MT5_INVALID_STOP_DISTANCE_PRECHECK,
+  MT5_STOP_METADATA_UNAVAILABLE,
   type AutonomousExecutionPreflight
 } from "@regimex/trading-engine";
 import { type EventPublisher } from "../lib/events.js";
@@ -260,7 +263,7 @@ export class Mt5CfdRuntime {
       metadata: input.decision.metadata,
       tickSize: instrument.tickSize
     });
-    const proposal = rawProposal ? normalizeStopTargetProposal(rawProposal) : null;
+    let proposal = rawProposal ? normalizeStopTargetProposal(rawProposal) : null;
     if (!proposal) {
       return {
         opened: false,
@@ -301,6 +304,52 @@ export class Mt5CfdRuntime {
         decisionCode: "QUOTE_STALE"
       };
     }
+
+    const liveSymbol = await this.adapter.getLiveSymbol(brokerSymbol);
+    const stopLevelCheck = validateAndNormalizeMt5Stops({
+      direction: proposal.direction,
+      stopLoss: proposal.stopLoss,
+      takeProfit: proposal.takeProfit!,
+      bid: quote.bid,
+      ask: quote.ask,
+      point: liveSymbol?.point,
+      tickSize: liveSymbol?.tickSize ?? instrument.tickSize,
+      digits: liveSymbol?.digits ?? instrument.pricePrecision,
+      stopsLevel: liveSymbol?.stopsLevel,
+      freezeLevel: liveSymbol?.freezeLevel
+    });
+    if (!stopLevelCheck.ok || stopLevelCheck.normalizedStopLoss == null || stopLevelCheck.normalizedTakeProfit == null) {
+      const code =
+        stopLevelCheck.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
+          ? "MT5_STOP_METADATA_UNAVAILABLE"
+          : "MT5_INVALID_STOP_DISTANCE_PRECHECK";
+      this.log.warn(
+        {
+          mt5StopPrecheck: stopLevelCheck,
+          brokerSymbol,
+          strategyId: input.strategyId
+        },
+        "MT5 stop-distance precheck failed — fail closed before OrderSend"
+      );
+      return {
+        opened: false,
+        reasons: [stopLevelCheck.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK, ...stopLevelCheck.reasons],
+        decisionCode: code
+      };
+    }
+
+    // Use tick-normalized broker-valid SL/TP for sizing, risk, and submission.
+    proposal = {
+      ...proposal,
+      stopLoss: stopLevelCheck.normalizedStopLoss,
+      takeProfit: stopLevelCheck.normalizedTakeProfit,
+      stopDistance: Math.abs(
+        (proposal.direction === "BUY" ? quote.ask : quote.bid) - stopLevelCheck.normalizedStopLoss
+      ),
+      targetDistance: Math.abs(
+        stopLevelCheck.normalizedTakeProfit - (proposal.direction === "BUY" ? quote.ask : quote.bid)
+      )
+    };
 
     const account = await this.adapter.getAccount();
     const profile = await this.deps.prisma.riskProfile.findFirst({
@@ -364,7 +413,22 @@ export class Mt5CfdRuntime {
       entry: fillPrice,
       stopLoss: proposal.stopLoss,
       takeProfit: proposal.takeProfit,
-      volume: volumeDecision
+      volume: volumeDecision,
+      stopLevels: {
+        point: stopLevelCheck.point,
+        tickSize: stopLevelCheck.tickSize,
+        stopsLevel: stopLevelCheck.stopsLevel,
+        freezeLevel: stopLevelCheck.freezeLevel,
+        minimumStopDistance: stopLevelCheck.minimumStopDistance,
+        bid: stopLevelCheck.bid,
+        ask: stopLevelCheck.ask,
+        requestedStopLoss: stopLevelCheck.requestedStopLoss,
+        requestedTakeProfit: stopLevelCheck.requestedTakeProfit,
+        normalizedStopLoss: stopLevelCheck.normalizedStopLoss,
+        normalizedTakeProfit: stopLevelCheck.normalizedTakeProfit,
+        stopDistanceFromMarket: stopLevelCheck.stopDistanceFromMarket,
+        targetDistanceFromMarket: stopLevelCheck.targetDistanceFromMarket
+      }
     });
     this.log.info({ autonomousPreflight: preflight }, "Autonomous MT5 execution preflight");
 

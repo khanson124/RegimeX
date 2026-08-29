@@ -87,6 +87,16 @@ export interface Mt5SymbolInfo {
   volumeMin: number;
   volumeMax: number;
   volumeStep: number;
+  /**
+   * SYMBOL_TRADE_STOPS_LEVEL in points. Null when the EA/bridge did not provide it.
+   * Do not treat missing as 0 — autonomous open must fail closed.
+   */
+  stopsLevel?: number | null;
+  /**
+   * SYMBOL_TRADE_FREEZE_LEVEL in points. Null when unavailable.
+   * Used for modify/close protection; not interchangeable with stopsLevel for opens.
+   */
+  freezeLevel?: number | null;
   tradeMode: Mt5TradePermission;
   tradeAllowed: boolean;
   /** Native SYMBOL_FILLING_MODE bitmask (FOK=1, IOC=2). 0 → RETURN. */

@@ -219,6 +219,10 @@ string SymbolJson(string symbol)
    json += "\"volumeMin\":" + DoubleToString(SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN), 8) + ",";
    json += "\"volumeMax\":" + DoubleToString(SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX), 8) + ",";
    json += "\"volumeStep\":" + DoubleToString(SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP), 8) + ",";
+   // Broker stop/freeze levels in points (SYMBOL_TRADE_*_LEVEL). Used by RegimeX
+   // for fail-closed SL/TP prechecks before OrderSend (avoids retcode 10016).
+   json += "\"stopsLevel\":" + IntegerToString(SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
+   json += "\"freezeLevel\":" + IntegerToString(SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL)) + ",";
    json += "\"tradeMode\":\"" + TradePermissionString(symbol) + "\",";
    json += "\"tradeAllowed\":" + (SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED ? "true" : "false") + ",";
    uint fillingMask = (uint)SymbolInfoInteger(symbol, SYMBOL_FILLING_MODE);
@@ -594,15 +598,36 @@ void HandleModify(string json, string requestId, string idempotencyKey, string c
       WriteReply(requestId, idempotencyKey, command, false, "MT5_POSITION_NOT_FOUND", "", "", false);
       return;
      }
+   string symbol = PositionGetString(POSITION_SYMBOL);
    double sl = JsonGetNumber(json, "stopLoss", PositionGetDouble(POSITION_SL));
    double tp = JsonGetNumber(json, "takeProfit", PositionGetDouble(POSITION_TP));
+   // Freeze level blocks SL/TP modification when price is too close to current stops.
+   // This is distinct from SYMBOL_TRADE_STOPS_LEVEL (initial placement distance).
+   long freezeLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(freezeLevel > 0 && point > 0)
+     {
+      double freezeDist = freezeLevel * point;
+      double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+      long posType = PositionGetInteger(POSITION_TYPE);
+      double market = (posType == POSITION_TYPE_BUY ? bid : ask);
+      double curSl = PositionGetDouble(POSITION_SL);
+      double curTp = PositionGetDouble(POSITION_TP);
+      if((curSl > 0 && MathAbs(market - curSl) <= freezeDist) ||
+         (curTp > 0 && MathAbs(market - curTp) <= freezeDist))
+        {
+         WriteReply(requestId, idempotencyKey, command, false, "MT5_PRICE_IN_FREEZE_LEVEL", "", "", false);
+         return;
+        }
+     }
    MqlTradeRequest req;
    MqlTradeResult res;
    ZeroMemory(req);
    ZeroMemory(res);
    req.action = TRADE_ACTION_SLTP;
    req.position = ticket;
-   req.symbol = PositionGetString(POSITION_SYMBOL);
+   req.symbol = symbol;
    req.sl = sl;
    req.tp = tp;
    req.magic = InpMagic;

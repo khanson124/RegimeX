@@ -25,6 +25,12 @@ import { regimeXOrderComment } from "./mt5/hmac.js";
 import { findMt5PositionByIdempotency, isRegimeXMt5Position } from "./mt5/ownership.js";
 import { mapMt5SymbolToInstrument } from "./mt5/symbolMap.js";
 import {
+  MT5_INVALID_STOP_DISTANCE_PRECHECK,
+  MT5_PRICE_IN_FREEZE_LEVEL,
+  isPriceInFreezeLevel,
+  validateAndNormalizeMt5Stops
+} from "./mt5/mt5StopLevels.js";
+import {
   DEFAULT_MT5_MAGIC,
   type Mt5AccountInfo,
   type Mt5BridgePosition,
@@ -423,6 +429,56 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       return this.reject(null, ["TAKE_PROFIT_REQUIRED"]);
     }
 
+    // Fresh quote immediately before stop-distance precheck / OrderSend.
+    const liveQuote = await this.getQuote(request.symbol);
+    if (!liveQuote) {
+      return this.reject(null, ["STALE_QUOTE"]);
+    }
+
+    const stopCheck = validateAndNormalizeMt5Stops({
+      direction: request.direction,
+      stopLoss: request.stopLoss,
+      takeProfit: request.takeProfit,
+      bid: liveQuote.bid,
+      ask: liveQuote.ask,
+      point: live.point,
+      tickSize: live.tickSize > 0 ? live.tickSize : live.point,
+      digits: live.digits,
+      stopsLevel: live.stopsLevel,
+      freezeLevel: live.freezeLevel
+    });
+    this.config.logger?.info(
+      {
+        mt5StopPrecheck: {
+          point: stopCheck.point,
+          tickSize: stopCheck.tickSize,
+          stopsLevel: stopCheck.stopsLevel,
+          freezeLevel: stopCheck.freezeLevel,
+          minimumStopDistance: stopCheck.minimumStopDistance,
+          bid: stopCheck.bid,
+          ask: stopCheck.ask,
+          requestedStopLoss: stopCheck.requestedStopLoss,
+          requestedTakeProfit: stopCheck.requestedTakeProfit,
+          normalizedStopLoss: stopCheck.normalizedStopLoss,
+          normalizedTakeProfit: stopCheck.normalizedTakeProfit,
+          stopDistanceFromMarket: stopCheck.stopDistanceFromMarket,
+          targetDistanceFromMarket: stopCheck.targetDistanceFromMarket,
+          ok: stopCheck.ok,
+          reasonCode: stopCheck.reasonCode
+        }
+      },
+      "MT5 stop-distance precheck"
+    );
+    if (!stopCheck.ok || stopCheck.normalizedStopLoss == null || stopCheck.normalizedTakeProfit == null) {
+      return this.reject(null, [
+        stopCheck.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK,
+        ...stopCheck.reasons
+      ]);
+    }
+
+    const finalStopLoss = stopCheck.normalizedStopLoss;
+    const finalTakeProfit = stopCheck.normalizedTakeProfit;
+
     if (this.inFlightOpens.has(request.idempotencyKey)) {
       const adopted = await this.adoptExisting(request);
       if (adopted) return adopted;
@@ -441,8 +497,8 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
           symbol: request.symbol,
           direction: request.direction,
           volume: normalized.mt5Volume,
-          stopLoss: request.stopLoss,
-          takeProfit: request.takeProfit,
+          stopLoss: finalStopLoss,
+          takeProfit: finalTakeProfit,
           comment,
           magic: this.config.magic,
           idempotencyKey: request.idempotencyKey,
@@ -461,15 +517,15 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       }
 
       const fill = reply.result;
-      if (fill.stopLoss !== request.stopLoss || fill.takeProfit !== request.takeProfit) {
+      if (fill.stopLoss !== finalStopLoss || fill.takeProfit !== finalTakeProfit) {
         this.config.logger?.warn(
           {
-            requestedSl: request.stopLoss,
+            requestedSl: finalStopLoss,
             actualSl: fill.stopLoss,
-            requestedTp: request.takeProfit,
+            requestedTp: finalTakeProfit,
             actualTp: fill.takeProfit
           },
-          "MT5 normalized SL/TP — broker values win"
+          "MT5 fill SL/TP differs from requested"
         );
       }
 
@@ -493,6 +549,26 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   async modifyPosition(request: ModifyPositionRequest): Promise<BrokerOpenPosition> {
     this.assertDemoHedging();
     const ticket = Number(request.brokerPositionId);
+    const open = await this.getOpenPositions();
+    const current = open.find((p) => p.brokerPositionId === request.brokerPositionId);
+    if (current) {
+      const live = await this.getLiveSymbol(current.symbol);
+      const quote = await this.getQuote(current.symbol);
+      if (live && quote) {
+        const market = current.direction === "BUY" ? quote.bid : quote.ask;
+        if (
+          isPriceInFreezeLevel({
+            marketPrice: market,
+            stopLoss: current.stopLoss,
+            takeProfit: current.takeProfit,
+            freezeLevel: live.freezeLevel,
+            point: live.point
+          })
+        ) {
+          throw new Mt5BrokerError(MT5_PRICE_IN_FREEZE_LEVEL, "Price is within freeze level of current SL/TP");
+        }
+      }
+    }
     const reply = await this.requireTransport().request<Mt5BridgePosition>(
       "modifyPosition",
       {

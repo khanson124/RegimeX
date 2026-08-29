@@ -162,6 +162,20 @@ export interface AutonomousExecutionPreflight {
   wouldSubmit: boolean;
   reasonCode: string | null;
   decision: string;
+  /** Broker stop-level diagnostics (optional until live symbol fetch). */
+  point?: number | null;
+  tickSize?: number | null;
+  stopsLevel?: number | null;
+  freezeLevel?: number | null;
+  minimumStopDistance?: number | null;
+  bid?: number | null;
+  ask?: number | null;
+  requestedStopLoss?: number | null;
+  requestedTakeProfit?: number | null;
+  normalizedStopLoss?: number | null;
+  normalizedTakeProfit?: number | null;
+  stopDistanceFromMarket?: number | null;
+  targetDistanceFromMarket?: number | null;
 }
 
 export function buildAutonomousExecutionPreflight(input: {
@@ -173,6 +187,21 @@ export function buildAutonomousExecutionPreflight(input: {
   stopLoss: number;
   takeProfit: number | null;
   volume: Mt5EngineVolumeDecision;
+  stopLevels?: {
+    point?: number | null;
+    tickSize?: number | null;
+    stopsLevel?: number | null;
+    freezeLevel?: number | null;
+    minimumStopDistance?: number | null;
+    bid?: number | null;
+    ask?: number | null;
+    requestedStopLoss?: number | null;
+    requestedTakeProfit?: number | null;
+    normalizedStopLoss?: number | null;
+    normalizedTakeProfit?: number | null;
+    stopDistanceFromMarket?: number | null;
+    targetDistanceFromMarket?: number | null;
+  };
 }): AutonomousExecutionPreflight {
   return {
     internalSymbol: input.internalSymbol,
@@ -195,7 +224,8 @@ export function buildAutonomousExecutionPreflight(input: {
     finalVolume: input.volume.finalVolume,
     wouldSubmit: input.volume.wouldSubmit,
     reasonCode: input.volume.reasonCode,
-    decision: input.volume.decision
+    decision: input.volume.decision,
+    ...(input.stopLevels ?? {})
   };
 }
 

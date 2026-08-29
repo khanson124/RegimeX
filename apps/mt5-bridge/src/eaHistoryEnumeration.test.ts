@@ -25,6 +25,22 @@ describe("RegimeXExec.mq5 history enumeration", () => {
     throw new Error(`Could not extract ${name}`);
   }
 
+  it("SymbolJson exposes stopsLevel and freezeLevel alongside point/tickSize", () => {
+    const body = extractFunction("SymbolJson");
+    expect(body).toContain("SYMBOL_TRADE_STOPS_LEVEL");
+    expect(body).toContain("SYMBOL_TRADE_FREEZE_LEVEL");
+    expect(body).toContain('\\"stopsLevel\\"');
+    expect(body).toContain('\\"freezeLevel\\"');
+    expect(body).toContain('\\"point\\"');
+    expect(body).toContain('\\"tickSize\\"');
+  });
+
+  it("HandleModify fail-closes when price is inside freeze level", () => {
+    const body = extractFunction("HandleModify");
+    expect(body).toContain("SYMBOL_TRADE_FREEZE_LEVEL");
+    expect(body).toContain("MT5_PRICE_IN_FREEZE_LEVEL");
+  });
+
   it("DealJson does not call HistoryDealSelect (avoids mutating HistorySelect set)", () => {
     const body = extractFunction("DealJson");
     expect(body).not.toContain("HistoryDealSelect");

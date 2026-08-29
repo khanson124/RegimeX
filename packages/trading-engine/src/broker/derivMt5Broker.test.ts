@@ -107,6 +107,25 @@ describe("MT5 symbol metadata mapping", () => {
     expect(mapped.instrument.volumeStep).toBe(0.01);
     expect(mapped.instrument.verified).toBe(true);
     expect(mapped.instrument.source).toBe("mt5_live_discovery");
+    expect(mapped.stopsLevel).toBe(0);
+    expect(mapped.freezeLevel).toBe(0);
+  });
+
+  it("propagates stopsLevel/freezeLevel from live symbol without inventing zero for missing", () => {
+    const withLevels = mapMt5SymbolToInstrument({
+      ...defaultVolatilitySymbol(),
+      stopsLevel: 50,
+      freezeLevel: 10
+    });
+    expect(withLevels.stopsLevel).toBe(50);
+    expect(withLevels.freezeLevel).toBe(10);
+    const missing = mapMt5SymbolToInstrument({
+      ...defaultVolatilitySymbol(),
+      stopsLevel: undefined,
+      freezeLevel: undefined
+    });
+    expect(missing.stopsLevel).toBeNull();
+    expect(missing.freezeLevel).toBeNull();
   });
 
   it("does not verify disabled symbols", () => {
@@ -290,6 +309,46 @@ describe("DerivMT5BrokerAdapter mocked transport", () => {
     );
     expect(sell.accepted).toBe(true);
     expect(mock.submitCount).toBe(2);
+  });
+
+  it("fail-closes before OrderSend when SL is inside stopsLevel×point of live Ask (SELL)", async () => {
+    const mock = new MockMt5BridgeTransport({ quotes: [quote()] });
+    mock.seedQuote(quote());
+    const tight = defaultVolatilitySymbol();
+    tight.stopsLevel = 50; // 0.05 min distance; SL 1000.22 is only 0.02 above Ask 1000.2
+    tight.freezeLevel = 10;
+    mock.symbols.set(tight.name, tight);
+    const { adapter } = await connectedAdapter(mock);
+    const result = await adapter.openMarketPosition(
+      openReq({
+        idempotencyKey: "stops-too-close",
+        direction: "SELL",
+        stopLoss: 1000.22,
+        takeProfit: 980
+      })
+    );
+    expect(result.accepted).toBe(false);
+    expect(result.rejectionReasons.join(" ")).toMatch(/MT5_INVALID_STOP_DISTANCE_PRECHECK/);
+    expect(mock.submitCount).toBe(0);
+  });
+
+  it("fail-closes when stopsLevel metadata is missing from live symbol", async () => {
+    const mock = new MockMt5BridgeTransport({ quotes: [quote()] });
+    mock.seedQuote(quote());
+    const missing = { ...defaultVolatilitySymbol(), stopsLevel: null, freezeLevel: null };
+    mock.symbols.set(missing.name, missing);
+    const { adapter } = await connectedAdapter(mock);
+    const result = await adapter.openMarketPosition(openReq({ idempotencyKey: "stops-meta-missing" }));
+    expect(result.accepted).toBe(false);
+    expect(result.rejectionReasons.join(" ")).toMatch(/MT5_STOP_METADATA_UNAVAILABLE/);
+    expect(mock.submitCount).toBe(0);
+  });
+
+  it("does not regress volume caps when stops are valid", async () => {
+    const { adapter, mock } = await connectedAdapter();
+    const result = await adapter.openMarketPosition(openReq({ idempotencyKey: "vol-ok", volume: 0.01 }));
+    expect(result.accepted).toBe(true);
+    expect(mock.submitCount).toBe(1);
   });
 
   it("never assumes requested price equals fill", async () => {
