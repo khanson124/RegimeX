@@ -405,9 +405,15 @@ string DealEntryName(long entry)
    return "UNKNOWN";
   }
 
+// Serialize one history deal by explicit ticket.
+// IMPORTANT: Do NOT call HistoryDealSelect(ticket) here.
+// HistoryDealSelect replaces the HistorySelect()/HistoryDealsTotal() result set
+// with a single-deal selection, which corrupts any caller iterating by index.
+// HistoryDealGetInteger/Double/String(ticket, ...) read properties without
+// mutating that selected collection.
 string DealJson(ulong ticket)
   {
-   if(!HistoryDealSelect(ticket))
+   if(ticket == 0)
       return "{}";
    string json = "{";
    json += "\"dealTicket\":" + IntegerToString((long)ticket) + ",";
@@ -445,6 +451,10 @@ void HandleHistory(string json, string requestId, string idempotencyKey, string 
       from = (datetime)(fromMs / 1000.0);
    if(toMs > 0)
       to = (datetime)(toMs / 1000.0);
+   // HistorySelect establishes the deal collection for HistoryDealsTotal /
+   // HistoryDealGetTicket(i). Never call HistoryDealSelect inside the loop —
+   // it resets that collection and truncates remaining deals (e.g. OUT deal
+   // after IN for the same positionTicket).
    if(!HistorySelect(from, to))
      {
       WriteReply(requestId, idempotencyKey, command, false, "MT5_HISTORY_UNAVAILABLE", "", "", true);
@@ -456,7 +466,7 @@ void HandleHistory(string json, string requestId, string idempotencyKey, string 
    for(int i = 0; i < total; i++)
      {
       ulong ticket = HistoryDealGetTicket(i);
-      if(ticket == 0 || !HistoryDealSelect(ticket))
+      if(ticket == 0)
          continue;
       long magic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
       if(magicFilter != 0 && magic != magicFilter)
@@ -555,6 +565,8 @@ void HandleOpen(string json, string requestId, string idempotencyKey, string com
      }
 
    ulong positionTicket = res.order;
+   // Single-deal lookup after OrderSend is safe: this is not an index walk over
+   // a HistorySelect() result set (unlike HandleHistory enumeration).
    if(res.deal > 0 && HistoryDealSelect(res.deal))
       positionTicket = (ulong)HistoryDealGetInteger(res.deal, DEAL_POSITION_ID);
 
@@ -639,6 +651,8 @@ void HandleClose(string json, string requestId, string idempotencyKey, string co
       return;
      }
    double realized = 0;
+   // Single-deal lookup after OrderSend is safe: this is not an index walk over
+   // a HistorySelect() result set (unlike HandleHistory enumeration).
    if(res.deal > 0 && HistoryDealSelect(res.deal))
       realized = HistoryDealGetDouble(res.deal, DEAL_PROFIT);
    string result = "{";
