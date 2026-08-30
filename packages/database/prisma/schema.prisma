@@ -942,3 +942,13 @@ model SystemEvent {
   @@index([source, createdAt(sort: Desc)])
   @@index([level, createdAt(sort: Desc)])
 }
+
+/// Durable idempotency for outbound Telegram trade notifications (worker-owned).
+model TelegramDelivery {
+  id          String   @id @default(cuid())
+  deliveryKey String   @unique
+  kind        String // trade-open | trade-close | execution-rejected
+  createdAt   DateTime @default(now())
+
+  @@index([kind, createdAt(sort: Desc)])
+}

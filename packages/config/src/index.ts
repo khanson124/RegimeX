@@ -149,6 +149,13 @@ const envSchema = z.object({
   /** Avoid flapping from one or two trades. */
   MT5_EVIDENCE_MIN_TRADES_FOR_TRANSITION: z.coerce.number().int().min(1).default(8),
   MT5_EVIDENCE_CONSECUTIVE_LOSSES_SUSPEND: z.coerce.number().int().min(3).default(8),
+  /**
+   * Optional Telegram trade notifications (worker-owned). Fully optional —
+   * when false, no Telegram HTTP calls are made. Token/chat are never logged.
+   */
+  TELEGRAM_NOTIFICATIONS_ENABLED: envBoolean.default(false),
+  TELEGRAM_BOT_TOKEN: z.string().default(""),
+  TELEGRAM_CHAT_ID: z.string().default(""),
   /** Optimizer safety threshold before confirmation is required. */
   OPTIMIZER_MAX_COMBINATIONS: z.coerce.number().int().default(200),
   ENGINE_VERSION: z.string().default("0.1.0")

@@ -46,12 +46,18 @@ import {
   loadLifecycle,
   refreshMt5ForwardEvidence
 } from "./mt5ForwardEvidence.js";
+import {
+  createTelegramTradeNotifier,
+  type TelegramTradeNotifier
+} from "../notifications/telegram.js";
 
 export interface Mt5CfdRuntimeDeps {
   prisma: PrismaClient;
   config: AppConfig;
   publish: EventPublisher;
   logger: Logger;
+  /** Optional inject for tests. Defaults to worker Telegram notifier. */
+  telegram?: TelegramTradeNotifier;
 }
 
 export interface Mt5ExecuteResult {
@@ -78,10 +84,20 @@ export class Mt5CfdRuntime {
   private readonly reconcileLog = new OncePerCodeLogger();
   private static readonly RECONCILE_STALE_MS = 60_000;
 
+  private readonly telegram: TelegramTradeNotifier;
+
   constructor(
     private readonly userId: string,
     private readonly deps: Mt5CfdRuntimeDeps
-  ) {}
+  ) {
+    this.telegram =
+      deps.telegram ??
+      createTelegramTradeNotifier({
+        config: deps.config,
+        prisma: deps.prisma,
+        logger: deps.logger
+      });
+  }
 
   private get log(): Logger {
     return this.deps.logger.child({ userId: this.userId, component: "mt5_cfd" });
@@ -323,6 +339,10 @@ export class Mt5CfdRuntime {
         stopLevelCheck.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
           ? "MT5_STOP_METADATA_UNAVAILABLE"
           : "MT5_INVALID_STOP_DISTANCE_PRECHECK";
+      const reasons = [
+        stopLevelCheck.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK,
+        ...stopLevelCheck.reasons
+      ];
       this.log.warn(
         {
           mt5StopPrecheck: stopLevelCheck,
@@ -331,9 +351,19 @@ export class Mt5CfdRuntime {
         },
         "MT5 stop-distance precheck failed — fail closed before OrderSend"
       );
+      this.telegram.notifyRejected({
+        signalId: input.signalId,
+        symbol: input.symbol,
+        direction: proposal.direction,
+        strategyId: input.strategyId,
+        regime: input.regime,
+        reasons,
+        stopLoss: proposal.stopLoss,
+        takeProfit: proposal.takeProfit
+      });
       return {
         opened: false,
-        reasons: [stopLevelCheck.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK, ...stopLevelCheck.reasons],
+        reasons,
         decisionCode: code
       };
     }
@@ -645,6 +675,16 @@ export class Mt5CfdRuntime {
         opened: false,
         brokerSymbol
       });
+      this.telegram.notifyRejected({
+        signalId: input.signalId,
+        symbol: input.symbol,
+        direction: proposal.direction,
+        strategyId: input.strategyId,
+        regime: input.regime,
+        reasons: result.rejectionReasons,
+        stopLoss: proposal.stopLoss,
+        takeProfit: proposal.takeProfit
+      });
       return {
         opened: false,
         reasons: result.rejectionReasons,
@@ -731,6 +771,20 @@ export class Mt5CfdRuntime {
       volume: result.position.volume,
       entryPrice: result.entryPrice,
       venue: "MT5_DEMO"
+    });
+    this.telegram.notifyOpened({
+      positionId: pending.id,
+      internalSymbol: input.symbol,
+      brokerSymbol,
+      direction: proposal.direction,
+      volume: result.position.volume,
+      entryPrice: result.entryPrice ?? 0,
+      stopLoss: proposal.stopLoss,
+      takeProfit: proposal.takeProfit,
+      strategyId: input.strategyId,
+      regime: input.regime,
+      brokerPositionId: result.brokerPositionId,
+      openedAt: new Date()
     });
     return {
       opened: true,
@@ -894,6 +948,7 @@ export class Mt5CfdRuntime {
         });
         continue;
       }
+      const closedAt = evidence.closedAt ? new Date(evidence.closedAt) : new Date();
       await this.deps.prisma.position.update({
         where: { id: local.id },
         data: {
@@ -901,13 +956,27 @@ export class Mt5CfdRuntime {
           closePrice: evidence.exitPrice,
           realizedPnl: evidence.realizedPnl,
           closeReason: evidence.closeReason ?? "BROKER_CLOSE",
-          closedAt: evidence.closedAt ? new Date(evidence.closedAt) : new Date()
+          closedAt
         }
       });
       await recordPositionEvent(this.deps.prisma, local.id, "CLOSED", {
         source: "reconcile",
         realizedPnl: evidence.realizedPnl,
         closePrice: evidence.exitPrice
+      });
+      this.telegram.notifyClosed({
+        positionId: local.id,
+        symbol: local.symbol,
+        direction: local.direction,
+        entryPrice: local.entryPrice != null ? Number(local.entryPrice) : null,
+        exitPrice: evidence.exitPrice,
+        volume: Number(local.volume),
+        realizedPnl: evidence.realizedPnl,
+        closeReason: evidence.closeReason ?? "BROKER_CLOSE",
+        strategyId: local.strategyId,
+        brokerPositionId: local.brokerPositionId,
+        openedAt: local.openedAt,
+        closedAt
       });
       await refreshMt5ForwardEvidence(this.deps.prisma, {
         userId: this.userId,

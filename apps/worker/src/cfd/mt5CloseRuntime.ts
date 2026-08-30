@@ -4,6 +4,10 @@ import { selectMt5PositionsForEmergencyClose } from "@regimex/trading-engine";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
 import { type Logger } from "pino";
 import { refreshEvidenceForClosedPosition } from "./mt5ForwardEvidence.js";
+import {
+  createTelegramTradeNotifier,
+  type TelegramTradeNotifier
+} from "../notifications/telegram.js";
 
 export async function closeMt5LocalPosition(input: {
   prisma: PrismaClient;
@@ -11,6 +15,7 @@ export async function closeMt5LocalPosition(input: {
   userId: string;
   positionId: string;
   logger: Logger;
+  telegram?: TelegramTradeNotifier;
 }): Promise<{ closed: boolean; reasons: string[] }> {
   const pos = await input.prisma.position.findFirst({
     where: { id: input.positionId, userId: input.userId }
@@ -29,6 +34,7 @@ export async function closeMt5LocalPosition(input: {
     brokerPositionId: pos.brokerPositionId,
     reason: "MANUAL"
   });
+  const closedAt = new Date();
   await input.prisma.position.update({
     where: { id: pos.id },
     data: {
@@ -36,7 +42,7 @@ export async function closeMt5LocalPosition(input: {
       closePrice: closed.closePrice,
       realizedPnl: closed.realizedPnl,
       closeReason: "MANUAL",
-      closedAt: new Date()
+      closedAt
     }
   });
   await input.prisma.positionEvent.create({
@@ -50,6 +56,27 @@ export async function closeMt5LocalPosition(input: {
     { positionId: pos.id, brokerPositionId: pos.brokerPositionId },
     "MT5 position closed after broker confirmation"
   );
+  const telegram =
+    input.telegram ??
+    createTelegramTradeNotifier({
+      config: input.config,
+      prisma: input.prisma,
+      logger: input.logger
+    });
+  telegram.notifyClosed({
+    positionId: pos.id,
+    symbol: pos.symbol,
+    direction: pos.direction,
+    entryPrice: pos.entryPrice != null ? Number(pos.entryPrice) : null,
+    exitPrice: closed.closePrice,
+    volume: Number(pos.volume),
+    realizedPnl: closed.realizedPnl,
+    closeReason: "MANUAL",
+    strategyId: pos.strategyId,
+    brokerPositionId: pos.brokerPositionId,
+    openedAt: pos.openedAt,
+    closedAt
+  });
   await refreshEvidenceForClosedPosition(input.prisma, input.config, pos);
   return { closed: true, reasons: [] };
 }
@@ -91,9 +118,15 @@ export async function emergencyCloseOwnedMt5Positions(input: {
 
   const closed: string[] = [];
   const failed: string[] = [];
+  const telegram = createTelegramTradeNotifier({
+    config: input.config,
+    prisma: input.prisma,
+    logger: input.logger
+  });
   for (const id of plan.close) {
     try {
       const result = await adapter.closePosition({ brokerPositionId: id, reason: "RISK_SHUTDOWN" });
+      const closedAt = new Date();
       await input.prisma.position.updateMany({
         where: { userId: input.userId, brokerPositionId: id },
         data: {
@@ -101,12 +134,26 @@ export async function emergencyCloseOwnedMt5Positions(input: {
           closePrice: result.closePrice,
           realizedPnl: result.realizedPnl,
           closeReason: "RISK_SHUTDOWN",
-          closedAt: new Date()
+          closedAt
         }
       });
       closed.push(id);
       const local = localOpen.find((p) => p.brokerPositionId === id);
       if (local) {
+        telegram.notifyClosed({
+          positionId: local.id,
+          symbol: local.symbol,
+          direction: local.direction,
+          entryPrice: local.entryPrice != null ? Number(local.entryPrice) : null,
+          exitPrice: result.closePrice,
+          volume: Number(local.volume),
+          realizedPnl: result.realizedPnl,
+          closeReason: "RISK_SHUTDOWN",
+          strategyId: local.strategyId,
+          brokerPositionId: local.brokerPositionId,
+          openedAt: local.openedAt,
+          closedAt
+        });
         await refreshEvidenceForClosedPosition(input.prisma, input.config, local);
       }
     } catch (err) {
