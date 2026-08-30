@@ -15,6 +15,12 @@ export interface EmaPullbackCfdParams {
   structureBufferAtr: number;
   /** Optional max bars to hold in backtests (passed through config when set). */
   maxHoldBars?: number;
+  /**
+   * Fallback tick size when ATR is missing (buffer = tickSize×2) and when callers
+   * do not pass instrument tickSize. Live MT5 execution supplies instrument/live
+   * tickSize via proposeCfdStopTarget — do not treat this default as broker truth
+   * (e.g. Volatility 10 Index is 0.001, not 0.01).
+   */
   tickSize: number;
 }
 
@@ -22,6 +28,7 @@ export const DEFAULT_EMA_PULLBACK_CFD_PARAMS: EmaPullbackCfdParams = {
   targetRMultiple: 2,
   stopAtrMultiple: 1.5,
   structureBufferAtr: 0.25,
+  /** Generic fallback only — production MT5 path overrides with live tickSize. */
   tickSize: 0.01
 };
 

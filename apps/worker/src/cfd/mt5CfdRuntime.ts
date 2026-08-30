@@ -33,9 +33,11 @@ import {
   resolveMt5BridgeUrl,
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
-  validateAndNormalizeMt5Stops,
+  adaptMt5BrokerStops,
   MT5_INVALID_STOP_DISTANCE_PRECHECK,
   MT5_STOP_METADATA_UNAVAILABLE,
+  MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
+  MIN_VOLUME_EXCEEDS_RISK,
   type AutonomousExecutionPreflight
 } from "@regimex/trading-engine";
 import { type EventPublisher } from "../lib/events.js";
@@ -322,10 +324,18 @@ export class Mt5CfdRuntime {
     }
 
     const liveSymbol = await this.adapter.getLiveSymbol(brokerSymbol);
-    const stopLevelCheck = validateAndNormalizeMt5Stops({
+    const fillPrice = proposal.direction === "BUY" ? quote.ask : quote.bid;
+    const targetRMultiple = proposal.initialRiskReward ?? proposal.riskRewardRatio ?? 2;
+    const originalStopLoss = proposal.stopLoss;
+    const originalTakeProfit = proposal.takeProfit!;
+    const originalStopDistance = Math.abs(fillPrice - originalStopLoss);
+
+    const adaptation = adaptMt5BrokerStops({
       direction: proposal.direction,
-      stopLoss: proposal.stopLoss,
-      takeProfit: proposal.takeProfit!,
+      stopLoss: originalStopLoss,
+      takeProfit: originalTakeProfit,
+      entryPrice: fillPrice,
+      targetRMultiple,
       bid: quote.bid,
       ask: quote.ask,
       point: liveSymbol?.point,
@@ -334,22 +344,23 @@ export class Mt5CfdRuntime {
       stopsLevel: liveSymbol?.stopsLevel,
       freezeLevel: liveSymbol?.freezeLevel
     });
-    if (!stopLevelCheck.ok || stopLevelCheck.normalizedStopLoss == null || stopLevelCheck.normalizedTakeProfit == null) {
+
+    if (!adaptation.ok || adaptation.adjustedStopLoss == null || adaptation.adjustedTakeProfit == null) {
       const code =
-        stopLevelCheck.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
+        adaptation.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
           ? "MT5_STOP_METADATA_UNAVAILABLE"
           : "MT5_INVALID_STOP_DISTANCE_PRECHECK";
       const reasons = [
-        stopLevelCheck.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK,
-        ...stopLevelCheck.reasons
+        adaptation.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK,
+        ...adaptation.reasons
       ];
       this.log.warn(
         {
-          mt5StopPrecheck: stopLevelCheck,
+          mt5StopAdaptation: adaptation,
           brokerSymbol,
           strategyId: input.strategyId
         },
-        "MT5 stop-distance precheck failed — fail closed before OrderSend"
+        "MT5 broker stop adaptation failed — fail closed before OrderSend"
       );
       this.telegram.notifyRejected({
         signalId: input.signalId,
@@ -358,8 +369,8 @@ export class Mt5CfdRuntime {
         strategyId: input.strategyId,
         regime: input.regime,
         reasons,
-        stopLoss: proposal.stopLoss,
-        takeProfit: proposal.takeProfit
+        stopLoss: adaptation.adjustedStopLoss ?? originalStopLoss,
+        takeProfit: adaptation.adjustedTakeProfit ?? originalTakeProfit
       });
       return {
         opened: false,
@@ -368,17 +379,15 @@ export class Mt5CfdRuntime {
       };
     }
 
-    // Use tick-normalized broker-valid SL/TP for sizing, risk, and submission.
+    // Final broker-valid SL/TP (unchanged when already valid; widened + R-recomputed TP when adapted).
     proposal = {
       ...proposal,
-      stopLoss: stopLevelCheck.normalizedStopLoss,
-      takeProfit: stopLevelCheck.normalizedTakeProfit,
-      stopDistance: Math.abs(
-        (proposal.direction === "BUY" ? quote.ask : quote.bid) - stopLevelCheck.normalizedStopLoss
-      ),
-      targetDistance: Math.abs(
-        stopLevelCheck.normalizedTakeProfit - (proposal.direction === "BUY" ? quote.ask : quote.bid)
-      )
+      stopLoss: adaptation.adjustedStopLoss,
+      takeProfit: adaptation.adjustedTakeProfit,
+      stopDistance: adaptation.adjustedStopDistance ?? Math.abs(fillPrice - adaptation.adjustedStopLoss),
+      targetDistance: Math.abs(adaptation.adjustedTakeProfit - fillPrice),
+      initialRiskReward: targetRMultiple,
+      riskRewardRatio: targetRMultiple
     };
 
     const account = await this.adapter.getAccount();
@@ -412,7 +421,19 @@ export class Mt5CfdRuntime {
       return { opened: false, reasons: stopCheck.reasons, decisionCode: "STOP_INVALID" };
     }
 
-    const fillPrice = proposal.direction === "BUY" ? quote.ask : quote.bid;
+    // Diagnostics: risk that would have applied to the pre-adaptation stop (never used for submit).
+    const sizingBefore = this.sizing.calculateRaw({
+      equity: account.equity,
+      direction: proposal.direction,
+      entryPrice: fillPrice,
+      stopLoss: originalStopLoss,
+      riskPerTradePercent: limits.riskPerTradePercent,
+      instrument
+    });
+    const riskAmountBeforeAdjustment =
+      sizingBefore.success && sizingBefore.riskAmount != null ? sizingBefore.riskAmount : null;
+
+    // CRITICAL: size from the ADJUSTED stop distance only.
     const rawSizing = this.sizing.calculateRaw({
       equity: account.equity,
       direction: proposal.direction,
@@ -422,7 +443,20 @@ export class Mt5CfdRuntime {
       instrument
     });
     if (!rawSizing.success || rawSizing.rawVolume == null || rawSizing.riskAmount == null) {
-      return { opened: false, reasons: rawSizing.rejectionReasons, decisionCode: "RISK_BLOCKED" };
+      const decisionCode = adaptation.brokerAdjusted
+        ? MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED
+        : "RISK_BLOCKED";
+      this.telegram.notifyRejected({
+        signalId: input.signalId,
+        symbol: input.symbol,
+        direction: proposal.direction,
+        strategyId: input.strategyId,
+        regime: input.regime,
+        reasons: rawSizing.rejectionReasons,
+        stopLoss: proposal.stopLoss,
+        takeProfit: proposal.takeProfit
+      });
+      return { opened: false, reasons: rawSizing.rejectionReasons, decisionCode };
     }
 
     const volumeDecision = resolveMt5EngineVolume({
@@ -435,6 +469,7 @@ export class Mt5CfdRuntime {
       instrument,
       engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
     });
+    const stopLevelCheck = adaptation.validation;
     const preflight = buildAutonomousExecutionPreflight({
       internalSymbol: input.symbol,
       brokerSymbol,
@@ -445,30 +480,47 @@ export class Mt5CfdRuntime {
       takeProfit: proposal.takeProfit,
       volume: volumeDecision,
       stopLevels: {
-        point: stopLevelCheck.point,
-        tickSize: stopLevelCheck.tickSize,
-        stopsLevel: stopLevelCheck.stopsLevel,
-        freezeLevel: stopLevelCheck.freezeLevel,
-        minimumStopDistance: stopLevelCheck.minimumStopDistance,
-        bid: stopLevelCheck.bid,
-        ask: stopLevelCheck.ask,
-        requestedStopLoss: stopLevelCheck.requestedStopLoss,
-        requestedTakeProfit: stopLevelCheck.requestedTakeProfit,
-        normalizedStopLoss: stopLevelCheck.normalizedStopLoss,
-        normalizedTakeProfit: stopLevelCheck.normalizedTakeProfit,
-        stopDistanceFromMarket: stopLevelCheck.stopDistanceFromMarket,
-        targetDistanceFromMarket: stopLevelCheck.targetDistanceFromMarket
+        point: adaptation.point,
+        tickSize: adaptation.tickSize,
+        stopsLevel: adaptation.stopsLevel,
+        freezeLevel: adaptation.freezeLevel,
+        minimumStopDistance: adaptation.minimumStopDistance,
+        bid: adaptation.bid,
+        ask: adaptation.ask,
+        requestedStopLoss: originalStopLoss,
+        requestedTakeProfit: originalTakeProfit,
+        normalizedStopLoss: adaptation.adjustedStopLoss,
+        normalizedTakeProfit: adaptation.adjustedTakeProfit,
+        stopDistanceFromMarket: stopLevelCheck?.stopDistanceFromMarket ?? null,
+        targetDistanceFromMarket: stopLevelCheck?.targetDistanceFromMarket ?? null,
+        originalStopLoss,
+        originalTakeProfit,
+        originalStopDistance,
+        brokerAdjusted: adaptation.brokerAdjusted,
+        adjustedStopLoss: adaptation.adjustedStopLoss,
+        adjustedTakeProfit: adaptation.adjustedTakeProfit,
+        adjustedStopDistance: adaptation.adjustedStopDistance,
+        targetRMultiple,
+        safetyBuffer: adaptation.safetyBuffer,
+        riskAmountBeforeAdjustment,
+        riskAmountAfterAdjustment: rawSizing.riskAmount
       }
     });
     this.log.info({ autonomousPreflight: preflight }, "Autonomous MT5 execution preflight");
 
     if (!volumeDecision.wouldSubmit || volumeDecision.finalVolume == null) {
-      const code =
+      let code: AutonomousDecisionCode =
         volumeDecision.reasonCode === "MIN_VOLUME_EXCEEDS_RISK" ||
         volumeDecision.reasonCode === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
         volumeDecision.reasonCode === "STOP_INVALID"
-          ? volumeDecision.reasonCode
+          ? (volumeDecision.reasonCode as AutonomousDecisionCode)
           : "RISK_BLOCKED";
+      if (
+        adaptation.brokerAdjusted &&
+        (volumeDecision.reasonCode === MIN_VOLUME_EXCEEDS_RISK || code === "RISK_BLOCKED")
+      ) {
+        code = MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED;
+      }
       this.logExecutionDecision({
         ...input,
         decisionCode: code,
@@ -478,6 +530,16 @@ export class Mt5CfdRuntime {
         volumePreflight: preflight,
         opened: false,
         brokerSymbol
+      });
+      this.telegram.notifyRejected({
+        signalId: input.signalId,
+        symbol: input.symbol,
+        direction: proposal.direction,
+        strategyId: input.strategyId,
+        regime: input.regime,
+        reasons: [code, volumeDecision.reasonCode ?? "volume blocked"],
+        stopLoss: proposal.stopLoss,
+        takeProfit: proposal.takeProfit
       });
       return {
         opened: false,
@@ -499,7 +561,15 @@ export class Mt5CfdRuntime {
     }
     await this.deps.prisma.signal.update({
       where: { id: input.signalId },
-      data: { proposedVolume: volume }
+      data: {
+        proposedVolume: volume,
+        proposedEntryPrice: fillPrice,
+        stopLoss: proposal.stopLoss,
+        takeProfit: proposal.takeProfit,
+        stopDistance: proposal.stopDistance,
+        targetDistance: proposal.targetDistance,
+        riskRewardRatio: targetRMultiple
+      }
     });
 
     const idempotencyKey = `signal:${input.signalId}`;

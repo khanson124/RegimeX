@@ -20,6 +20,7 @@ export * from "./mt5/engineRollout.js";
 export * from "./mt5/brokerSymbolMapping.js";
 export * from "./mt5/engineVolume.js";
 export * from "./mt5/mt5StopLevels.js";
+export * from "./mt5/mt5BrokerStopAdaptation.js";
 export * from "./mt5/todayRealizedPnl.js";
 export * from "./mt5/bridgeCircuit.js";
 export * from "./mt5/bridgeHealth.js";

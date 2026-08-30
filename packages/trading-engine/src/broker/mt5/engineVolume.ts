@@ -176,6 +176,18 @@ export interface AutonomousExecutionPreflight {
   normalizedTakeProfit?: number | null;
   stopDistanceFromMarket?: number | null;
   targetDistanceFromMarket?: number | null;
+  /** Broker-stop adaptation diagnostics */
+  originalStopLoss?: number | null;
+  originalTakeProfit?: number | null;
+  originalStopDistance?: number | null;
+  brokerAdjusted?: boolean;
+  adjustedStopLoss?: number | null;
+  adjustedTakeProfit?: number | null;
+  adjustedStopDistance?: number | null;
+  targetRMultiple?: number | null;
+  safetyBuffer?: number | null;
+  riskAmountBeforeAdjustment?: number | null;
+  riskAmountAfterAdjustment?: number | null;
 }
 
 export function buildAutonomousExecutionPreflight(input: {
@@ -201,6 +213,17 @@ export function buildAutonomousExecutionPreflight(input: {
     normalizedTakeProfit?: number | null;
     stopDistanceFromMarket?: number | null;
     targetDistanceFromMarket?: number | null;
+    originalStopLoss?: number | null;
+    originalTakeProfit?: number | null;
+    originalStopDistance?: number | null;
+    brokerAdjusted?: boolean;
+    adjustedStopLoss?: number | null;
+    adjustedTakeProfit?: number | null;
+    adjustedStopDistance?: number | null;
+    targetRMultiple?: number | null;
+    safetyBuffer?: number | null;
+    riskAmountBeforeAdjustment?: number | null;
+    riskAmountAfterAdjustment?: number | null;
   };
 }): AutonomousExecutionPreflight {
   return {
