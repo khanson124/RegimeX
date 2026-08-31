@@ -3,8 +3,11 @@ import { type BrokerQuote, type InstrumentMetadata, type OpenMarketPositionResul
 import {
   type DerivMT5BrokerAdapter,
   adaptMt5BrokerStops,
+  canRejectPendingPositionStatus,
+  canTransitionExecutionIntentState,
   compareProposedToFrozenExecutionParams,
   CREATED_INTENT_RESUME_TTL_MS,
+  decideCapacityReservation,
   executionIntentIdempotencyKey,
   EXECUTION_INTENT_EXPIRED,
   EXECUTION_INTENT_PARAMETER_MISMATCH,
@@ -12,6 +15,9 @@ import {
   isCreatedIntentExpired,
   isTerminalExecutionIntentState,
   isUnresolvedExecutionIntentState,
+  MT5_CAPACITY_BLOCKED,
+  MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED,
+  mt5CapacityAdvisoryLockKey,
   regimeXOrderComment,
   type FrozenExecutionParams
 } from "@regimex/trading-engine";
@@ -37,10 +43,44 @@ export interface PendingPositionWithIntentInput {
   initialRiskReward: number | null | undefined;
   reasoning: object;
   metadata: object;
+  /** Hard capacity limit; reservation is atomic with create. */
+  maxConcurrentPositions: number;
 }
+
+export type CreatePendingWithIntentResult =
+  | {
+      ok: true;
+      capacityBlocked: false;
+      position: Awaited<ReturnType<PrismaClient["position"]["create"]>>;
+      intent: Awaited<ReturnType<PrismaClient["executionIntent"]["create"]>>;
+      consumedSlotsBefore: number;
+      consumedSlotsAfter: number;
+      maxConcurrentPositions: number;
+    }
+  | {
+      ok: false;
+      capacityBlocked: true;
+      consumedSlotsBefore: number;
+      consumedSlotsAfter: number;
+      maxConcurrentPositions: number;
+      reason: string;
+    };
 
 function isUniqueConstraintError(err: unknown): boolean {
   return typeof err === "object" && err != null && (err as { code?: string }).code === "P2002";
+}
+
+export async function countMt5ConsumedCapacitySlots(
+  prisma: Pick<PrismaClient, "position">,
+  userId: string
+): Promise<number> {
+  return prisma.position.count({
+    where: {
+      userId,
+      origin: "ENGINE",
+      status: { in: [...MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED] }
+    }
+  });
 }
 
 export function extractFrozenExecutionParams(
@@ -165,17 +205,61 @@ async function createExecutionIntentRow(
 }
 
 /**
- * Atomically create PENDING Position + CREATED ExecutionIntent.
+ * Atomically: advisory-lock user capacity → count consuming slots → create PENDING Position
+ * + CREATED ExecutionIntent. Slot is reserved by the PENDING row before any MT5 submit.
  * Idempotent on unique conflicts when both rows already exist for the signal.
  */
 export async function createPendingPositionWithExecutionIntent(
   prisma: PrismaClient,
   input: PendingPositionWithIntentInput,
   logger: Logger
-) {
+): Promise<CreatePendingWithIntentResult> {
   const idempotencyKey = executionIntentIdempotencyKey(input.signalId);
+  const lockKey = mt5CapacityAdvisoryLockKey(input.userId);
+  const maxConcurrentPositions = input.maxConcurrentPositions;
+
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+
+      const existingPosition = await tx.position.findUnique({ where: { idempotencyKey } });
+      const existingIntent = await tx.executionIntent.findUnique({ where: { signalId: input.signalId } });
+      if (existingPosition && existingIntent) {
+        const consumed = await tx.position.count({
+          where: {
+            userId: input.userId,
+            origin: "ENGINE",
+            status: { in: [...MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED] }
+          }
+        });
+        return {
+          kind: "existing" as const,
+          position: existingPosition,
+          intent: existingIntent,
+          consumedSlotsBefore: consumed,
+          consumedSlotsAfter: consumed
+        };
+      }
+
+      const consumedBefore = await tx.position.count({
+        where: {
+          userId: input.userId,
+          origin: "ENGINE",
+          status: { in: [...MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED] }
+        }
+      });
+      const decision = decideCapacityReservation({
+        consumedBefore,
+        maxConcurrent: maxConcurrentPositions
+      });
+      if (!decision.allowed) {
+        return {
+          kind: "blocked" as const,
+          consumedSlotsBefore: consumedBefore,
+          consumedSlotsAfter: consumedBefore
+        };
+      }
+
       const position = await tx.position.create({
         data: {
           userId: input.userId,
@@ -219,8 +303,62 @@ export async function createPendingPositionWithExecutionIntent(
         regime: input.regime,
         correlationId: input.correlationId
       });
-      return { position, intent };
+      return {
+        kind: "created" as const,
+        position,
+        intent,
+        consumedSlotsBefore: consumedBefore,
+        consumedSlotsAfter: consumedBefore + 1
+      };
     });
+
+    if (result.kind === "blocked") {
+      logger.warn(
+        {
+          userId: input.userId,
+          signalId: input.signalId,
+          symbol: input.internalSymbol,
+          maxConcurrentPositions,
+          consumedSlotsBefore: result.consumedSlotsBefore,
+          consumedSlotsAfter: result.consumedSlotsAfter,
+          reason: MT5_CAPACITY_BLOCKED
+        },
+        "MT5 capacity blocked — concurrent reservation loser"
+      );
+      return {
+        ok: false,
+        capacityBlocked: true,
+        consumedSlotsBefore: result.consumedSlotsBefore,
+        consumedSlotsAfter: result.consumedSlotsAfter,
+        maxConcurrentPositions,
+        reason: MT5_CAPACITY_BLOCKED
+      };
+    }
+
+    if (result.kind === "existing") {
+      logger.info(
+        {
+          executionIntentId: result.intent.id,
+          signalId: input.signalId,
+          positionId: result.position.id,
+          idempotencyKey,
+          maxConcurrentPositions,
+          consumedSlotsBefore: result.consumedSlotsBefore,
+          consumedSlotsAfter: result.consumedSlotsAfter
+        },
+        "MT5 execution intent create idempotent — existing rows returned"
+      );
+      return {
+        ok: true,
+        capacityBlocked: false,
+        position: result.position,
+        intent: result.intent,
+        consumedSlotsBefore: result.consumedSlotsBefore,
+        consumedSlotsAfter: result.consumedSlotsAfter,
+        maxConcurrentPositions
+      };
+    }
+
     logger.info(
       {
         executionIntentId: result.intent.id,
@@ -228,11 +366,24 @@ export async function createPendingPositionWithExecutionIntent(
         signalId: input.signalId,
         positionId: result.position.id,
         brokerComment: result.intent.brokerComment,
-        state: "CREATED"
+        state: "CREATED",
+        userId: input.userId,
+        symbol: input.internalSymbol,
+        maxConcurrentPositions,
+        consumedSlotsBefore: result.consumedSlotsBefore,
+        consumedSlotsAfter: result.consumedSlotsAfter
       },
-      "MT5 execution intent created"
+      "MT5 capacity slot reserved — execution intent created"
     );
-    return result;
+    return {
+      ok: true,
+      capacityBlocked: false,
+      position: result.position,
+      intent: result.intent,
+      consumedSlotsBefore: result.consumedSlotsBefore,
+      consumedSlotsAfter: result.consumedSlotsAfter,
+      maxConcurrentPositions
+    };
   } catch (err) {
     if (!isUniqueConstraintError(err)) throw err;
     const [position, intent] = await Promise.all([
@@ -240,6 +391,7 @@ export async function createPendingPositionWithExecutionIntent(
       prisma.executionIntent.findUnique({ where: { signalId: input.signalId } })
     ]);
     if (position && intent) {
+      const consumed = await countMt5ConsumedCapacitySlots(prisma, input.userId);
       logger.info(
         {
           executionIntentId: intent.id,
@@ -247,15 +399,37 @@ export async function createPendingPositionWithExecutionIntent(
           positionId: position.id,
           idempotencyKey
         },
-        "MT5 execution intent create idempotent — existing rows returned"
+        "MT5 execution intent create idempotent — existing rows returned after unique race"
       );
-      return { position, intent };
+      return {
+        ok: true,
+        capacityBlocked: false,
+        position,
+        intent,
+        consumedSlotsBefore: consumed,
+        consumedSlotsAfter: consumed,
+        maxConcurrentPositions
+      };
     }
     throw err;
   }
 }
 
 export async function markExecutionIntentSubmitted(prisma: PrismaClient, executionIntentId: string, logger: Logger) {
+  const current = await prisma.executionIntent.findUnique({ where: { id: executionIntentId } });
+  if (!current) throw new Error(`ExecutionIntent ${executionIntentId} not found`);
+  if (!canTransitionExecutionIntentState(current.state, "SUBMITTED")) {
+    logger.warn(
+      {
+        executionIntentId,
+        from: current.state,
+        to: "SUBMITTED"
+      },
+      "MT5 execution intent transition skipped — invalid"
+    );
+    return current;
+  }
+  if (current.state === "SUBMITTED") return current;
   const intent = await prisma.executionIntent.update({
     where: { id: executionIntentId },
     data: { state: "SUBMITTED", submittedAt: new Date() }
@@ -273,6 +447,16 @@ export async function markExecutionIntentBrokerConfirmed(
   broker: { brokerPositionId: string; orderTicket?: string | null; dealTicket?: string | null },
   logger: Logger
 ) {
+  const current = await prisma.executionIntent.findUnique({ where: { id: executionIntentId } });
+  if (!current) throw new Error(`ExecutionIntent ${executionIntentId} not found`);
+  if (!canTransitionExecutionIntentState(current.state, "BROKER_CONFIRMED")) {
+    logger.warn(
+      { executionIntentId, from: current.state, to: "BROKER_CONFIRMED" },
+      "MT5 execution intent transition skipped — invalid"
+    );
+    return current;
+  }
+  if (current.state === "BROKER_CONFIRMED") return current;
   const intent = await prisma.executionIntent.update({
     where: { id: executionIntentId },
     data: {
@@ -297,6 +481,16 @@ export async function markExecutionIntentBrokerConfirmed(
 }
 
 export async function markExecutionIntentPersisted(prisma: PrismaClient, executionIntentId: string, logger: Logger) {
+  const current = await prisma.executionIntent.findUnique({ where: { id: executionIntentId } });
+  if (!current) throw new Error(`ExecutionIntent ${executionIntentId} not found`);
+  if (!canTransitionExecutionIntentState(current.state, "PERSISTED")) {
+    logger.warn(
+      { executionIntentId, from: current.state, to: "PERSISTED" },
+      "MT5 execution intent transition skipped — invalid"
+    );
+    return current;
+  }
+  if (current.state === "PERSISTED") return current;
   const intent = await prisma.executionIntent.update({
     where: { id: executionIntentId },
     data: { state: "PERSISTED", persistedAt: new Date() }
@@ -314,6 +508,16 @@ export async function markExecutionIntentRejected(
   error: { code?: string; message?: string },
   logger: Logger
 ) {
+  const current = await prisma.executionIntent.findUnique({ where: { id: executionIntentId } });
+  if (!current) throw new Error(`ExecutionIntent ${executionIntentId} not found`);
+  if (!canTransitionExecutionIntentState(current.state, "REJECTED")) {
+    logger.warn(
+      { executionIntentId, from: current.state, to: "REJECTED" },
+      "MT5 execution intent transition skipped — invalid"
+    );
+    return current;
+  }
+  if (current.state === "REJECTED") return current;
   const intent = await prisma.executionIntent.update({
     where: { id: executionIntentId },
     data: {
@@ -336,6 +540,10 @@ export async function markExecutionIntentRejected(
   return intent;
 }
 
+/**
+ * Conditionally reject PENDING position + intent. Releases capacity exactly once.
+ * No-op if position already terminal (CLOSED/REJECTED/OPEN).
+ */
 export async function failClosedPendingExecution(input: {
   prisma: PrismaClient;
   positionId: string;
@@ -343,9 +551,26 @@ export async function failClosedPendingExecution(input: {
   code: string;
   message: string;
   logger: Logger;
-}): Promise<void> {
-  await input.prisma.position.update({
-    where: { id: input.positionId },
+}): Promise<{ released: boolean }> {
+  const before = await input.prisma.position.findUnique({ where: { id: input.positionId } });
+  if (!before) return { released: false };
+  if (!canRejectPendingPositionStatus(before.status)) {
+    input.logger.info(
+      {
+        positionId: input.positionId,
+        executionIntentId: input.executionIntentId,
+        status: before.status,
+        code: input.code
+      },
+      "MT5 fail-closed skipped — position not pending"
+    );
+    return { released: false };
+  }
+  const updated = await input.prisma.position.updateMany({
+    where: {
+      id: input.positionId,
+      status: { in: ["PENDING", "OPEN_REQUESTED"] }
+    },
     data: { status: "REJECTED" }
   });
   await markExecutionIntentRejected(
@@ -354,14 +579,19 @@ export async function failClosedPendingExecution(input: {
     { code: input.code, message: input.message },
     input.logger
   );
-  input.logger.warn(
-    {
-      executionIntentId: input.executionIntentId,
-      positionId: input.positionId,
-      code: input.code
-    },
-    "MT5 execution failed closed"
-  );
+  if (updated.count > 0) {
+    input.logger.warn(
+      {
+        executionIntentId: input.executionIntentId,
+        positionId: input.positionId,
+        code: input.code,
+        userId: before.userId,
+        symbol: before.symbol
+      },
+      "MT5 capacity slot released — execution failed closed"
+    );
+  }
+  return { released: updated.count > 0 };
 }
 
 export async function markExecutionIntentAmbiguous(
@@ -370,6 +600,16 @@ export async function markExecutionIntentAmbiguous(
   error: { code?: string; message?: string },
   logger: Logger
 ) {
+  const current = await prisma.executionIntent.findUnique({ where: { id: executionIntentId } });
+  if (!current) throw new Error(`ExecutionIntent ${executionIntentId} not found`);
+  if (!canTransitionExecutionIntentState(current.state, "AMBIGUOUS")) {
+    logger.warn(
+      { executionIntentId, from: current.state, to: "AMBIGUOUS" },
+      "MT5 execution intent transition skipped — invalid"
+    );
+    return current;
+  }
+  if (current.state === "AMBIGUOUS") return current;
   const intent = await prisma.executionIntent.update({
     where: { id: executionIntentId },
     data: {
@@ -386,7 +626,7 @@ export async function markExecutionIntentAmbiguous(
       state: "AMBIGUOUS",
       lastErrorCode: error.code
     },
-    "MT5 execution intent ambiguous — will not resubmit until reconciled"
+    "MT5 execution intent ambiguous — capacity remains consumed until resolved"
   );
   return intent;
 }
@@ -397,6 +637,16 @@ export async function markExecutionIntentRecovered(
   broker: { brokerPositionId: string; orderTicket?: string | null; dealTicket?: string | null },
   logger: Logger
 ) {
+  const current = await prisma.executionIntent.findUnique({ where: { id: executionIntentId } });
+  if (!current) throw new Error(`ExecutionIntent ${executionIntentId} not found`);
+  if (!canTransitionExecutionIntentState(current.state, "RECOVERED")) {
+    logger.warn(
+      { executionIntentId, from: current.state, to: "RECOVERED" },
+      "MT5 execution intent transition skipped — invalid"
+    );
+    return current;
+  }
+  if (current.state === "RECOVERED") return current;
   const intent = await prisma.executionIntent.update({
     where: { id: executionIntentId },
     data: {
@@ -418,6 +668,66 @@ export async function markExecutionIntentRecovered(
     "MT5 execution intent recovered from broker"
   );
   return intent;
+}
+
+/**
+ * Idempotent close: only transitions from capacity-consuming statuses to CLOSED.
+ * Returns applied=false when already CLOSED or status cannot close (stale reconcile).
+ */
+export async function closeLocalPositionIfCloseable(input: {
+  prisma: PrismaClient;
+  positionId: string;
+  data: {
+    closePrice: number | null;
+    realizedPnl: number | null;
+    closeReason: string;
+    closedAt: Date;
+  };
+  logger: Logger;
+}): Promise<{ applied: boolean; previousStatus: string | null }> {
+  const before = await input.prisma.position.findUnique({ where: { id: input.positionId } });
+  if (!before) return { applied: false, previousStatus: null };
+  if (before.status === "CLOSED") {
+    input.logger.info(
+      { positionId: input.positionId, brokerPositionId: before.brokerPositionId },
+      "MT5 duplicate close prevented — already CLOSED"
+    );
+    return { applied: false, previousStatus: "CLOSED" };
+  }
+  const updated = await input.prisma.position.updateMany({
+    where: {
+      id: input.positionId,
+      status: { in: ["OPEN", "PENDING", "OPEN_REQUESTED", "CLOSE_REQUESTED"] }
+    },
+    data: {
+      status: "CLOSED",
+      closePrice: input.data.closePrice,
+      realizedPnl: input.data.realizedPnl,
+      closeReason: input.data.closeReason,
+      closedAt: input.data.closedAt
+    }
+  });
+  if (updated.count === 0) {
+    input.logger.warn(
+      {
+        positionId: input.positionId,
+        previousStatus: before.status
+      },
+      "MT5 close skipped — stale state (cannot regress)"
+    );
+    return { applied: false, previousStatus: before.status };
+  }
+  input.logger.info(
+    {
+      positionId: input.positionId,
+      userId: before.userId,
+      symbol: before.symbol,
+      previousStatus: before.status,
+      brokerPositionId: before.brokerPositionId
+    },
+    "MT5 capacity slot released — position closed"
+  );
+  return { applied: true, previousStatus: before.status };
 }
 
 export type CreatedIntentStartupResolution = "awaiting_resume" | "expired" | "stale" | "broker_recovered";
@@ -510,8 +820,11 @@ export async function persistPositionOpenFromBrokerResult(input: {
   const { prisma, positionId, signalId, executionIntentId, result } = input;
   if (!result.accepted || !result.position) return;
 
-  await prisma.position.update({
-    where: { id: positionId },
+  const updated = await prisma.position.updateMany({
+    where: {
+      id: positionId,
+      status: { in: ["PENDING", "OPEN_REQUESTED", "OPEN"] }
+    },
     data: {
       status: "OPEN",
       brokerPositionId: result.brokerPositionId,
@@ -534,6 +847,13 @@ export async function persistPositionOpenFromBrokerResult(input: {
       } as object
     }
   });
+  if (updated.count === 0) {
+    input.logger.warn(
+      { positionId, executionIntentId, signalId },
+      "MT5 persist OPEN skipped — stale position state (cannot regress CLOSED/REJECTED)"
+    );
+    return;
+  }
   await prisma.signal.update({
     where: { id: signalId },
     data: {

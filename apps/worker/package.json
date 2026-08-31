@@ -8,7 +8,8 @@
     "start": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests --exclude '**/mt5Capacity.integration.test.ts'",
+    "test:integration": "RUN_INTEGRATION=1 vitest run src/cfd/mt5Capacity.integration.test.ts",
     "build": "tsc --noEmit"
   },
   "dependencies": {

@@ -42,7 +42,8 @@ const basePositionInput = {
   riskPercent: 1,
   initialRiskReward: 2,
   reasoning: {},
-  metadata: {}
+  metadata: {},
+  maxConcurrentPositions: 5
 };
 
 function mockLogger() {
@@ -87,25 +88,54 @@ function validAdaptation(frozen: ReturnType<typeof frozenParams>) {
 }
 
 describe("mt5ExecutionIntegrity worker helpers", () => {
+  function txWithCapacity(opts: {
+    positions?: Map<string, Record<string, unknown>>;
+    intents?: Map<string, Record<string, unknown>>;
+    failIntent?: boolean;
+  }) {
+    const positions = opts.positions ?? new Map<string, Record<string, unknown>>();
+    const intents = opts.intents ?? new Map<string, Record<string, unknown>>();
+    return {
+      $executeRaw: vi.fn(async () => undefined),
+      position: {
+        findUnique: vi.fn(async ({ where }: { where: { idempotencyKey?: string; id?: string } }) => {
+          if (where.idempotencyKey) {
+            return [...positions.values()].find((p) => p.idempotencyKey === where.idempotencyKey) ?? null;
+          }
+          if (where.id) return positions.get(where.id) ?? null;
+          return null;
+        }),
+        count: vi.fn(async () =>
+          [...positions.values()].filter((p) => p.status === "PENDING" || p.status === "OPEN").length
+        ),
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          const row = { id: "pos-1", status: "PENDING", ...data };
+          positions.set("pos-1", row);
+          return row;
+        })
+      },
+      executionIntent: {
+        findUnique: vi.fn(async ({ where }: { where: { signalId?: string } }) =>
+          where.signalId ? intents.get(where.signalId) ?? null : null
+        ),
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          if (opts.failIntent) throw new Error("intent create failed");
+          const row = { id: "intent-1", state: "CREATED", ...data };
+          intents.set(String(data.signalId), row);
+          return row;
+        })
+      },
+      positions,
+      intents
+    };
+  }
+
   it("A. atomic create rolls back position when intent create fails — no orphan PENDING", async () => {
     const positions = new Map<string, Record<string, unknown>>();
     const intents = new Map<string, Record<string, unknown>>();
     const prisma = {
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = {
-          position: {
-            create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-              const row = { id: "pos-1", ...data };
-              positions.set("pos-1", row);
-              return row;
-            })
-          },
-          executionIntent: {
-            create: vi.fn(async () => {
-              throw new Error("intent create failed");
-            })
-          }
-        };
+        const tx = txWithCapacity({ positions, intents, failIntent: true });
         try {
           return await fn(tx);
         } catch (err) {
@@ -129,30 +159,14 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
     const positions = new Map<string, Record<string, unknown>>();
     const intents = new Map<string, Record<string, unknown>>();
     const prisma = {
-      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = {
-          position: {
-            create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-              const row = { id: "pos-1", status: "PENDING", ...data };
-              positions.set("pos-1", row);
-              return row;
-            })
-          },
-          executionIntent: {
-            create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-              const row = { id: "intent-1", state: "CREATED", ...data };
-              intents.set(String(data.signalId), row);
-              return row;
-            })
-          }
-        };
-        return fn(tx);
-      }),
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txWithCapacity({ positions, intents }))),
       position: { findUnique: vi.fn(async () => null) },
       executionIntent: { findUnique: vi.fn(async () => null) }
     };
 
     const result = await createPendingPositionWithExecutionIntent(prisma as never, basePositionInput, mockLogger());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
     expect(result.position.status).toBe("PENDING");
     expect(result.intent.state).toBe("CREATED");
     expect(result.intent.idempotencyKey).toBe("signal:sig-1");
@@ -161,19 +175,29 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
 
   it("B. explicit broker rejection marks intent REJECTED", async () => {
     const intents = new Map<string, Record<string, unknown>>();
+    intents.set("intent-1", {
+      id: "intent-1",
+      state: "SUBMITTED",
+      idempotencyKey: "signal:sig-reject",
+      signalId: "sig-reject"
+    });
     const prisma = {
       executionIntent: {
         update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-          const row = { id: where.id, idempotencyKey: "signal:sig-reject", signalId: "sig-reject", ...data };
-          intents.set("sig-reject", row);
+          const row = intents.get(where.id);
+          if (!row) throw new Error("missing");
+          Object.assign(row, data);
           return row;
         }),
-        findUnique: vi.fn(async ({ where }: { where: { signalId?: string } }) =>
-          where.signalId ? intents.get(where.signalId) ?? null : null
-        )
+        findUnique: vi.fn(async ({ where }: { where: { signalId?: string; id?: string } }) => {
+          if (where.id) return intents.get(where.id) ?? null;
+          if (where.signalId) {
+            return [...intents.values()].find((i) => i.signalId === where.signalId) ?? null;
+          }
+          return null;
+        })
       }
     };
-    intents.set("sig-reject", { id: "intent-1", state: "SUBMITTED" });
     await markExecutionIntentRejected(
       prisma as never,
       "intent-1",
@@ -232,7 +256,7 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
           return null;
         })
       },
-      position: { update: vi.fn(async () => ({})) },
+      position: { update: vi.fn(async () => ({})), updateMany: vi.fn(async () => ({ count: 1 })) },
       signal: { update: vi.fn(async () => ({})) }
     };
 
@@ -240,10 +264,14 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
       {
         $transaction: vi.fn(async (fn) =>
           fn({
+            $executeRaw: vi.fn(async () => undefined),
             position: {
+              findUnique: vi.fn(async () => null),
+              count: vi.fn(async () => 0),
               create: vi.fn(async ({ data }) => ({ id: "pos-1", status: "PENDING", ...data }))
             },
             executionIntent: {
+              findUnique: vi.fn(async () => null),
               create: vi.fn(async ({ data }) => {
                 const row = { id: "intent-1", state: "CREATED", ...data };
                 intents.set("sig-timeout", row);
@@ -258,6 +286,8 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
       { ...basePositionInput, signalId: "sig-timeout" },
       mockLogger()
     );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
     await markExecutionIntentSubmitted(prisma as never, created.intent.id as string, mockLogger());
 
     const adopted: OpenMarketPositionResult = {
@@ -328,8 +358,23 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
   it("D. stale CREATED intent fails closed on startup", async () => {
     const frozen = frozenParams();
     const prisma = {
-      position: { update: vi.fn(async () => ({})) },
+      position: {
+        findUnique: vi.fn(async () => ({
+          id: "pos-1",
+          userId: "u1",
+          symbol: "R_10",
+          status: "PENDING"
+        })),
+        update: vi.fn(async () => ({})),
+        updateMany: vi.fn(async () => ({ count: 1 }))
+      },
       executionIntent: {
+        findUnique: vi.fn(async () => ({
+          id: "intent-1",
+          state: "CREATED",
+          idempotencyKey: "signal:sig-stale",
+          signalId: "sig-stale"
+        })),
         update: vi.fn(async ({ data }) => ({ id: "intent-1", ...data }))
       }
     };
@@ -361,7 +406,7 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
       logger: mockLogger()
     });
     expect(resolution).toBe("stale");
-    expect(prisma.position.update).toHaveBeenCalledWith(
+    expect(prisma.position.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "REJECTED" }) })
     );
   });
@@ -369,8 +414,23 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
   it("D. expired CREATED intent fails closed on startup", async () => {
     const frozen = frozenParams();
     const prisma = {
-      position: { update: vi.fn(async () => ({})) },
+      position: {
+        findUnique: vi.fn(async () => ({
+          id: "pos-1",
+          userId: "u1",
+          symbol: "R_10",
+          status: "PENDING"
+        })),
+        update: vi.fn(async () => ({})),
+        updateMany: vi.fn(async () => ({ count: 1 }))
+      },
       executionIntent: {
+        findUnique: vi.fn(async () => ({
+          id: "intent-1",
+          state: "CREATED",
+          idempotencyKey: "signal:sig-expired",
+          signalId: "sig-expired"
+        })),
         update: vi.fn(async ({ data }) => ({ id: "intent-1", ...data }))
       }
     };
@@ -445,7 +505,9 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
           return row;
         })
       },
-      position: { update: vi.fn(async () => ({})) },
+      position: {
+        updateMany: vi.fn(async () => ({ count: 1 }))
+      },
       signal: { update: vi.fn(async () => ({})) }
     };
     intents.set("intent-1", { id: "intent-1", state: "SUBMITTED", idempotencyKey: "signal:sig-ok", signalId: "sig-ok" });

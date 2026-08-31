@@ -8,6 +8,7 @@ import {
   createTelegramTradeNotifier,
   type TelegramTradeNotifier
 } from "../notifications/telegram.js";
+import { closeLocalPositionIfCloseable } from "./mt5ExecutionIntegrity.js";
 
 export async function closeMt5LocalPosition(input: {
   prisma: PrismaClient;
@@ -35,16 +36,20 @@ export async function closeMt5LocalPosition(input: {
     reason: "MANUAL"
   });
   const closedAt = new Date();
-  await input.prisma.position.update({
-    where: { id: pos.id },
+  const applied = await closeLocalPositionIfCloseable({
+    prisma: input.prisma,
+    positionId: pos.id,
     data: {
-      status: "CLOSED",
       closePrice: closed.closePrice,
       realizedPnl: closed.realizedPnl,
       closeReason: "MANUAL",
       closedAt
-    }
+    },
+    logger: input.logger
   });
+  if (!applied.applied) {
+    return { closed: true, reasons: ["Already closed or stale state"] };
+  }
   await input.prisma.positionEvent.create({
     data: {
       positionId: pos.id,
@@ -127,35 +132,39 @@ export async function emergencyCloseOwnedMt5Positions(input: {
     try {
       const result = await adapter.closePosition({ brokerPositionId: id, reason: "RISK_SHUTDOWN" });
       const closedAt = new Date();
-      await input.prisma.position.updateMany({
-        where: { userId: input.userId, brokerPositionId: id },
+      const local = localOpen.find((p) => p.brokerPositionId === id);
+      if (!local) {
+        failed.push(`${id}:local_missing`);
+        continue;
+      }
+      const applied = await closeLocalPositionIfCloseable({
+        prisma: input.prisma,
+        positionId: local.id,
         data: {
-          status: "CLOSED",
           closePrice: result.closePrice,
           realizedPnl: result.realizedPnl,
           closeReason: "RISK_SHUTDOWN",
           closedAt
-        }
+        },
+        logger: input.logger
       });
+      if (!applied.applied) continue;
       closed.push(id);
-      const local = localOpen.find((p) => p.brokerPositionId === id);
-      if (local) {
-        telegram.notifyClosed({
-          positionId: local.id,
-          symbol: local.symbol,
-          direction: local.direction,
-          entryPrice: local.entryPrice != null ? Number(local.entryPrice) : null,
-          exitPrice: result.closePrice,
-          volume: Number(local.volume),
-          realizedPnl: result.realizedPnl,
-          closeReason: "RISK_SHUTDOWN",
-          strategyId: local.strategyId,
-          brokerPositionId: local.brokerPositionId,
-          openedAt: local.openedAt,
-          closedAt
-        });
-        await refreshEvidenceForClosedPosition(input.prisma, input.config, local);
-      }
+      telegram.notifyClosed({
+        positionId: local.id,
+        symbol: local.symbol,
+        direction: local.direction,
+        entryPrice: local.entryPrice != null ? Number(local.entryPrice) : null,
+        exitPrice: result.closePrice,
+        volume: Number(local.volume),
+        realizedPnl: result.realizedPnl,
+        closeReason: "RISK_SHUTDOWN",
+        strategyId: local.strategyId,
+        brokerPositionId: local.brokerPositionId,
+        openedAt: local.openedAt,
+        closedAt
+      });
+      await refreshEvidenceForClosedPosition(input.prisma, input.config, local);
     } catch (err) {
       failed.push(`${id}:${err instanceof Error ? err.message : String(err)}`);
     }

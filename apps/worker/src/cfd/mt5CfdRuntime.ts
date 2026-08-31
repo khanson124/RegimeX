@@ -38,6 +38,7 @@ import {
   compareProposedToFrozenExecutionParams,
   EXECUTION_INTENT_PARAMETER_MISMATCH,
   EXECUTION_INTENT_STALE,
+  MT5_CAPACITY_BLOCKED,
   MT5_INVALID_STOP_DISTANCE_PRECHECK,
   MT5_STOP_METADATA_UNAVAILABLE,
   MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
@@ -57,12 +58,13 @@ import {
   type TelegramTradeNotifier
 } from "../notifications/telegram.js";
 import {
+  closeLocalPositionIfCloseable,
+  countMt5ConsumedCapacitySlots,
   createPendingPositionWithExecutionIntent,
   extractFrozenExecutionParams,
   failClosedPendingExecution,
   findExecutionIntentBySignal,
   markExecutionIntentAmbiguous,
-  markExecutionIntentRejected,
   markExecutionIntentSubmitted,
   persistPositionOpenFromBrokerResult,
   shouldBlockDuplicateExecution,
@@ -70,6 +72,10 @@ import {
   validateFrozenIntentSubmitSafety
 } from "./mt5ExecutionIntegrity.js";
 import { recoverUnresolvedMt5ExecutionIntents } from "./mt5ExecutionRecovery.js";
+import {
+  expireStaleCreatedExecutionIntents,
+  shouldRunCreatedIntentExpirySweep
+} from "./mt5CreatedIntentExpiry.js";
 
 export interface Mt5CfdRuntimeDeps {
   prisma: PrismaClient;
@@ -101,6 +107,7 @@ export class Mt5CfdRuntime {
   private readonly cfdRisk = new CfdRiskManager();
   private lastReconcileOkAt: number | null = null;
   private lastReconcileError: string | null = null;
+  private lastCreatedExpirySweepAt: number | null = null;
   private readonly reconcileLog = new OncePerCodeLogger();
   private static readonly RECONCILE_STALE_MS = 60_000;
 
@@ -226,9 +233,30 @@ export class Mt5CfdRuntime {
 
     const mapping = await this.loadMapping(input.symbol);
     const mapped = resolveBrokerSymbolMapping(input.symbol, mapping);
-    const openOwned = await this.deps.prisma.position.count({
-      where: { userId: this.userId, status: "OPEN", origin: "ENGINE" }
+    const openOwned = await countMt5ConsumedCapacitySlots(this.deps.prisma, this.userId);
+    const maxConcurrentPositions = this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS;
+    const existingForCapacity = await this.deps.prisma.position.findUnique({
+      where: { idempotencyKey: `signal:${input.signalId}` }
     });
+    const alreadyHoldsSlot =
+      existingForCapacity != null &&
+      (existingForCapacity.status === "PENDING" ||
+        existingForCapacity.status === "OPEN" ||
+        existingForCapacity.status === "OPEN_REQUESTED" ||
+        existingForCapacity.status === "CLOSE_REQUESTED");
+    const gateOwnedCount = alreadyHoldsSlot ? Math.max(0, openOwned - 1) : openOwned;
+    this.log.info(
+      {
+        userId: this.userId,
+        symbol: input.symbol,
+        signalId: input.signalId,
+        maxConcurrentPositions,
+        consumedSlotsBefore: openOwned,
+        alreadyHoldsSlot,
+        gateOwnedCount
+      },
+      "MT5 capacity check"
+    );
     const lifecycle = await loadLifecycle(this.deps.prisma, {
       userId: this.userId,
       strategyId: input.strategyId,
@@ -239,7 +267,7 @@ export class Mt5CfdRuntime {
       config: this.deps.config,
       symbol: input.symbol,
       strategyId: input.strategyId,
-      openOwnedCount: openOwned,
+      openOwnedCount: gateOwnedCount,
       lifecycle,
       mapping
     });
@@ -822,6 +850,10 @@ export class Mt5CfdRuntime {
         "Resuming CREATED execution intent with frozen parameters"
       );
     } else {
+      const maxConcurrentForReserve = Math.min(
+        profile?.maxConcurrentPositions ?? 3,
+        this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS
+      );
       const created = await createPendingPositionWithExecutionIntent(
         this.deps.prisma,
         {
@@ -841,6 +873,7 @@ export class Mt5CfdRuntime {
           riskAmount,
           riskPercent: limits.riskPerTradePercent,
           initialRiskReward: stopCheck.riskRewardRatio,
+          maxConcurrentPositions: maxConcurrentForReserve,
           reasoning: {
             entry: input.decision.entryReason,
             stop: proposal.reasons,
@@ -861,6 +894,26 @@ export class Mt5CfdRuntime {
         },
         this.log
       );
+      if (!created.ok) {
+        this.log.warn(
+          {
+            userId: this.userId,
+            symbol: input.symbol,
+            signalId: input.signalId,
+            maxConcurrentPositions: created.maxConcurrentPositions,
+            consumedSlotsBefore: created.consumedSlotsBefore,
+            consumedSlotsAfter: created.consumedSlotsAfter,
+            reason: created.reason
+          },
+          "MT5 capacity blocked at reservation"
+        );
+        return {
+          opened: false,
+          reasons: [created.reason, MT5_CAPACITY_BLOCKED],
+          decisionCode: "MAX_CONCURRENT_POSITIONS",
+          preflight
+        };
+      }
       pending = created.position;
       executionIntent = created.intent;
       await recordPositionEvent(this.deps.prisma, pending.id, "OPEN_REQUESTED", {
@@ -871,7 +924,10 @@ export class Mt5CfdRuntime {
         regime: input.regime,
         internalSymbol: input.symbol,
         brokerSymbol,
-        volumePreflight: preflight
+        volumePreflight: preflight,
+        consumedSlotsBefore: created.consumedSlotsBefore,
+        consumedSlotsAfter: created.consumedSlotsAfter,
+        maxConcurrentPositions: created.maxConcurrentPositions
       });
     }
 
@@ -958,21 +1014,19 @@ export class Mt5CfdRuntime {
         };
       }
 
-      await this.deps.prisma.position.update({
-        where: { id: pending.id },
-        data: { status: "REJECTED" }
+      const mappedCode = result.rejectionReasons.find((r) => isAutonomousDecisionCode(r));
+      const decisionCode: AutonomousDecisionCode = mappedCode ?? "EXECUTION_REJECTED";
+      await failClosedPendingExecution({
+        prisma: this.deps.prisma,
+        positionId: pending.id,
+        executionIntentId: executionIntent.id,
+        code: decisionCode,
+        message: result.rejectionReasons.join("; "),
+        logger: this.log
       });
       await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
         reasons: result.rejectionReasons
       });
-      const mappedCode = result.rejectionReasons.find((r) => isAutonomousDecisionCode(r));
-      const decisionCode: AutonomousDecisionCode = mappedCode ?? "EXECUTION_REJECTED";
-      await markExecutionIntentRejected(
-        this.deps.prisma,
-        executionIntent.id,
-        { code: decisionCode, message: result.rejectionReasons.join("; ") },
-        this.log
-      );
       this.log.warn(
         { reasons: result.rejectionReasons, signalId: input.signalId, internalSymbol: input.symbol, brokerSymbol, decisionCode },
         "MT5 rejected autonomous open"
@@ -1199,6 +1253,27 @@ export class Mt5CfdRuntime {
     }
     try {
       if (!this.adapter) this.adapter = await getOrConnectMt5Adapter(this.deps.config);
+      if (shouldRunCreatedIntentExpirySweep(this.lastCreatedExpirySweepAt)) {
+        const sweep = await expireStaleCreatedExecutionIntents({
+          prisma: this.deps.prisma,
+          adapter: this.adapter,
+          userId: this.userId,
+          logger: this.log
+        });
+        this.lastCreatedExpirySweepAt = Date.now();
+        if (sweep.examined > 0) {
+          this.log.info(
+            {
+              userId: this.userId,
+              examined: sweep.examined,
+              expired: sweep.expired,
+              recovered: sweep.recovered,
+              skipped: sweep.skipped
+            },
+            "MT5 CREATED intent TTL sweep"
+          );
+        }
+      }
       const brokerOpen = await this.adapter.getOpenPositions();
     const localOpen = await this.deps.prisma.position.findMany({
       where: {
@@ -1223,10 +1298,20 @@ export class Mt5CfdRuntime {
     for (const id of plan.updateSlTp) {
       const broker = brokerOpen.find((p) => p.brokerPositionId === id);
       if (!broker) continue;
-      await this.deps.prisma.position.updateMany({
-        where: { userId: this.userId, brokerPositionId: id },
+      const updated = await this.deps.prisma.position.updateMany({
+        where: {
+          userId: this.userId,
+          brokerPositionId: id,
+          status: { in: ["OPEN", "PENDING", "OPEN_REQUESTED", "CLOSE_REQUESTED"] }
+        },
         data: { stopLoss: broker.stopLoss, takeProfit: broker.takeProfit, currentPrice: broker.currentPrice }
       });
+      if (updated.count === 0) {
+        this.log.info(
+          { brokerPositionId: id, userId: this.userId },
+          "MT5 reconcile SL/TP skipped — stale state"
+        );
+      }
     }
 
     for (const id of plan.markLocalClosed) {
@@ -1240,16 +1325,20 @@ export class Mt5CfdRuntime {
         continue;
       }
       const closedAt = evidence.closedAt ? new Date(evidence.closedAt) : new Date();
-      await this.deps.prisma.position.update({
-        where: { id: local.id },
+      const closeResult = await closeLocalPositionIfCloseable({
+        prisma: this.deps.prisma,
+        positionId: local.id,
         data: {
-          status: "CLOSED",
           closePrice: evidence.exitPrice,
           realizedPnl: evidence.realizedPnl,
           closeReason: evidence.closeReason ?? "BROKER_CLOSE",
           closedAt
-        }
+        },
+        logger: this.log
       });
+      if (!closeResult.applied) {
+        continue;
+      }
       await recordPositionEvent(this.deps.prisma, local.id, "CLOSED", {
         source: "reconcile",
         realizedPnl: evidence.realizedPnl,

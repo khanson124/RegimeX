@@ -89,7 +89,22 @@ function buildRecoveryPrisma() {
         if (!row) throw new Error("position not found");
         Object.assign(row, data);
         return row;
-      })
+      }),
+      updateMany: vi.fn(
+        async ({
+          where,
+          data
+        }: {
+          where: { id: string; status?: { in: string[] } };
+          data: Record<string, unknown>;
+        }) => {
+          const row = positions.get(where.id);
+          if (!row) return { count: 0 };
+          if (where.status && !where.status.in.includes(String(row.status))) return { count: 0 };
+          Object.assign(row, data);
+          return { count: 1 };
+        }
+      )
     },
     brokerSymbolMapping: {
       findFirst: vi.fn(async () => ({
