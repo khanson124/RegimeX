@@ -34,6 +34,10 @@ import {
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
+  classifyOpenMarketFailure,
+  compareProposedToFrozenExecutionParams,
+  EXECUTION_INTENT_PARAMETER_MISMATCH,
+  EXECUTION_INTENT_STALE,
   MT5_INVALID_STOP_DISTANCE_PRECHECK,
   MT5_STOP_METADATA_UNAVAILABLE,
   MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
@@ -52,6 +56,20 @@ import {
   createTelegramTradeNotifier,
   type TelegramTradeNotifier
 } from "../notifications/telegram.js";
+import {
+  createPendingPositionWithExecutionIntent,
+  extractFrozenExecutionParams,
+  failClosedPendingExecution,
+  findExecutionIntentBySignal,
+  markExecutionIntentAmbiguous,
+  markExecutionIntentRejected,
+  markExecutionIntentSubmitted,
+  persistPositionOpenFromBrokerResult,
+  shouldBlockDuplicateExecution,
+  tryRecoverExecutionIntentFromBroker,
+  validateFrozenIntentSubmitSafety
+} from "./mt5ExecutionIntegrity.js";
+import { recoverUnresolvedMt5ExecutionIntents } from "./mt5ExecutionRecovery.js";
 
 export interface Mt5CfdRuntimeDeps {
   prisma: PrismaClient;
@@ -120,6 +138,13 @@ export class Mt5CfdRuntime {
         return;
       }
       this.adapter = await getOrConnectMt5Adapter(this.deps.config);
+      await recoverUnresolvedMt5ExecutionIntents({
+        prisma: this.deps.prisma,
+        adapter: this.adapter,
+        userId: this.userId,
+        config: this.deps.config,
+        logger: this.log
+      });
       await this.reconcileOpen();
     } catch (err) {
       const code = mt5ErrorCodeFromUnknown(err);
@@ -574,9 +599,46 @@ export class Mt5CfdRuntime {
 
     const idempotencyKey = `signal:${input.signalId}`;
     const existing = await this.deps.prisma.position.findUnique({ where: { idempotencyKey } });
-    if (existing) {
+    const existingIntent = await findExecutionIntentBySignal(this.deps.prisma, input.signalId);
+    const duplicate = shouldBlockDuplicateExecution(existingIntent, existing);
+    if (duplicate.block) {
+      if (existing?.status === "PENDING" && existingIntent) {
+        const recovered = await tryRecoverExecutionIntentFromBroker({
+          prisma: this.deps.prisma,
+          adapter: this.adapter!,
+          intent: existingIntent,
+          positionId: existing.id,
+          instrument,
+          quote,
+          logger: this.log
+        });
+        if (recovered?.accepted) {
+          await recordPositionEvent(this.deps.prisma, existing.id, "OPENED", {
+            source: "duplicate_guard_recovery",
+            brokerPositionId: recovered.brokerPositionId,
+            executionIntentId: existingIntent.id
+          });
+          return {
+            opened: true,
+            reasons: ["Recovered existing PENDING execution from broker"],
+            decisionCode: "OPENED",
+            acceptedVolume: recovered.position?.volume
+          };
+        }
+      }
+      this.log.warn(
+        {
+          signalId: input.signalId,
+          idempotencyKey,
+          executionIntentId: existingIntent?.id,
+          intentState: existingIntent?.state,
+          positionStatus: existing?.status,
+          reason: duplicate.reason
+        },
+        "MT5 duplicate execution prevented"
+      );
       return {
-        opened: existing.status === "OPEN" || existing.status === "PENDING",
+        opened: existing?.status === "OPEN",
         reasons: ["Duplicate signal execution prevented by idempotency key"],
         decisionCode: "NO_TRADE"
       };
@@ -644,84 +706,258 @@ export class Mt5CfdRuntime {
       internalSymbol: input.symbol,
       brokerSymbol
     };
-    const pending = await this.deps.prisma.position.create({
-      data: {
-        userId: this.userId,
-        signalId: input.signalId,
-        symbol: input.symbol,
-        strategyId: input.strategyId,
-        strategyVersion: input.decision.strategyVersion,
-        regime: input.regime,
+
+    const resumeBeforeSubmit =
+      duplicate.resumeBeforeSubmit &&
+      existing?.status === "PENDING" &&
+      existingIntent?.state === "CREATED" &&
+      !existingIntent.submittedAt;
+
+    let pending = existing!;
+    let executionIntent = existingIntent!;
+    let submitVolume = volume;
+    let submitStopLoss = proposal.stopLoss;
+    let submitTakeProfit = proposal.takeProfit!;
+    let submitDirection = proposal.direction;
+    let submitBrokerSymbol = brokerSymbol;
+    let submitRiskAmount = riskAmount;
+    let submitRiskPercent = limits.riskPerTradePercent;
+    let submitInitialRiskReward = stopCheck.riskRewardRatio;
+
+    if (resumeBeforeSubmit) {
+      const frozen = extractFrozenExecutionParams(existingIntent!, existing!);
+      const proposed = {
+        internalSymbol: input.symbol,
+        brokerSymbol,
         direction: proposal.direction,
         volume,
-        origin: "ENGINE",
-        interval: input.interval,
-        initialStopLoss: proposal.stopLoss,
         stopLoss: proposal.stopLoss,
-        initialTakeProfit: proposal.takeProfit,
-        takeProfit: proposal.takeProfit,
-        entryType: "MARKET",
-        status: "PENDING",
-        initialRiskAmount: riskAmount,
-        initialRiskPercent: limits.riskPerTradePercent,
-        initialRiskReward: stopCheck.riskRewardRatio,
+        takeProfit: proposal.takeProfit!,
+        strategyId: input.strategyId,
         riskAmount,
         riskPercent: limits.riskPerTradePercent,
-        idempotencyKey,
-        correlationId: input.correlationId,
-        reasoning: {
-          entry: input.decision.entryReason,
-          stop: proposal.reasons,
-          stopMethod: proposal.stopMethod,
-          targetMethod: proposal.targetMethod,
-          requestedVolume: volumeDecision.riskSizedVolume,
-          riskPercent: limits.riskPerTradePercent,
-          volumePreflight: preflight
-        } as object,
-        metadata: {
-          executionModel: "broker_demo_mt5",
-          venue: "MT5_DEMO",
-          ownedByRegimeX: true,
-          engineSymbol: input.symbol,
-          ...symbolAudit,
-          volumePreflight: preflight
-        } as object
+        initialRiskReward: stopCheck.riskRewardRatio
+      };
+      const paramCheck = compareProposedToFrozenExecutionParams(frozen, proposed);
+      if (!paramCheck.match) {
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: existing!.id,
+          executionIntentId: existingIntent!.id,
+          code: EXECUTION_INTENT_PARAMETER_MISMATCH,
+          message: `Frozen execution parameters changed: ${paramCheck.diffs.join(", ")}`,
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, existing!.id, "REJECTED", {
+          reasons: [EXECUTION_INTENT_PARAMETER_MISMATCH, ...paramCheck.diffs]
+        });
+        return {
+          opened: false,
+          reasons: [EXECUTION_INTENT_PARAMETER_MISMATCH, ...paramCheck.diffs],
+          decisionCode: "NO_TRADE",
+          preflight
+        };
       }
-    });
-    await recordPositionEvent(this.deps.prisma, pending.id, "OPEN_REQUESTED", {
-      idempotencyKey,
-      requestedVolume: volumeDecision.riskSizedVolume,
-      volume,
-      strategyId: input.strategyId,
-      regime: input.regime,
-      internalSymbol: input.symbol,
-      brokerSymbol,
-      volumePreflight: preflight
-    });
+
+      const liveSymbol = await this.adapter!.getLiveSymbol(frozen.brokerSymbol);
+      const frozenAdaptation = adaptMt5BrokerStops({
+        direction: frozen.direction,
+        stopLoss: frozen.stopLoss,
+        takeProfit: frozen.takeProfit,
+        entryPrice: frozen.direction === "BUY" ? quote.ask : quote.bid,
+        targetRMultiple: frozen.initialRiskReward ?? 2,
+        bid: quote.bid,
+        ask: quote.ask,
+        point: liveSymbol?.point,
+        tickSize: liveSymbol?.tickSize ?? instrument.tickSize,
+        digits: liveSymbol?.digits ?? instrument.pricePrecision,
+        stopsLevel: liveSymbol?.stopsLevel,
+        freezeLevel: liveSymbol?.freezeLevel
+      });
+      const frozenSafety = await validateFrozenIntentSubmitSafety({
+        frozen,
+        quote,
+        maxQuoteAgeMs: this.deps.config.MAX_EXECUTION_QUOTE_AGE_MS,
+        adaptation: frozenAdaptation
+      });
+      if (!frozenSafety.ok) {
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: existing!.id,
+          executionIntentId: existingIntent!.id,
+          code: EXECUTION_INTENT_STALE,
+          message: frozenSafety.reasons.join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, existing!.id, "REJECTED", {
+          reasons: frozenSafety.reasons
+        });
+        return {
+          opened: false,
+          reasons: frozenSafety.reasons,
+          decisionCode: "NO_TRADE",
+          preflight
+        };
+      }
+
+      submitVolume = frozen.volume;
+      submitStopLoss = frozen.stopLoss;
+      submitTakeProfit = frozen.takeProfit;
+      submitDirection = frozen.direction;
+      submitBrokerSymbol = frozen.brokerSymbol;
+      submitRiskAmount = frozen.riskAmount;
+      submitRiskPercent = frozen.riskPercent;
+      submitInitialRiskReward = frozen.initialRiskReward;
+
+      this.log.info(
+        {
+          signalId: input.signalId,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          idempotencyKey,
+          frozenVolume: submitVolume,
+          frozenStopLoss: submitStopLoss,
+          frozenTakeProfit: submitTakeProfit
+        },
+        "Resuming CREATED execution intent with frozen parameters"
+      );
+    } else {
+      const created = await createPendingPositionWithExecutionIntent(
+        this.deps.prisma,
+        {
+          userId: this.userId,
+          signalId: input.signalId,
+          correlationId: input.correlationId,
+          internalSymbol: input.symbol,
+          brokerSymbol,
+          strategyId: input.strategyId,
+          strategyVersion: input.decision.strategyVersion,
+          regime: input.regime,
+          interval: input.interval,
+          direction: proposal.direction,
+          volume,
+          stopLoss: proposal.stopLoss,
+          takeProfit: proposal.takeProfit,
+          riskAmount,
+          riskPercent: limits.riskPerTradePercent,
+          initialRiskReward: stopCheck.riskRewardRatio,
+          reasoning: {
+            entry: input.decision.entryReason,
+            stop: proposal.reasons,
+            stopMethod: proposal.stopMethod,
+            targetMethod: proposal.targetMethod,
+            requestedVolume: volumeDecision.riskSizedVolume,
+            riskPercent: limits.riskPerTradePercent,
+            volumePreflight: preflight
+          },
+          metadata: {
+            executionModel: "broker_demo_mt5",
+            venue: "MT5_DEMO",
+            ownedByRegimeX: true,
+            engineSymbol: input.symbol,
+            ...symbolAudit,
+            volumePreflight: preflight
+          }
+        },
+        this.log
+      );
+      pending = created.position;
+      executionIntent = created.intent;
+      await recordPositionEvent(this.deps.prisma, pending.id, "OPEN_REQUESTED", {
+        idempotencyKey,
+        requestedVolume: volumeDecision.riskSizedVolume,
+        volume,
+        strategyId: input.strategyId,
+        regime: input.regime,
+        internalSymbol: input.symbol,
+        brokerSymbol,
+        volumePreflight: preflight
+      });
+    }
+
+    await markExecutionIntentSubmitted(this.deps.prisma, executionIntent.id, this.log);
 
     const result = await this.adapter.openMarketPosition({
       idempotencyKey,
-      symbol: brokerSymbol,
-      direction: proposal.direction,
-      volume,
-      stopLoss: proposal.stopLoss,
-      takeProfit: proposal.takeProfit,
+      symbol: submitBrokerSymbol,
+      direction: submitDirection,
+      volume: submitVolume,
+      stopLoss: submitStopLoss,
+      takeProfit: submitTakeProfit,
       quote,
       instrument,
-      riskAmount,
-      riskPercent: limits.riskPerTradePercent,
-      initialRiskReward: stopCheck.riskRewardRatio,
-      marginRequired,
+      riskAmount: submitRiskAmount,
+      riskPercent: submitRiskPercent,
+      initialRiskReward: submitInitialRiskReward,
+      marginRequired: estimateMarginRequired(
+        submitDirection === "BUY" ? quote.ask : quote.bid,
+        submitVolume,
+        instrument
+      ),
       metadata: {
         signalId: input.signalId,
         stopMethod: proposal.stopMethod,
         targetMethod: proposal.targetMethod,
         internalSymbol: input.symbol,
-        brokerSymbol
+        brokerSymbol: submitBrokerSymbol,
+        frozenResume: resumeBeforeSubmit
       }
     });
 
     if (!result.accepted || !result.position) {
+      const failureClass = classifyOpenMarketFailure(result.rejectionReasons);
+      if (failureClass === "AMBIGUOUS") {
+        await markExecutionIntentAmbiguous(
+          this.deps.prisma,
+          executionIntent.id,
+          {
+            code: result.rejectionReasons[0],
+            message: result.rejectionReasons.join("; ")
+          },
+          this.log
+        );
+        const recovered = await tryRecoverExecutionIntentFromBroker({
+          prisma: this.deps.prisma,
+          adapter: this.adapter,
+          intent: executionIntent,
+          positionId: pending.id,
+          instrument,
+          quote,
+          logger: this.log
+        });
+        if (recovered?.accepted) {
+          await recordPositionEvent(this.deps.prisma, pending.id, "OPENED", {
+            source: "ambiguous_timeout_recovery",
+            brokerPositionId: recovered.brokerPositionId,
+            executionIntentId: executionIntent.id
+          });
+          return {
+            opened: true,
+            reasons: ["Recovered broker fill after ambiguous timeout"],
+            decisionCode: "OPENED",
+            requestedVolume: volumeDecision.riskSizedVolume,
+            acceptedVolume: recovered.position?.volume,
+            preflight
+          };
+        }
+        this.log.warn(
+          {
+            executionIntentId: executionIntent.id,
+            idempotencyKey,
+            signalId: input.signalId,
+            reasons: result.rejectionReasons
+          },
+          "MT5 execution ambiguous — left PENDING, will not resubmit"
+        );
+        return {
+          opened: false,
+          reasons: result.rejectionReasons,
+          decisionCode: "EXECUTION_AMBIGUOUS",
+          requestedVolume: volumeDecision.riskSizedVolume,
+          preflight
+        };
+      }
+
       await this.deps.prisma.position.update({
         where: { id: pending.id },
         data: { status: "REJECTED" }
@@ -731,6 +967,12 @@ export class Mt5CfdRuntime {
       });
       const mappedCode = result.rejectionReasons.find((r) => isAutonomousDecisionCode(r));
       const decisionCode: AutonomousDecisionCode = mappedCode ?? "EXECUTION_REJECTED";
+      await markExecutionIntentRejected(
+        this.deps.prisma,
+        executionIntent.id,
+        { code: decisionCode, message: result.rejectionReasons.join("; ") },
+        this.log
+      );
       this.log.warn(
         { reasons: result.rejectionReasons, signalId: input.signalId, internalSymbol: input.symbol, brokerSymbol, decisionCode },
         "MT5 rejected autonomous open"
@@ -765,37 +1007,15 @@ export class Mt5CfdRuntime {
       };
     }
 
-    await this.deps.prisma.position.update({
-      where: { id: pending.id },
-      data: {
-        status: "OPEN",
-        brokerPositionId: result.brokerPositionId,
-        entryPrice: result.entryPrice,
-        currentPrice: result.entryPrice,
-        volume: result.position.volume,
-        appliedEntrySpreadBps: result.appliedSpreadBps,
-        appliedEntrySlippageBps: result.appliedSlippageBps,
-        marginUsed: result.position.marginUsed,
-        floatingPnl: 0,
-        openedAt: new Date(),
-        metadata: {
-          executionModel: "broker_demo_mt5",
-          venue: "MT5_DEMO",
-          ownedByRegimeX: true,
-          engineSymbol: input.symbol,
-          ...symbolAudit,
-          volumePreflight: preflight,
-          ...(result.position.metadata ?? {})
-        } as object
-      }
-    });
-    await this.deps.prisma.signal.update({
-      where: { id: input.signalId },
-      data: {
-        status: "EXECUTED",
-        proposedEntryPrice: result.entryPrice,
-        proposedVolume: result.position.volume
-      }
+    await persistPositionOpenFromBrokerResult({
+      prisma: this.deps.prisma,
+      positionId: pending.id,
+      signalId: input.signalId,
+      executionIntentId: executionIntent.id,
+      result,
+      symbolAudit,
+      preflight,
+      logger: this.log
     });
     await recordPositionEvent(this.deps.prisma, pending.id, "OPENED", {
       brokerPositionId: result.brokerPositionId,
@@ -803,7 +1023,8 @@ export class Mt5CfdRuntime {
       requestedVolume: volumeDecision.riskSizedVolume,
       acceptedVolume: result.position.volume,
       internalSymbol: input.symbol,
-      brokerSymbol
+      brokerSymbol,
+      executionIntentId: executionIntent.id
     });
     this.log.info(
       {

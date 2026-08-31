@@ -679,6 +679,30 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   }
 
   private async adoptExisting(request: OpenMarketPositionRequest): Promise<OpenMarketPositionResult | null> {
+    return this.tryAdoptOpenByIdempotency(request);
+  }
+
+  /**
+   * Query broker open positions for magic+comment match. Primary identity for recovery.
+   */
+  async tryAdoptOpenByIdempotency(
+    request: Pick<
+      OpenMarketPositionRequest,
+      | "idempotencyKey"
+      | "symbol"
+      | "direction"
+      | "stopLoss"
+      | "takeProfit"
+      | "instrument"
+      | "quote"
+      | "volume"
+      | "riskAmount"
+      | "riskPercent"
+      | "initialRiskReward"
+      | "marginRequired"
+      | "metadata"
+    >
+  ): Promise<OpenMarketPositionResult | null> {
     const reply = await this.requireTransport().request<Mt5BridgePosition[]>(
       "getOpenPositions",
       {},

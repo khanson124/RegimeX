@@ -37,6 +37,7 @@ model User {
   paperAccount     PaperAccount?
   positions        Position[]
   strategyEvidenceStates StrategyEvidenceState[]
+  executionIntents ExecutionIntent[]
 
   @@index([status])
 }
@@ -636,6 +637,7 @@ model Signal {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   demoTrades DemoTrade[]
   positions  Position[]
+  executionIntent ExecutionIntent?
 
   // ── CFD signal extensions (nullable; populated by CFD execution path) ──
   entryType          String?
@@ -830,6 +832,7 @@ model Position {
   paperAccount PaperAccount? @relation(fields: [paperAccountId], references: [id], onDelete: SetNull)
   signal       Signal?       @relation(fields: [signalId], references: [id], onDelete: SetNull)
   events       PositionEvent[]
+  executionIntent ExecutionIntent?
 
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([symbol, status])
@@ -951,4 +954,44 @@ model TelegramDelivery {
   createdAt   DateTime @default(now())
 
   @@index([kind, createdAt(sort: Desc)])
+}
+
+/// Durable MT5 open execution saga — survives timeouts/crashes before broker confirmation.
+model ExecutionIntent {
+  id                  String    @id @default(cuid())
+  userId              String
+  signalId            String    @unique
+  positionId          String?   @unique
+  idempotencyKey      String    @unique
+  brokerComment       String
+  internalSymbol      String
+  brokerSymbol        String
+  direction           String
+  requestedVolume     Decimal   @db.Decimal(18, 8)
+  requestedStopLoss   Decimal   @db.Decimal(18, 5)
+  requestedTakeProfit Decimal?  @db.Decimal(18, 5)
+  strategyId          String
+  regime              String?
+  correlationId       String
+  state               String    @default("CREATED")
+  brokerPositionId    String?
+  brokerOrderTicket   String?
+  brokerDealTicket    String?
+  lastErrorCode       String?
+  lastErrorMessage    String?
+  createdAt           DateTime  @default(now())
+  submittedAt         DateTime?
+  brokerConfirmedAt   DateTime?
+  persistedAt         DateTime?
+  failedAt            DateTime?
+  recoveredAt         DateTime?
+  updatedAt           DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signal   Signal    @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  position Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, state, createdAt(sort: Desc)])
+  @@index([brokerPositionId])
+  @@index([idempotencyKey])
 }
