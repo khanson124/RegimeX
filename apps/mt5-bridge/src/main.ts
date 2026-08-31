@@ -1,4 +1,5 @@
 import { loadConfig } from "@regimex/config";
+import { mailboxCleanupConfigFromEnv } from "@regimex/trading-engine";
 import { startMt5BridgeServer } from "./server.js";
 import { startMt5BridgeWatchdog } from "./watchdog.js";
 
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   const host = process.env.MT5_BRIDGE_BIND_HOST || "0.0.0.0";
   const port = config.MT5_BRIDGE_PORT;
   const mailboxPath = config.MT5_MAILBOX_PATH;
+  const cleanupConfig = mailboxCleanupConfigFromEnv(config);
   log("mt5-bridge starting", {
     host,
     port,
@@ -30,11 +32,8 @@ async function main(): Promise<void> {
     commandTimeoutMs: config.MT5_COMMAND_TIMEOUT_MS,
     cleanup: {
       enabled: config.MT5_MAILBOX_CLEANUP_ENABLED,
-      processingRetentionMinutes: config.MT5_MAILBOX_PROCESSING_RETENTION_MINUTES,
-      replyRetentionMinutes: config.MT5_MAILBOX_REPLY_RETENTION_MINUTES,
-      orphanRetentionMinutes: config.MT5_MAILBOX_ORPHAN_RETENTION_MINUTES,
-      intervalSeconds: config.MT5_MAILBOX_CLEANUP_INTERVAL_SECONDS,
-      maxFilesPerRun: config.MT5_MAILBOX_CLEANUP_MAX_FILES_PER_RUN
+      ...cleanupConfig,
+      intervalSeconds: config.MT5_MAILBOX_CLEANUP_INTERVAL_SECONDS
     }
   });
   const watchdog = startMt5BridgeWatchdog({ port, parentPid: process.pid });

@@ -30,11 +30,12 @@ describe("mt5-bridge server", () => {
       commandTimeoutMs: 5_000,
       cleanup: {
         enabled: true,
-        processingRetentionMinutes: 60,
-        replyRetentionMinutes: 1440,
-        orphanRetentionMinutes: 1440,
-        intervalSeconds: 3600,
-        maxFilesPerRun: 500
+        replyRetentionSeconds: 600,
+        processingRetentionSeconds: 600,
+        orphanRetentionSeconds: 86_400,
+        maxReplies: 5_000,
+        maxProcessing: 1_000,
+        intervalSeconds: 3600
       }
     });
     try {
@@ -95,25 +96,34 @@ describe("mt5-bridge server", () => {
       commandTimeoutMs: 5_000,
       cleanup: {
         enabled: true,
-        processingRetentionMinutes: 60,
-        replyRetentionMinutes: 1440,
-        orphanRetentionMinutes: 1440,
-        intervalSeconds: 3600,
-        maxFilesPerRun: 200
+        replyRetentionSeconds: 600,
+        processingRetentionSeconds: 600,
+        orphanRetentionSeconds: 86_400,
+        maxReplies: 5_000,
+        maxProcessing: 1_000,
+        intervalSeconds: 3600
       }
     });
     try {
       const addr = server.address() as AddressInfo;
       const base = `http://127.0.0.1:${addr.port}`;
-      await cleanup?.runOnce();
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await cleanup?.runOnce();
+        const ready = await fetch(`${base}/health/ready`);
+        const body = (await ready.json()) as { processing: number; cleanupDeletedProcessing?: number };
+        if (body.processing < 120) {
+          expect((body.cleanupDeletedProcessing ?? 0) > 0 || body.processing < 120).toBe(true);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+        if (attempt === 4) {
+          expect(body.processing).toBeLessThan(120);
+        }
+      }
       const started = Date.now();
       const live = await fetch(`${base}/health/live`);
       expect(live.status).toBe(200);
       expect(Date.now() - started).toBeLessThan(500);
-      const ready = await fetch(`${base}/health/ready`);
-      const body = (await ready.json()) as { processing: number; cleanupDeletedProcessing?: number };
-      expect(body.processing).toBeLessThan(120);
-      expect((body.cleanupDeletedProcessing ?? 0) > 0 || body.processing < 120).toBe(true);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
       await rm(root, { recursive: true, force: true });

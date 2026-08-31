@@ -1,42 +1,30 @@
 #!/usr/bin/env node
 /**
- * Dry-run or execute bounded MT5 mailbox retention using the same rules as the bridge.
+ * Dry-run or execute MT5 mailbox retention using the same rules as the bridge.
  *
  * Usage:
  *   pnpm --filter @regimex/mt5-bridge mailbox-cleanup -- --dry-run
- *   pnpm --filter @regimex/mt5-bridge mailbox-cleanup -- --execute --max-files 5000
+ *   pnpm --filter @regimex/mt5-bridge mailbox-cleanup -- --execute
  */
 import { loadConfig } from "@regimex/config";
 import {
-  DEFAULT_MAILBOX_CLEANUP_CONFIG,
+  createMailboxCleanupState,
+  mailboxCleanupConfigFromEnv,
   planMailboxCleanup,
-  runMailboxCleanupPass,
-  createMailboxCleanupState
+  runMailboxCleanupPass
 } from "@regimex/trading-engine";
 
-function parseArgs(argv: string[]): { dryRun: boolean; execute: boolean; maxFiles: number; maxPasses: number } {
+function parseArgs(argv: string[]): { dryRun: boolean; execute: boolean } {
   const dryRun = argv.includes("--dry-run");
   const execute = argv.includes("--execute");
-  const maxFilesArg = argv.find((a) => a.startsWith("--max-files="));
-  const maxPassesArg = argv.find((a) => a.startsWith("--max-passes="));
-  return {
-    dryRun: dryRun || !execute,
-    execute,
-    maxFiles: maxFilesArg ? Number(maxFilesArg.split("=")[1]) : DEFAULT_MAILBOX_CLEANUP_CONFIG.maxFilesPerRun,
-    maxPasses: maxPassesArg ? Number(maxPassesArg.split("=")[1]) : 200
-  };
+  return { dryRun: dryRun || !execute, execute };
 }
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const mailboxPath = config.MT5_MAILBOX_PATH;
-  const cleanupConfig = {
-    processingRetentionMinutes: config.MT5_MAILBOX_PROCESSING_RETENTION_MINUTES,
-    replyRetentionMinutes: config.MT5_MAILBOX_REPLY_RETENTION_MINUTES,
-    orphanRetentionMinutes: config.MT5_MAILBOX_ORPHAN_RETENTION_MINUTES,
-    maxFilesPerRun: config.MT5_MAILBOX_CLEANUP_MAX_FILES_PER_RUN
-  };
+  const cleanupConfig = mailboxCleanupConfigFromEnv(config);
 
   if (args.dryRun) {
     const plan = await planMailboxCleanup(mailboxPath, cleanupConfig);
@@ -67,29 +55,23 @@ async function main(): Promise<void> {
   }
 
   const runtime = createMailboxCleanupState();
-  let totalDeleted = 0;
-  const perPass = Math.min(args.maxFiles, cleanupConfig.maxFilesPerRun);
-  for (let pass = 0; pass < args.maxPasses; pass++) {
-    const result = await runMailboxCleanupPass(
-      mailboxPath,
-      { ...cleanupConfig, maxFilesPerRun: perPass },
-      new Set(),
-      runtime
-    );
-    const deleted =
-      result.counters.deletedProcessing + result.counters.deletedReplies + result.counters.deletedPending;
-    totalDeleted += deleted;
-    process.stdout.write(
-      `${JSON.stringify({
-        pass: pass + 1,
-        deleted,
-        counters: result.counters,
-        error: result.error
-      })}\n`
-    );
-    if (deleted === 0) break;
-  }
-  process.stdout.write(`${JSON.stringify({ totalDeleted, passes: runtime.lastRunAt }, null, 2)}\n`);
+  const result = await runMailboxCleanupPass(mailboxPath, cleanupConfig, new Set(), runtime);
+  process.stdout.write(
+    `${JSON.stringify({
+      deletedProcessing: result.counters.deletedProcessing,
+      deletedReplies: result.counters.deletedReplies,
+      deletedPending: result.counters.deletedPending,
+      replyCountBefore: result.replyCountBefore,
+      replyCountAfter: result.replyCountAfter,
+      processingCountBefore: result.processingCountBefore,
+      processingCountAfter: result.processingCountAfter,
+      hardCapTriggeredReplies: result.hardCapTriggeredReplies,
+      hardCapTriggeredProcessing: result.hardCapTriggeredProcessing,
+      cleanupDurationMs: result.durationMs,
+      counters: result.counters,
+      error: result.error
+    })}\n`
+  );
 }
 
 main().catch((err) => {

@@ -18,11 +18,12 @@ import {
 
 export interface Mt5BridgeMailboxCleanupConfig {
   enabled: boolean;
-  processingRetentionMinutes: number;
-  replyRetentionMinutes: number;
-  orphanRetentionMinutes: number;
+  replyRetentionSeconds: number;
+  processingRetentionSeconds: number;
+  orphanRetentionSeconds: number;
+  maxReplies: number;
+  maxProcessing: number;
   intervalSeconds: number;
-  maxFilesPerRun: number;
 }
 
 export interface Mt5BridgeServerConfig {
@@ -153,26 +154,33 @@ export function startMt5BridgeServer(config: Mt5BridgeServerConfig): Promise<Mt5
       : createMailboxCleanupScheduler({
           mailboxPath: config.mailboxPath,
           config: {
-            processingRetentionMinutes: config.cleanup?.processingRetentionMinutes ?? 60,
-            replyRetentionMinutes: config.cleanup?.replyRetentionMinutes ?? 1440,
-            orphanRetentionMinutes: config.cleanup?.orphanRetentionMinutes ?? 1440,
-            maxFilesPerRun: config.cleanup?.maxFilesPerRun ?? 500
+            replyRetentionSeconds: config.cleanup?.replyRetentionSeconds ?? 600,
+            processingRetentionSeconds: config.cleanup?.processingRetentionSeconds ?? 600,
+            orphanRetentionSeconds: config.cleanup?.orphanRetentionSeconds ?? 86_400,
+            maxReplies: config.cleanup?.maxReplies ?? 5_000,
+            maxProcessing: config.cleanup?.maxProcessing ?? 1_000
           },
           intervalSeconds: config.cleanup?.intervalSeconds ?? 60,
           enabled: config.cleanup?.enabled ?? true,
           getInFlightMailboxFileIds: () => inFlightMailboxFileIds,
-          onPassComplete: ({ counters }) => {
-            const total = counters.deletedProcessing + counters.deletedReplies + counters.deletedPending;
-            if (total > 0) {
-              console.info(
-                JSON.stringify({
-                  msg: "MT5_MAILBOX_CLEANUP",
-                  deletedProcessing: counters.deletedProcessing,
-                  deletedReplies: counters.deletedReplies,
-                  deletedPending: counters.deletedPending
-                })
-              );
-            }
+          onPassComplete: (result) => {
+            console.info(
+              JSON.stringify({
+                msg: "MT5_MAILBOX_CLEANUP",
+                deletedProcessing: result.counters.deletedProcessing,
+                deletedReplies: result.counters.deletedReplies,
+                deletedPending: result.counters.deletedPending,
+                replyCountBefore: result.replyCountBefore,
+                replyCountAfter: result.replyCountAfter,
+                processingCountBefore: result.processingCountBefore,
+                processingCountAfter: result.processingCountAfter,
+                hardCapTriggeredReplies: result.hardCapTriggeredReplies,
+                hardCapTriggeredProcessing: result.hardCapTriggeredProcessing,
+                cleanupDurationMs: result.durationMs,
+                errors: result.counters.errors,
+                error: result.error
+              })
+            );
           }
         });
 
