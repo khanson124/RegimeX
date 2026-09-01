@@ -195,6 +195,40 @@ describe("MT5 engine rollout gates", () => {
     ).toBe("MAX_CONCURRENT_POSITIONS");
   });
 
+  it("uses effectiveMaxConcurrentPositions when profile lowers the env ceiling", () => {
+    const gate = gateMt5EngineSubmission({
+      config: { ...demoBase, MT5_ENGINE_MAX_CONCURRENT_POSITIONS: 5 },
+      symbol: "R_10",
+      strategyId: "ema-pullback-v1",
+      openOwnedCount: 3,
+      mapping: v10Mapping,
+      effectiveMaxConcurrentPositions: 3
+    });
+    expect(gate.decisionCode).toBe("MAX_CONCURRENT_POSITIONS");
+  });
+
+  it("uses effectiveMaxConcurrentPositions when profile is null and env is 5", () => {
+    const gate = gateMt5EngineSubmission({
+      config: { ...demoBase, MT5_ENGINE_MAX_CONCURRENT_POSITIONS: 5 },
+      symbol: "R_10",
+      strategyId: "ema-pullback-v1",
+      openOwnedCount: 4,
+      mapping: v10Mapping,
+      effectiveMaxConcurrentPositions: 5
+    });
+    expect(gate.allowed).toBe(true);
+    expect(
+      gateMt5EngineSubmission({
+        config: { ...demoBase, MT5_ENGINE_MAX_CONCURRENT_POSITIONS: 5 },
+        symbol: "R_10",
+        strategyId: "ema-pullback-v1",
+        openOwnedCount: 5,
+        mapping: v10Mapping,
+        effectiveMaxConcurrentPositions: 5
+      }).decisionCode
+    ).toBe("MAX_CONCURRENT_POSITIONS");
+  });
+
   it("blocks degraded/suspended/rejected lifecycles", () => {
     expect(
       gateMt5EngineSubmission({

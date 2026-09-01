@@ -32,6 +32,7 @@ import {
   proposeCfdStopTarget,
   resolveBrokerSymbolMapping,
   resolveMt5BridgeUrl,
+  resolveMt5EffectiveMaxConcurrentPositions,
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
@@ -234,8 +235,15 @@ export class Mt5CfdRuntime {
 
     const mapping = await this.loadMapping(input.symbol);
     const mapped = resolveBrokerSymbolMapping(input.symbol, mapping);
+    const profile = await this.deps.prisma.riskProfile.findFirst({
+      where: { userId: this.userId, isActive: true }
+    });
+    const effectiveMaxConcurrentPositions = resolveMt5EffectiveMaxConcurrentPositions(
+      profile?.maxConcurrentPositions,
+      this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS
+    );
     const openOwned = await countMt5ConsumedCapacitySlots(this.deps.prisma, this.userId);
-    const maxConcurrentPositions = this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS;
+    const maxConcurrentPositions = effectiveMaxConcurrentPositions;
     const existingForCapacity = await this.deps.prisma.position.findUnique({
       where: { idempotencyKey: `signal:${input.signalId}` }
     });
@@ -270,7 +278,8 @@ export class Mt5CfdRuntime {
       strategyId: input.strategyId,
       openOwnedCount: gateOwnedCount,
       lifecycle,
-      mapping
+      mapping,
+      effectiveMaxConcurrentPositions
     });
     if (!gate.allowed) {
       const decisionCode = autonomousDecisionFromGate(input.decision.action, gate.decisionCode);
@@ -445,9 +454,6 @@ export class Mt5CfdRuntime {
     };
 
     const account = await this.adapter.getAccount();
-    const profile = await this.deps.prisma.riskProfile.findFirst({
-      where: { userId: this.userId, isActive: true }
-    });
     const engineRiskCap = this.deps.config.MT5_ENGINE_MAX_RISK_PERCENT;
     const profileRisk =
       profile?.riskPerTradePercent != null ? Number(profile.riskPerTradePercent) : 0.5;
@@ -456,10 +462,7 @@ export class Mt5CfdRuntime {
       riskPerTradePercent: riskPct,
       maxTotalOpenRiskPercent:
         profile?.maxTotalOpenRiskPercent != null ? Number(profile.maxTotalOpenRiskPercent) : null,
-      maxConcurrentPositions: Math.min(
-        profile?.maxConcurrentPositions ?? 3,
-        this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS
-      ),
+      maxConcurrentPositions: effectiveMaxConcurrentPositions,
       minRiskRewardRatio: profile?.minRiskRewardRatio != null ? Number(profile.minRiskRewardRatio) : null
     });
 
@@ -861,10 +864,7 @@ export class Mt5CfdRuntime {
         "Resuming CREATED execution intent with frozen parameters"
       );
     } else {
-      const maxConcurrentForReserve = Math.min(
-        profile?.maxConcurrentPositions ?? 3,
-        this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS
-      );
+      const maxConcurrentForReserve = effectiveMaxConcurrentPositions;
       const created = await createPendingPositionWithExecutionIntent(
         this.deps.prisma,
         {

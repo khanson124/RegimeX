@@ -20,6 +20,22 @@ export const MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED = [
 
 export const MT5_CAPACITY_BLOCKED = "MT5_CAPACITY_BLOCKED";
 
+/**
+ * Effective MT5 concurrent capacity:
+ * - env max is the global operational ceiling
+ * - profile max, when set, is an optional per-user lower ceiling
+ * - null profile max does NOT fall back to DEFAULT_CFD_RISK_LIMITS (3)
+ */
+export function resolveMt5EffectiveMaxConcurrentPositions(
+  profileMaxConcurrentPositions: number | null | undefined,
+  envMaxConcurrentPositions: number
+): number {
+  if (profileMaxConcurrentPositions != null) {
+    return Math.min(profileMaxConcurrentPositions, envMaxConcurrentPositions);
+  }
+  return envMaxConcurrentPositions;
+}
+
 export function positionStatusConsumesCapacity(status: string): boolean {
   return (MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED as readonly string[]).includes(status);
 }

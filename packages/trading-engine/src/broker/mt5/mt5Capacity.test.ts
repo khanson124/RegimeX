@@ -8,7 +8,8 @@ import {
   decideCapacityReservation,
   mt5CapacityAdvisoryLockKey,
   MT5_CAPACITY_BLOCKED,
-  positionStatusConsumesCapacity
+  positionStatusConsumesCapacity,
+  resolveMt5EffectiveMaxConcurrentPositions
 } from "./mt5Capacity.js";
 
 describe("mt5Capacity", () => {
@@ -55,5 +56,24 @@ describe("mt5Capacity", () => {
   it("advisory lock key is stable per user", () => {
     expect(mt5CapacityAdvisoryLockKey("u1")).toBe(mt5CapacityAdvisoryLockKey("u1"));
     expect(mt5CapacityAdvisoryLockKey("u1")).not.toBe(mt5CapacityAdvisoryLockKey("u2"));
+  });
+
+  describe("resolveMt5EffectiveMaxConcurrentPositions", () => {
+    it("A. null profile + env 5 => effective 5", () => {
+      expect(resolveMt5EffectiveMaxConcurrentPositions(null, 5)).toBe(5);
+      expect(resolveMt5EffectiveMaxConcurrentPositions(undefined, 5)).toBe(5);
+    });
+
+    it("B. profile 3 + env 5 => effective 3", () => {
+      expect(resolveMt5EffectiveMaxConcurrentPositions(3, 5)).toBe(3);
+    });
+
+    it("C. profile 5 + env 5 => effective 5", () => {
+      expect(resolveMt5EffectiveMaxConcurrentPositions(5, 5)).toBe(5);
+    });
+
+    it("D. profile above env is capped at env", () => {
+      expect(resolveMt5EffectiveMaxConcurrentPositions(10, 5)).toBe(5);
+    });
   });
 });

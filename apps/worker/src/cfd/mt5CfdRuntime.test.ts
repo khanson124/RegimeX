@@ -25,4 +25,18 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(sizingIdx).toBeGreaterThan(adaptIdx);
     expect(openIdx).toBeGreaterThan(sizingIdx);
   });
+
+  it("uses one effectiveMaxConcurrentPositions for gate log and reservation", () => {
+    const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
+    expect(src).toContain("resolveMt5EffectiveMaxConcurrentPositions");
+    expect(src).not.toContain("profile?.maxConcurrentPositions ?? 3");
+    const effectiveIdx = src.indexOf("const effectiveMaxConcurrentPositions = resolveMt5EffectiveMaxConcurrentPositions");
+    const gateLogIdx = src.indexOf("maxConcurrentPositions,");
+    const gatePassIdx = src.indexOf("effectiveMaxConcurrentPositions");
+    const reserveIdx = src.indexOf("maxConcurrentForReserve = effectiveMaxConcurrentPositions");
+    expect(effectiveIdx).toBeGreaterThan(-1);
+    expect(gatePassIdx).toBeGreaterThan(effectiveIdx);
+    expect(gateLogIdx).toBeGreaterThan(effectiveIdx);
+    expect(reserveIdx).toBeGreaterThan(effectiveIdx);
+  });
 });

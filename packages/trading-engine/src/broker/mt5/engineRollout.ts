@@ -110,6 +110,8 @@ export interface Mt5EngineSubmissionInput {
   openOwnedCount: number;
   lifecycle?: StrategyEvidenceLifecycle | null;
   mapping?: BrokerSymbolMappingRecord | null;
+  /** Resolved capacity ceiling (profile ∩ env). When omitted, uses env only. */
+  effectiveMaxConcurrentPositions?: number;
 }
 
 export type Mt5EngineSubmissionDecisionCode =
@@ -232,7 +234,8 @@ export function gateMt5EngineSubmission(input: Mt5EngineSubmissionInput): Mt5Eng
     };
   }
 
-  const maxConcurrent = config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS ?? 1;
+  const maxConcurrent =
+    input.effectiveMaxConcurrentPositions ?? config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS ?? 1;
   if (openOwnedCount >= maxConcurrent) {
     return { allowed: false, reason: MT5_ENGINE_MAX_CONCURRENT, decisionCode: "MAX_CONCURRENT_POSITIONS" };
   }
