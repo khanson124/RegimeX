@@ -21,8 +21,33 @@ describe("live engine execution isolation", () => {
     expect(src).toContain('source: this.executionBackend === "broker_demo_mt5" ? "MT5_LIVE_TICKS" : "LIVE_TICKS"');
     expect(src).toContain("shouldIngestMt5ClosedCandle");
     expect(src).toContain("resolveMt5WarmupRequirement");
+    expect(src).toContain("evaluateMt5QuoteWatchdog");
+    expect(src).toContain("shouldConsumeStrategySignalCooldown");
+    expect(src).not.toContain("this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);\n\n    const signal");
     expect(shouldFeedDerivTicksToAggregator("broker_demo_mt5")).toBe(false);
     expect(shouldSubscribeDerivTicks("broker_demo_mt5")).toBe(false);
+  });
+
+  it("6. repeated degradation uses lastDegradedReasonCode to avoid duplicate ENGINE_DEGRADED logs", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    expect(src).toContain("lastDegradedReasonCode");
+    expect(src).toContain('watchdog.reasonCode !== this.lastDegradedReasonCode');
+    expect(src).toContain('"ENGINE_RECOVERED"');
+  });
+
+  it("10. cooldown is applied after MT5 execute, not before signal create", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    const mt5Block = src.slice(
+      src.indexOf("if (this.executionBackend === \"broker_demo_mt5\")"),
+      src.indexOf("if (isPaperCfdExecution(config))")
+    );
+    const executeIdx = mt5Block.indexOf("this.mt5Cfd.executeCfdSignal");
+    const cooldownIdx = mt5Block.indexOf("shouldConsumeStrategySignalCooldown({");
+    expect(executeIdx).toBeGreaterThan(-1);
+    expect(cooldownIdx).toBeGreaterThan(executeIdx);
+    expect(mt5Block).not.toContain(
+      "this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);\n\n    const signal"
+    );
   });
 
   it("F: rejected MT5 candles return before persistence, buffer push, and analyze", () => {

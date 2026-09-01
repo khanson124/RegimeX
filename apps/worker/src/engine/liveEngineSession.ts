@@ -46,7 +46,19 @@ import {
   type RegimeThresholds,
   type SelectionCandidate,
   type TradingStrategy,
-  type StrategyPerformanceRecord
+  type StrategyPerformanceRecord,
+  createMt5QuotePollHealth,
+  evaluateMt5QuoteWatchdog,
+  isBrokerQuoteTimestampStale,
+  mt5ErrorCodeFromUnknown,
+  MT5_BRIDGE_CIRCUIT_OPEN,
+  MT5_BROKER_QUOTE_STALE,
+  MT5_QUOTE_FEED_UNAVAILABLE,
+  recordMt5QuotePollAttempt,
+  recordMt5QuotePollFailure,
+  recordMt5QuotePollSuccess,
+  shouldConsumeStrategySignalCooldown,
+  type Mt5QuotePollHealth
 } from "@regimex/trading-engine";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
 import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
@@ -103,6 +115,8 @@ export class LiveEngineSession {
   private lastSignalCandle = new Map<string, number>();
   private executedSignals = new Set<string>();
   private lastTickAt: number | null = null;
+  private readonly mt5QuoteHealth: Mt5QuotePollHealth = createMt5QuotePollHealth();
+  private lastDegradedReasonCode: string | null = null;
   private paused = false;
   private mode: "ANALYSIS_ONLY" | "DEMO_TRADING" = "ANALYSIS_ONLY";
   private symbol = "";
@@ -831,8 +845,6 @@ export class LiveEngineSession {
       return;
     }
 
-    this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);
-
     const signal = await this.deps.prisma.signal.create({
       data: {
         userId: this.userId,
@@ -919,6 +931,9 @@ export class LiveEngineSession {
         features,
         candles: this.candles
       });
+      if (shouldConsumeStrategySignalCooldown({ opened: result.opened, decisionCode: result.decisionCode })) {
+        this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);
+      }
       await this.recordCandidate(latest, correlationId, {
         decisionCode:
           result.decisionCode === "RISK_BLOCKED"
@@ -1019,6 +1034,7 @@ export class LiveEngineSession {
         features,
         candles: this.candles
       });
+      this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);
       if (!result.opened) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "RISK_REJECTED" } });
         await publish(this.userId, "risk.rejected", { signalId: signal.id, reasons: result.reasons });
@@ -1039,6 +1055,7 @@ export class LiveEngineSession {
     }
 
     await this.executeTrade(signal.id, correlationId, candle, decision.action, decision, chosen);
+    this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);
   }
 
   // ── demo execution ───────────────────────────────────────────
@@ -1343,16 +1360,70 @@ export class LiveEngineSession {
       const engine = await prisma.liveEngine.findUnique({ where: { id: this.engineId } });
       if (!engine) return;
 
-      // Staleness watchdog: enter DEGRADED when market data stops flowing.
-      const stale = this.lastTickAt !== null && Date.now() - this.lastTickAt > STALE_DATA_MS;
-      const running = engine.state === "RUNNING_ANALYSIS_ONLY" || engine.state === "RUNNING_DEMO_TRADING";
-      if (stale && running) {
-        await this.setState("DEGRADED", "Market data is stale");
-        await this.logDecision("ENGINE_DEGRADED", ["No ticks received recently; trade execution blocked"]);
-        await publish(this.userId, "system.warning", { message: "Engine degraded: stale market data" });
-      } else if (!stale && engine.state === "DEGRADED" && !this.paused) {
-        const state: EngineState = this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
-        await this.setState(state, "Market data recovered");
+      if (this.executionBackend === "broker_demo_mt5") {
+        const circuit = getSharedMt5BridgeCircuit().snapshot();
+        const watchdog = evaluateMt5QuoteWatchdog({
+          now: Date.now(),
+          staleDataMs: STALE_DATA_MS,
+          brokerQuoteMaxAgeMs: STALE_DATA_MS,
+          circuitState: circuit.circuitState,
+          health: this.mt5QuoteHealth,
+          lastTickAt: this.lastTickAt
+        });
+        const running =
+          engine.state === "RUNNING_ANALYSIS_ONLY" || engine.state === "RUNNING_DEMO_TRADING";
+        if (watchdog.shouldDegrade && running) {
+          await this.setState("DEGRADED", watchdog.stateReason ?? "Market data unavailable");
+          if (watchdog.reasonCode !== this.lastDegradedReasonCode) {
+            this.lastDegradedReasonCode = watchdog.reasonCode;
+            await this.logDecision("ENGINE_DEGRADED", [watchdog.detail ?? watchdog.stateReason ?? "Degraded"], {
+              featureSummary: {
+                reasonCode: watchdog.reasonCode,
+                quotePollHealth: this.mt5QuoteHealth,
+                circuitState: circuit.circuitState,
+                lastTickAt: this.lastTickAt
+              }
+            });
+            await publish(this.userId, "system.warning", {
+              message: `Engine degraded: ${watchdog.stateReason}`
+            });
+          }
+        } else if (!watchdog.shouldDegrade && engine.state === "DEGRADED" && !this.paused) {
+          const state: EngineState =
+            this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
+          await this.setState(state, "Market data recovered");
+          if (this.lastDegradedReasonCode !== null) {
+            await this.logDecision("ENGINE_RECOVERED", ["Trustworthy MT5 quote feed resumed"], {
+              featureSummary: {
+                previousReasonCode: this.lastDegradedReasonCode,
+                quotePollHealth: this.mt5QuoteHealth,
+                lastTickAt: this.lastTickAt
+              }
+            });
+            this.lastDegradedReasonCode = null;
+          }
+        }
+      } else {
+        // Legacy Deriv tick staleness watchdog.
+        const stale = this.lastTickAt !== null && Date.now() - this.lastTickAt > STALE_DATA_MS;
+        const running =
+          engine.state === "RUNNING_ANALYSIS_ONLY" || engine.state === "RUNNING_DEMO_TRADING";
+        if (stale && running) {
+          await this.setState("DEGRADED", "Market data is stale");
+          if (this.lastDegradedReasonCode !== "MARKET_DATA_STALE") {
+            this.lastDegradedReasonCode = "MARKET_DATA_STALE";
+            await this.logDecision("ENGINE_DEGRADED", ["No ticks received recently; trade execution blocked"]);
+            await publish(this.userId, "system.warning", { message: "Engine degraded: stale market data" });
+          }
+        } else if (!stale && engine.state === "DEGRADED" && !this.paused) {
+          const state: EngineState =
+            this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
+          await this.setState(state, "Market data recovered");
+          if (this.lastDegradedReasonCode !== null) {
+            await this.logDecision("ENGINE_RECOVERED", ["Market data feed resumed"]);
+            this.lastDegradedReasonCode = null;
+          }
+        }
       }
 
       await prisma.liveEngine.update({
@@ -1411,10 +1482,24 @@ export class LiveEngineSession {
 
   private async pollMt5Quote(): Promise<void> {
     if (!this.mt5Cfd) return;
-    if (getSharedMt5BridgeCircuit().snapshot().circuitState === "OPEN") return;
+    const now = Date.now();
+    recordMt5QuotePollAttempt(this.mt5QuoteHealth, now);
+    const circuit = getSharedMt5BridgeCircuit().snapshot();
+    if (circuit.circuitState === "OPEN") {
+      recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_BRIDGE_CIRCUIT_OPEN, now);
+      return;
+    }
     try {
       const quote = await this.mt5Cfd.getQuote(this.symbol);
-      if (!quote) return;
+      if (!quote) {
+        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_QUOTE_FEED_UNAVAILABLE, now);
+        return;
+      }
+      if (isBrokerQuoteTimestampStale(quote.timestamp, now, STALE_DATA_MS)) {
+        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_BROKER_QUOTE_STALE, now, quote.timestamp);
+        return;
+      }
+      recordMt5QuotePollSuccess(this.mt5QuoteHealth, quote.timestamp, now);
       this.lastTickAt = quote.timestamp;
       this.aggregator?.processTick({
         symbol: this.symbol,
@@ -1422,7 +1507,9 @@ export class LiveEngineSession {
         quote: quote.mid
       });
     } catch (err) {
-      this.log.warn({ err }, "MT5 quote poll failed");
+      const code = mt5ErrorCodeFromUnknown(err);
+      recordMt5QuotePollFailure(this.mt5QuoteHealth, code, now);
+      this.log.warn({ err, errorCode: code }, "MT5 quote poll failed");
     }
   }
 

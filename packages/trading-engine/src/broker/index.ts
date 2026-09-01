@@ -30,6 +30,8 @@ export * from "./mt5/mailboxCleanup.js";
 export * from "./mt5/executionIntegrity.js";
 export * from "./mt5/mt5Capacity.js";
 export * from "./mt5/mt5ExecutionTelemetry.js";
+export * from "./mt5/mt5QuoteWatchdog.js";
+export * from "./mt5/strategySignalCooldown.js";
 export * from "./ctrader/volume.js";
 export * from "./ctrader/symbolMap.js";
 export * from "./ctrader/transport.js";
