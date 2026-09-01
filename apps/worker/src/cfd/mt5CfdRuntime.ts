@@ -11,6 +11,7 @@ import {
 } from "@regimex/shared";
 import {
   CfdRiskManager,
+  computeConsecutiveLossStreak,
   DefaultPositionSizingService,
   DerivMT5BrokerAdapter,
   InstrumentMetadataRegistry,
@@ -682,16 +683,12 @@ export class Mt5CfdRuntime {
       where: { userId: this.userId, status: "CLOSED", closedAt: { gte: dayStart } }
     });
     const dailyRealized = closedToday.reduce((acc, p) => acc + Number(p.realizedPnl ?? 0), 0);
-    let consecutiveLosses = 0;
     const recentClosed = await this.deps.prisma.position.findMany({
       where: { userId: this.userId, status: "CLOSED" },
       orderBy: { closedAt: "desc" },
       take: 10
     });
-    for (const p of recentClosed) {
-      if (Number(p.realizedPnl ?? 0) < 0) consecutiveLosses++;
-      else break;
-    }
+    const { consecutiveLosses, lastLossClosedAt } = computeConsecutiveLossStreak(recentClosed);
     const lastTrade = await this.deps.prisma.position.findFirst({
       where: { userId: this.userId },
       orderBy: { createdAt: "desc" }
@@ -709,12 +706,15 @@ export class Mt5CfdRuntime {
       totalOpenRiskAmount: totalOpenRisk,
       dailyRealizedLoss: dailyRealized,
       consecutiveLosses,
+      lastLossClosedAt,
       lastTradeAt: lastTrade?.openedAt?.getTime() ?? null,
       minCooldownSeconds: profile?.minCooldownSeconds ?? 120,
       maxDailyLoss: profile ? Number(profile.maxDailyLoss) : 5,
       maxDailyTrades: profile?.maxDailyTrades ?? 10,
       dailyTradeCount: closedToday.length + openPositions.length,
       maxConsecutiveLosses: profile?.maxConsecutiveLosses ?? 3,
+      consecutiveLossCooldownMs:
+        this.deps.config.MT5_CONSECUTIVE_LOSS_COOLDOWN_MINUTES * 60_000,
       idempotencyKeyExists: false,
       stopLossPresent: true,
       riskRewardRatio: stopCheck.riskRewardRatio,
@@ -722,10 +722,21 @@ export class Mt5CfdRuntime {
       now: Date.now()
     });
     if (!riskDecision.approved) {
-      this.log.info(
-        { reasons: riskDecision.reasons, strategyId: input.strategyId, code: riskDecision.rejectionCode },
-        "Autonomous MT5 risk blocked"
-      );
+      const riskLog: Record<string, unknown> = {
+        reasons: riskDecision.reasons,
+        strategyId: input.strategyId,
+        code: riskDecision.rejectionCode
+      };
+      if (riskDecision.consecutiveLossDetail) {
+        const detail = riskDecision.consecutiveLossDetail;
+        riskLog.consecutiveLosses = detail.consecutiveLosses;
+        riskLog.maxConsecutiveLosses = detail.maxConsecutiveLosses;
+        riskLog.lastLossClosedAt = detail.lastLossClosedAt;
+        riskLog.cooldownMinutes = detail.cooldownMinutes;
+        riskLog.cooldownRemainingMs = detail.cooldownRemainingMs;
+        riskLog.decisionCode = detail.decisionCode;
+      }
+      this.log.info(riskLog, "Autonomous MT5 risk blocked");
       return { opened: false, reasons: riskDecision.reasons, decisionCode: "RISK_BLOCKED", preflight };
     }
 

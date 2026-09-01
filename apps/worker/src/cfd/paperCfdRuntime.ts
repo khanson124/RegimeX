@@ -9,6 +9,7 @@ import {
 } from "@regimex/shared";
 import {
   CfdRiskManager,
+  computeConsecutiveLossStreak,
   DefaultPositionSizingService,
   InstrumentMetadataRegistry,
   PaperCFDBrokerAdapter,
@@ -492,16 +493,12 @@ export class PaperCfdRuntime {
       }
     });
     const dailyRealized = closedToday.reduce((acc, p) => acc + Number(p.realizedPnl ?? 0), 0);
-    let consecutiveLosses = 0;
     const recentClosed = await this.deps.prisma.position.findMany({
       where: { userId: this.userId, status: "CLOSED" },
       orderBy: { closedAt: "desc" },
       take: 10
     });
-    for (const p of recentClosed) {
-      if (Number(p.realizedPnl ?? 0) < 0) consecutiveLosses++;
-      else break;
-    }
+    const { consecutiveLosses, lastLossClosedAt } = computeConsecutiveLossStreak(recentClosed);
 
     const lastTrade = await this.deps.prisma.position.findFirst({
       where: { userId: this.userId },
@@ -521,12 +518,15 @@ export class PaperCfdRuntime {
       totalOpenRiskAmount: totalOpenRisk,
       dailyRealizedLoss: dailyRealized,
       consecutiveLosses,
+      lastLossClosedAt,
       lastTradeAt: lastTrade?.openedAt?.getTime() ?? null,
       minCooldownSeconds: profile?.minCooldownSeconds ?? 120,
       maxDailyLoss: profile ? Number(profile.maxDailyLoss) : 5,
       maxDailyTrades: profile?.maxDailyTrades ?? 10,
       dailyTradeCount: closedToday.length + openPositions.length,
       maxConsecutiveLosses: profile?.maxConsecutiveLosses ?? 3,
+      consecutiveLossCooldownMs:
+        this.deps.config.MT5_CONSECUTIVE_LOSS_COOLDOWN_MINUTES * 60_000,
       idempotencyKeyExists: false,
       stopLossPresent: true,
       riskRewardRatio: stopCheckFilled.riskRewardRatio,

@@ -144,6 +144,12 @@ const envSchema = z.object({
   /** Hard ceiling. Never raised to satisfy broker minVolume. */
   MT5_ENGINE_MAX_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_ENGINE_MAX_RISK_PERCENT: z.coerce.number().positive().default(0.1),
+  /**
+   * After maxConsecutiveLosses (RiskProfile) is reached, block new CFD trades for this
+   * many minutes from the last loss close time. Durable CLOSED position timestamps —
+   * survives worker restart. Does not disable protection when unset (defaults 60).
+   */
+  MT5_CONSECUTIVE_LOSS_COOLDOWN_MINUTES: z.coerce.number().int().min(1).default(60),
   /** Evidence thresholds — not profitability promises. */
   MT5_EVIDENCE_MIN_FORWARD_TRADES: z.coerce.number().int().min(1).default(20),
   MT5_EVIDENCE_MIN_EXPECTANCY_R: z.coerce.number().default(0.05),

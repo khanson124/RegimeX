@@ -3,6 +3,11 @@ import {
   type CfdRiskLimits,
   type InstrumentMetadata
 } from "@regimex/shared";
+import {
+  consecutiveLossCooldownMsFromMinutes,
+  DEFAULT_CONSECUTIVE_LOSS_COOLDOWN_MINUTES,
+  evaluateConsecutiveLossCooldown
+} from "./consecutiveLossStreak.js";
 
 export interface CfdRiskEvaluationInput {
   limits: CfdRiskLimits;
@@ -15,12 +20,16 @@ export interface CfdRiskEvaluationInput {
   totalOpenRiskAmount: number;
   dailyRealizedLoss: number;
   consecutiveLosses: number;
+  /** Epoch ms of the newest loss in the active streak (from durable CLOSED positions). */
+  lastLossClosedAt: number | null;
   lastTradeAt: number | null;
   minCooldownSeconds: number;
   maxDailyLoss: number;
   maxDailyTrades: number;
   dailyTradeCount: number;
   maxConsecutiveLosses: number;
+  /** Suspension duration after the streak limit is reached. Defaults to 60 minutes. */
+  consecutiveLossCooldownMs?: number;
   idempotencyKeyExists: boolean;
   stopLossPresent: boolean;
   riskRewardRatio: number | null;
@@ -28,10 +37,20 @@ export interface CfdRiskEvaluationInput {
   now: number;
 }
 
+export interface CfdRiskConsecutiveLossDetail {
+  consecutiveLosses: number;
+  maxConsecutiveLosses: number;
+  lastLossClosedAt: number | null;
+  cooldownMinutes: number;
+  cooldownRemainingMs: number | null;
+  decisionCode: "CONSECUTIVE_LOSS_COOLDOWN" | "CONSECUTIVE_LOSS_LIMIT" | null;
+}
+
 export interface CfdRiskEvaluationResult {
   approved: boolean;
   rejectionCode: string | null;
   reasons: string[];
+  consecutiveLossDetail: CfdRiskConsecutiveLossDetail | null;
 }
 
 export class CfdRiskManager {
@@ -80,8 +99,44 @@ export class CfdRiskManager {
     if (input.dailyTradeCount >= input.maxDailyTrades) {
       return reject("DAILY_TRADE_LIMIT", ["Daily trade limit reached"]);
     }
-    if (input.consecutiveLosses >= input.maxConsecutiveLosses) {
-      return reject("CONSECUTIVE_LOSS_LIMIT", ["Consecutive loss limit reached"]);
+
+    const consecutiveLossCooldownMs =
+      input.consecutiveLossCooldownMs ??
+      consecutiveLossCooldownMsFromMinutes(DEFAULT_CONSECUTIVE_LOSS_COOLDOWN_MINUTES);
+    const consecutiveLossDetail = buildConsecutiveLossDetail(
+      input,
+      consecutiveLossCooldownMs
+    );
+    const consecutiveLossGate = evaluateConsecutiveLossCooldown({
+      consecutiveLosses: input.consecutiveLosses,
+      maxConsecutiveLosses: input.maxConsecutiveLosses,
+      lastLossClosedAt: input.lastLossClosedAt,
+      consecutiveLossCooldownMs,
+      now: input.now
+    });
+    if (consecutiveLossGate.blocked) {
+      if (consecutiveLossGate.decisionCode === "CONSECUTIVE_LOSS_COOLDOWN") {
+        const remainingMinutes = Math.ceil((consecutiveLossGate.cooldownRemainingMs ?? 0) / 60_000);
+        return reject(
+          "CONSECUTIVE_LOSS_COOLDOWN",
+          [
+            `Consecutive loss cooldown active (${remainingMinutes}m remaining; streak ${input.consecutiveLosses}/${input.maxConsecutiveLosses})`
+          ],
+          {
+            ...consecutiveLossDetail,
+            decisionCode: "CONSECUTIVE_LOSS_COOLDOWN",
+            cooldownRemainingMs: consecutiveLossGate.cooldownRemainingMs
+          }
+        );
+      }
+      return reject(
+        "CONSECUTIVE_LOSS_LIMIT",
+        ["Consecutive loss limit reached"],
+        {
+          ...consecutiveLossDetail,
+          decisionCode: "CONSECUTIVE_LOSS_LIMIT"
+        }
+      );
     }
 
     if (input.lastTradeAt !== null && input.minCooldownSeconds > 0) {
@@ -102,10 +157,42 @@ export class CfdRiskManager {
       ]);
     }
 
-    return { approved: true, rejectionCode: null, reasons };
+    return {
+      approved: true,
+      rejectionCode: null,
+      reasons,
+      consecutiveLossDetail:
+        input.consecutiveLosses >= input.maxConsecutiveLosses ? consecutiveLossDetail : null
+    };
   }
 }
 
-function reject(code: string, reasons: string[]): CfdRiskEvaluationResult {
-  return { approved: false, rejectionCode: code, reasons };
+function buildConsecutiveLossDetail(
+  input: CfdRiskEvaluationInput,
+  consecutiveLossCooldownMs: number
+): CfdRiskConsecutiveLossDetail {
+  const gate = evaluateConsecutiveLossCooldown({
+    consecutiveLosses: input.consecutiveLosses,
+    maxConsecutiveLosses: input.maxConsecutiveLosses,
+    lastLossClosedAt: input.lastLossClosedAt,
+    consecutiveLossCooldownMs,
+    now: input.now
+  });
+
+  return {
+    consecutiveLosses: input.consecutiveLosses,
+    maxConsecutiveLosses: input.maxConsecutiveLosses,
+    lastLossClosedAt: input.lastLossClosedAt,
+    cooldownMinutes: consecutiveLossCooldownMs / 60_000,
+    cooldownRemainingMs: gate.cooldownRemainingMs,
+    decisionCode: gate.decisionCode
+  };
+}
+
+function reject(
+  code: string,
+  reasons: string[],
+  consecutiveLossDetail: CfdRiskConsecutiveLossDetail | null = null
+): CfdRiskEvaluationResult {
+  return { approved: false, rejectionCode: code, reasons, consecutiveLossDetail };
 }

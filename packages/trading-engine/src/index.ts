@@ -45,6 +45,7 @@ export * from "./execution/index.js";
 // Risk
 export * from "./risk/riskManager.js";
 export * from "./risk/cfdRiskManager.js";
+export * from "./risk/consecutiveLossStreak.js";
 
 // Optimization
 export * from "./optimize/gridSearch.js";
