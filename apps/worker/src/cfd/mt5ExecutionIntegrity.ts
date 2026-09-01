@@ -17,7 +17,10 @@ import {
   isUnresolvedExecutionIntentState,
   MT5_CAPACITY_BLOCKED,
   MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED,
+  mergeOpenMt5ExecutionTelemetry,
+  mergePositionMetadataForOpen,
   mt5CapacityAdvisoryLockKey,
+  type Mt5ExecutionTelemetry,
   regimeXOrderComment,
   type FrozenExecutionParams
 } from "@regimex/trading-engine";
@@ -815,10 +818,55 @@ export async function persistPositionOpenFromBrokerResult(input: {
   result: OpenMarketPositionResult;
   symbolAudit: { internalSymbol: string; brokerSymbol: string };
   preflight?: unknown;
+  instrument?: InstrumentMetadata;
   logger: Logger;
 }): Promise<void> {
   const { prisma, positionId, signalId, executionIntentId, result } = input;
   if (!result.accepted || !result.position) return;
+
+  const existing = await prisma.position.findUnique({
+    where: { id: positionId },
+    select: {
+      metadata: true,
+      stopLoss: true,
+      takeProfit: true,
+      direction: true
+    }
+  });
+  const existingMeta = (existing?.metadata ?? {}) as Record<string, unknown>;
+  const pendingTelemetry = existingMeta.executionTelemetry as Mt5ExecutionTelemetry | undefined;
+  const direction = (existing?.direction ?? result.position.direction) as "BUY" | "SELL";
+  const stopLoss =
+    existing?.stopLoss != null ? Number(existing.stopLoss) : Number(result.position.stopLoss);
+  const takeProfit =
+    existing?.takeProfit != null
+      ? Number(existing.takeProfit)
+      : result.position.takeProfit != null
+        ? Number(result.position.takeProfit)
+        : null;
+  const actualFillPrice = result.entryPrice != null ? Number(result.entryPrice) : null;
+  const actualFillVolume = Number(result.position.volume);
+  const openedAt = new Date().toISOString();
+
+  const executionTelemetry = mergeOpenMt5ExecutionTelemetry({
+    pending: pendingTelemetry,
+    direction,
+    actualFillPrice,
+    actualFillVolume,
+    stopLoss,
+    takeProfit,
+    tickSize: pendingTelemetry?.tickSize ?? input.instrument?.tickSize,
+    tickValue: pendingTelemetry?.tickValue ?? input.instrument?.tickValue,
+    openedAt
+  });
+
+  const metadata = mergePositionMetadataForOpen({
+    existingMetadata: existingMeta,
+    symbolAudit: input.symbolAudit,
+    preflight: input.preflight,
+    brokerPositionMetadata: (result.position.metadata ?? {}) as Record<string, unknown>,
+    executionTelemetry
+  });
 
   const updated = await prisma.position.updateMany({
     where: {
@@ -835,16 +883,8 @@ export async function persistPositionOpenFromBrokerResult(input: {
       appliedEntrySlippageBps: result.appliedSlippageBps,
       marginUsed: result.position.marginUsed,
       floatingPnl: 0,
-      openedAt: new Date(),
-      metadata: {
-        executionModel: "broker_demo_mt5",
-        venue: "MT5_DEMO",
-        ownedByRegimeX: true,
-        engineSymbol: input.symbolAudit.internalSymbol,
-        ...input.symbolAudit,
-        volumePreflight: input.preflight,
-        ...(result.position.metadata ?? {})
-      } as object
+      openedAt: new Date(openedAt),
+      metadata: metadata as object
     }
   });
   if (updated.count === 0) {
@@ -934,6 +974,7 @@ export async function tryRecoverExecutionIntentFromBroker(input: {
     executionIntentId: input.intent.id,
     result: adopted,
     symbolAudit: { internalSymbol: input.intent.internalSymbol, brokerSymbol: input.intent.brokerSymbol },
+    instrument: input.instrument,
     logger: input.logger
   });
   input.logger.info(

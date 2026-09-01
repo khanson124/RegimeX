@@ -36,6 +36,7 @@ import {
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
+  buildPendingMt5ExecutionTelemetry,
   classifyOpenMarketFailure,
   compareProposedToFrozenExecutionParams,
   EXECUTION_INTENT_PARAMETER_MISMATCH,
@@ -388,6 +389,12 @@ export class Mt5CfdRuntime {
 
     const liveSymbol = await this.adapter.getLiveSymbol(brokerSymbol);
     const fillPrice = proposal.direction === "BUY" ? quote.ask : quote.bid;
+    const strategyAtCandleClose = {
+      entryPrice: proposal.entryPrice,
+      stopLoss: proposal.stopLoss,
+      takeProfit: proposal.takeProfit,
+      initialRiskReward: proposal.initialRiskReward ?? proposal.riskRewardRatio ?? null
+    };
     const targetRMultiple = proposal.initialRiskReward ?? proposal.riskRewardRatio ?? 2;
     const originalStopLoss = proposal.stopLoss;
     const originalTakeProfit = proposal.takeProfit!;
@@ -560,7 +567,8 @@ export class Mt5CfdRuntime {
         targetRMultiple,
         safetyBuffer: adaptation.safetyBuffer,
         riskAmountBeforeAdjustment,
-        riskAmountAfterAdjustment: rawSizing.riskAmount
+        riskAmountAfterAdjustment: rawSizing.riskAmount,
+        allowedRiskAmountAtAdaptedStop: rawSizing.riskAmount
       }
     });
     this.log.info({ autonomousPreflight: preflight }, "Autonomous MT5 execution preflight");
@@ -608,6 +616,22 @@ export class Mt5CfdRuntime {
     }
     const volume = volumeDecision.finalVolume;
     const riskAmount = roundMoney((rawSizing.perUnitLoss ?? 0) * volume);
+    const executionTelemetry = buildPendingMt5ExecutionTelemetry({
+      direction: proposal.direction,
+      strategyEntryPrice: strategyAtCandleClose.entryPrice,
+      strategyStopLoss: strategyAtCandleClose.stopLoss,
+      strategyTakeProfit: strategyAtCandleClose.takeProfit,
+      strategyRequestedRiskReward: strategyAtCandleClose.initialRiskReward,
+      preflightEntry: fillPrice,
+      adaptedStopLoss: proposal.stopLoss,
+      adaptedTakeProfit: proposal.takeProfit,
+      targetRMultiple,
+      allowedRiskAmount: rawSizing.riskAmount,
+      requestedVolume: volumeDecision.riskSizedVolume,
+      finalVolume: volume,
+      perUnitLossAtPreflight: rawSizing.perUnitLoss,
+      instrument
+    });
     if (proposal.takeProfit == null) {
       return {
         opened: false,
@@ -900,7 +924,8 @@ export class Mt5CfdRuntime {
             ownedByRegimeX: true,
             engineSymbol: input.symbol,
             ...symbolAudit,
-            volumePreflight: preflight
+            volumePreflight: preflight,
+            executionTelemetry
           }
         },
         this.log
@@ -1080,6 +1105,7 @@ export class Mt5CfdRuntime {
       result,
       symbolAudit,
       preflight,
+      instrument,
       logger: this.log
     });
     await recordPositionEvent(this.deps.prisma, pending.id, "OPENED", {

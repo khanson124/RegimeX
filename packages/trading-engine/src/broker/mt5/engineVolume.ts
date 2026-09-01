@@ -188,6 +188,8 @@ export interface AutonomousExecutionPreflight {
   safetyBuffer?: number | null;
   riskAmountBeforeAdjustment?: number | null;
   riskAmountAfterAdjustment?: number | null;
+  /** Alias for riskAmountAfterAdjustment / allowed budget at adapted stop. */
+  allowedRiskAmountAtAdaptedStop?: number | null;
 }
 
 export function buildAutonomousExecutionPreflight(input: {
@@ -224,6 +226,7 @@ export function buildAutonomousExecutionPreflight(input: {
     safetyBuffer?: number | null;
     riskAmountBeforeAdjustment?: number | null;
     riskAmountAfterAdjustment?: number | null;
+    allowedRiskAmountAtAdaptedStop?: number | null;
   };
 }): AutonomousExecutionPreflight {
   return {

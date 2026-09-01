@@ -256,7 +256,16 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
           return null;
         })
       },
-      position: { update: vi.fn(async () => ({})), updateMany: vi.fn(async () => ({ count: 1 })) },
+      position: {
+        findUnique: vi.fn(async () => ({
+          metadata: {},
+          stopLoss: 4772,
+          takeProfit: 4769,
+          direction: "SELL"
+        })),
+        update: vi.fn(async () => ({})),
+        updateMany: vi.fn(async () => ({ count: 1 }))
+      },
       signal: { update: vi.fn(async () => ({})) }
     };
 
@@ -493,6 +502,7 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
 
   it("A. normal accepted order persists intent through BROKER_CONFIRMED to PERSISTED", async () => {
     const intents = new Map<string, Record<string, unknown>>();
+    let persistedMetadata: Record<string, unknown> | undefined;
     const prisma = {
       executionIntent: {
         findUnique: vi.fn(async ({ where }: { where: { id?: string } }) =>
@@ -506,7 +516,33 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
         })
       },
       position: {
-        updateMany: vi.fn(async () => ({ count: 1 }))
+        findUnique: vi.fn(async () => ({
+          metadata: {
+            volumePreflight: { allowedRiskAmount: 10 },
+            executionTelemetry: {
+              telemetryVersion: 1,
+              strategyRequestedRiskReward: 2,
+              brokerRequestedRiskReward: 2,
+              allowedRiskAmount: 10,
+              requestedRiskAmount: 10,
+              preflightEntry: 4771.5,
+              adaptedStopLoss: 4772,
+              adaptedTakeProfit: 4769,
+              targetRMultiple: 2,
+              finalVolume: 0.5,
+              requestedVolume: 0.5,
+              tickSize: 0.001,
+              tickValue: 0.001
+            }
+          },
+          stopLoss: 4772,
+          takeProfit: 4769,
+          direction: "SELL"
+        })),
+        updateMany: vi.fn(async ({ data }: { data: { metadata?: Record<string, unknown> } }) => {
+          persistedMetadata = data.metadata;
+          return { count: 1 };
+        })
       },
       signal: { update: vi.fn(async () => ({})) }
     };
@@ -547,9 +583,32 @@ describe("mt5ExecutionIntegrity worker helpers", () => {
         }
       },
       symbolAudit: { internalSymbol: "R_10", brokerSymbol: "Volatility 10 Index" },
+      instrument: {
+        symbol: "R_10",
+        enabled: true,
+        verified: true,
+        contractSize: 1,
+        volumeStep: 0.01,
+        minVolume: 0.01,
+        maxVolume: 10,
+        tickSize: 0.001,
+        tickValue: 0.001,
+        marginRate: 0.01,
+        spreadBps: 10,
+        slippageBps: 5,
+        pricePrecision: 3,
+        currency: "USD"
+      },
       logger: mockLogger()
     });
 
     expect(intents.get("intent-1")?.state).toBe("PERSISTED");
+    expect(persistedMetadata?.volumePreflight).toEqual({ allowedRiskAmount: 10 });
+    expect(persistedMetadata?.executionTelemetry).toMatchObject({
+      executedRiskReward: expect.any(Number),
+      actualFillPrice: 4771.2,
+      actualFillVolume: 0.5,
+      strategyRequestedRiskReward: 2
+    });
   });
 });
