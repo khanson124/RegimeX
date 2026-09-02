@@ -73,6 +73,7 @@ import {
   shouldFeedDerivTicksToAggregator,
   shouldSubscribeDerivTicks
 } from "./liveEngineMarketData.js";
+import { Mt5QuotePollInFlightGate } from "./mt5QuotePollInFlight.js";
 
 export interface SessionDeps {
   prisma: PrismaClient;
@@ -137,6 +138,8 @@ export class LiveEngineSession {
   private fixedStrategyId: string | null = null;
   private readonly heartbeatReconcileLog = new OncePerCodeLogger();
   private heartbeatInFlight = false;
+  private readonly mt5QuotePollGate = new Mt5QuotePollInFlightGate();
+  private readonly mt5QuotePollSkipLog = new OncePerCodeLogger();
   private mt5WarmupRequirement: Mt5WarmupRequirement = {
     status: "NO_ELIGIBLE_STRATEGIES",
     reason: "NO_MT5_ELIGIBLE_STRATEGIES"
@@ -1482,14 +1485,20 @@ export class LiveEngineSession {
 
   private async pollMt5Quote(): Promise<void> {
     if (!this.mt5Cfd) return;
-    const now = Date.now();
-    recordMt5QuotePollAttempt(this.mt5QuoteHealth, now);
-    const circuit = getSharedMt5BridgeCircuit().snapshot();
-    if (circuit.circuitState === "OPEN") {
-      recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_BRIDGE_CIRCUIT_OPEN, now);
+    if (!this.mt5QuotePollGate.tryAcquire()) {
+      this.mt5QuotePollSkipLog.emit("MT5_QUOTE_POLL_SKIPPED", () => {
+        this.log.debug({ symbol: this.symbol }, "MT5 quote poll skipped — prior poll still in flight");
+      });
       return;
     }
+    const now = Date.now();
     try {
+      recordMt5QuotePollAttempt(this.mt5QuoteHealth, now);
+      const circuit = getSharedMt5BridgeCircuit().snapshot();
+      if (circuit.circuitState === "OPEN") {
+        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_BRIDGE_CIRCUIT_OPEN, now);
+        return;
+      }
       const quote = await this.mt5Cfd.getQuote(this.symbol);
       if (!quote) {
         recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_QUOTE_FEED_UNAVAILABLE, now);
@@ -1510,6 +1519,8 @@ export class LiveEngineSession {
       const code = mt5ErrorCodeFromUnknown(err);
       recordMt5QuotePollFailure(this.mt5QuoteHealth, code, now);
       this.log.warn({ err, errorCode: code }, "MT5 quote poll failed");
+    } finally {
+      this.mt5QuotePollGate.release();
     }
   }
 

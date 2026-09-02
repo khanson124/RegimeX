@@ -4,6 +4,7 @@ import {
   MT5_BRIDGE_UNHEALTHY,
   type Mt5BridgeCircuitBreaker
 } from "./bridgeCircuit.js";
+import { emitMt5Telemetry } from "./mt5RequestTelemetry.js";
 import { type Mt5CommandType, type Mt5MailboxReply } from "./types.js";
 
 export interface HttpMt5BridgeClientOptions {
@@ -31,12 +32,29 @@ export class HttpMt5BridgeClient {
     opts: { requestId: string; idempotencyKey: string }
   ): Promise<Mt5MailboxReply<T>> {
     if (!this.circuit.allowRequest()) {
+      emitMt5Telemetry({
+        event: "mt5_request_failed",
+        phase: "worker",
+        command,
+        requestId: opts.requestId,
+        idempotencyKey: opts.idempotencyKey,
+        errorCode: MT5_BRIDGE_UNHEALTHY,
+        durationMs: 0
+      });
       return this.fail<T>(command, opts, MT5_BRIDGE_UNHEALTHY, "MT5 bridge circuit is open");
     }
 
     const url = `${this.options.baseUrl.replace(/\/$/, "")}/v1/command`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeoutMs);
+    const startedAt = Date.now();
+    emitMt5Telemetry({
+      event: "mt5_request_start",
+      phase: "worker",
+      command,
+      requestId: opts.requestId,
+      idempotencyKey: opts.idempotencyKey
+    });
     try {
       const fetchFn = this.options.fetchImpl ?? fetch;
       const res = await fetchFn(url, {
@@ -54,6 +72,7 @@ export class HttpMt5BridgeClient {
         signal: controller.signal
       });
       const body = (await res.json()) as Mt5MailboxReply<T> & { error?: string };
+      const durationMs = Date.now() - startedAt;
       if (!res.ok && !body.command) {
         const errorCode =
           res.status === 401
@@ -64,14 +83,59 @@ export class HttpMt5BridgeClient {
                 ? (body.errorCode ?? "MT5_MAILBOX_BACKLOG")
                 : "MT5_BRIDGE_HTTP_ERROR";
         this.recordReply(errorCode);
+        emitMt5Telemetry({
+          event: "mt5_request_failed",
+          phase: "worker",
+          command,
+          requestId: opts.requestId,
+          idempotencyKey: opts.idempotencyKey,
+          mailboxFileId: body.mailboxFileId,
+          errorCode,
+          durationMs,
+          httpStatus: res.status
+        });
         return this.fail<T>(command, opts, errorCode, body.error ?? `HTTP ${res.status}`, res.status === 504);
       }
-      if (body.ok) this.circuit.recordSuccess();
-      else this.recordReply(body.errorCode ?? "MT5_BRIDGE_HTTP_ERROR");
+      if (body.ok) {
+        this.circuit.recordSuccess();
+        emitMt5Telemetry({
+          event: "mt5_request_end",
+          phase: "worker",
+          command,
+          requestId: body.requestId ?? opts.requestId,
+          idempotencyKey: body.idempotencyKey ?? opts.idempotencyKey,
+          mailboxFileId: body.mailboxFileId,
+          durationMs,
+          ok: true
+        });
+      } else {
+        this.recordReply(body.errorCode ?? "MT5_BRIDGE_HTTP_ERROR");
+        emitMt5Telemetry({
+          event: "mt5_request_failed",
+          phase: "worker",
+          command,
+          requestId: body.requestId ?? opts.requestId,
+          idempotencyKey: body.idempotencyKey ?? opts.idempotencyKey,
+          mailboxFileId: body.mailboxFileId,
+          errorCode: body.errorCode ?? "MT5_BRIDGE_HTTP_ERROR",
+          durationMs,
+          ok: false
+        });
+      }
       return body;
     } catch (err) {
       const errorCode = classifyBridgeFetchError(err);
       this.circuit.recordFailure(errorCode);
+      emitMt5Telemetry({
+        event: "mt5_request_failed",
+        phase: "worker",
+        command,
+        requestId: opts.requestId,
+        idempotencyKey: opts.idempotencyKey,
+        errorCode,
+        durationMs: Date.now() - startedAt,
+        errorMessage: err instanceof Error ? err.message : String(err)
+      });
       return this.fail<T>(
         command,
         opts,

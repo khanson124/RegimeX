@@ -20,6 +20,7 @@ import {
   type Mt5MailboxEnvelope,
   type Mt5MailboxReply
 } from "./types.js";
+import { emitMt5Telemetry } from "./mt5RequestTelemetry.js";
 
 export const MAILBOX_DIRS = {
   pending: "commands/pending",
@@ -216,6 +217,14 @@ export async function writePendingCommand(
   });
   const target = joinMailboxFile(mailboxPaths(root).pending, mailboxFileId);
   await atomicWriteJson(target, envelope);
+  emitMt5Telemetry({
+    event: "mt5_mailbox_pending_written",
+    phase: "bridge",
+    command: input.command,
+    requestId: input.requestId,
+    mailboxFileId,
+    idempotencyKey: input.idempotencyKey
+  });
   return { path: target, mailboxFileId, requestId: input.requestId };
 }
 
@@ -243,7 +252,19 @@ export async function waitForReply(
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const reply = await readReplyIfPresent(root, mailboxFileId);
-    if (reply) return reply;
+    if (reply) {
+      emitMt5Telemetry({
+        event: "mt5_mailbox_reply_observed",
+        phase: "bridge",
+        command: reply.command,
+        requestId: reply.requestId,
+        mailboxFileId,
+        idempotencyKey: reply.idempotencyKey,
+        mailboxWaitDurationMs: Date.now() - start,
+        ok: reply.ok
+      });
+      return reply;
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
   const error = new Error("MT5_EA_TIMEOUT");

@@ -8,6 +8,7 @@ import {
   verifyReply,
   waitForReply,
   writePendingCommand,
+  emitMt5Telemetry,
   type Mt5CommandType
 } from "@regimex/trading-engine";
 import {
@@ -54,6 +55,48 @@ export interface Mt5BridgeRuntimeState {
 const DEFAULT_MAX_IN_FLIGHT = 8;
 const DEFAULT_READY_TIMEOUT_MS = 400;
 const MAX_BODY_BYTES = 64 * 1024;
+
+function bridgeInFlightMetrics(
+  inFlightStarted: Map<string, number>,
+  now = Date.now()
+): { inFlightCount: number; oldestInFlightAgeMs: number | null } {
+  let oldest: number | null = null;
+  for (const started of inFlightStarted.values()) {
+    if (oldest == null || started < oldest) oldest = started;
+  }
+  return {
+    inFlightCount: inFlightStarted.size,
+    oldestInFlightAgeMs: oldest == null ? null : now - oldest
+  };
+}
+
+function emitBridgeResponseSent(input: {
+  command: Mt5CommandType;
+  requestId: string;
+  mailboxFileId?: string | null;
+  idempotencyKey: string;
+  httpStatus: number;
+  totalDurationMs: number;
+  mailboxWaitDurationMs?: number | null;
+  errorCode?: string;
+  ok?: boolean;
+  flight: { inFlightStarted: Map<string, number> };
+}): void {
+  emitMt5Telemetry({
+    event: "mt5_bridge_response_sent",
+    phase: "bridge",
+    command: input.command,
+    requestId: input.requestId,
+    mailboxFileId: input.mailboxFileId ?? undefined,
+    idempotencyKey: input.idempotencyKey,
+    httpStatus: input.httpStatus,
+    totalDurationMs: input.totalDurationMs,
+    mailboxWaitDurationMs: input.mailboxWaitDurationMs ?? undefined,
+    errorCode: input.errorCode,
+    ok: input.ok,
+    ...bridgeInFlightMetrics(input.flight.inFlightStarted)
+  });
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
@@ -360,10 +403,20 @@ async function handle(
   }
   const requestId = parsed.requestId || randomUUID();
   const idempotencyKey = parsed.idempotencyKey || requestId;
-  state.lastCommandAt = Date.now();
-  flight.inFlightStarted.set(requestId, Date.now());
+  const commandStartedAt = Date.now();
+  state.lastCommandAt = commandStartedAt;
+  flight.inFlightStarted.set(requestId, commandStartedAt);
   flight.refreshOldest();
+  emitMt5Telemetry({
+    event: "mt5_bridge_request_received",
+    phase: "bridge",
+    command: parsed.command,
+    requestId,
+    idempotencyKey,
+    ...bridgeInFlightMetrics(flight.inFlightStarted, commandStartedAt)
+  });
   let activeMailboxFileId: string | null = null;
+  let mailboxWaitDurationMs: number | null = null;
 
   try {
     const written = await writePendingCommand(config.mailboxPath, config.secret, {
@@ -376,8 +429,22 @@ async function handle(
     flight.inFlightMailboxFileIds.add(written.mailboxFileId);
 
     try {
+      const waitStartedAt = Date.now();
       const reply = await waitForReply(config.mailboxPath, written.mailboxFileId, config.commandTimeoutMs);
+      mailboxWaitDurationMs = Date.now() - waitStartedAt;
       if (reply.authHmac && !verifyReply(config.secret, reply)) {
+        emitBridgeResponseSent({
+          command: parsed.command,
+          requestId,
+          mailboxFileId: written.mailboxFileId,
+          idempotencyKey,
+          httpStatus: 400,
+          totalDurationMs: Date.now() - commandStartedAt,
+          mailboxWaitDurationMs,
+          errorCode: "MT5_REPLY_HMAC_INVALID",
+          ok: false,
+          flight
+        });
         send(res, 400, {
           requestId,
           mailboxFileId: written.mailboxFileId,
@@ -391,13 +458,39 @@ async function handle(
         return;
       }
       if (reply.ok) state.lastSuccessfulEaReplyAt = Date.now();
+      emitBridgeResponseSent({
+        command: parsed.command,
+        requestId,
+        mailboxFileId: written.mailboxFileId,
+        idempotencyKey,
+        httpStatus: reply.ok ? 200 : 400,
+        totalDurationMs: Date.now() - commandStartedAt,
+        mailboxWaitDurationMs,
+        errorCode: reply.ok ? undefined : reply.errorCode,
+        ok: reply.ok,
+        flight
+      });
       send(res, reply.ok ? 200 : 400, reply);
     } catch (err) {
+      mailboxWaitDurationMs =
+        mailboxWaitDurationMs ?? Math.min(Date.now() - commandStartedAt, config.commandTimeoutMs);
       const code =
         err && typeof err === "object" && "code" in err && typeof err.code === "string"
           ? err.code
           : "MT5_EA_TIMEOUT";
       if (code === "MT5_MAILBOX_IO_TIMEOUT") {
+        emitBridgeResponseSent({
+          command: parsed.command,
+          requestId,
+          mailboxFileId: activeMailboxFileId,
+          idempotencyKey,
+          httpStatus: 503,
+          totalDurationMs: Date.now() - commandStartedAt,
+          mailboxWaitDurationMs,
+          errorCode: "MT5_BRIDGE_UNHEALTHY",
+          ok: false,
+          flight
+        });
         send(res, 503, {
           requestId,
           mailboxFileId: written.mailboxFileId,
@@ -413,6 +506,18 @@ async function handle(
         return;
       }
       state.lastEaTimeoutAt = Date.now();
+      emitBridgeResponseSent({
+        command: parsed.command,
+        requestId,
+        mailboxFileId: activeMailboxFileId,
+        idempotencyKey,
+        httpStatus: 504,
+        totalDurationMs: Date.now() - commandStartedAt,
+        mailboxWaitDurationMs,
+        errorCode: "MT5_EA_TIMEOUT",
+        ok: false,
+        flight
+      });
       send(res, 504, {
         requestId,
         mailboxFileId: written.mailboxFileId,
@@ -431,6 +536,18 @@ async function handle(
       err && typeof err === "object" && "code" in err && typeof err.code === "string"
         ? err.code
         : "MT5_BRIDGE_UNHEALTHY";
+    emitBridgeResponseSent({
+      command: parsed.command,
+      requestId,
+      mailboxFileId: activeMailboxFileId,
+      idempotencyKey,
+      httpStatus: code === "MT5_MAILBOX_IO_TIMEOUT" ? 503 : 500,
+      totalDurationMs: Date.now() - commandStartedAt,
+      mailboxWaitDurationMs,
+      errorCode: code === "MT5_MAILBOX_IO_TIMEOUT" ? "MT5_BRIDGE_UNHEALTHY" : code,
+      ok: false,
+      flight
+    });
     send(res, code === "MT5_MAILBOX_IO_TIMEOUT" ? 503 : 500, {
       requestId,
       idempotencyKey,

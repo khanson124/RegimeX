@@ -16,6 +16,18 @@ describe("live engine execution isolation", () => {
     expect(src).toContain("executeCfdSignal");
   });
 
+  it("G: quote poll uses in-flight guard with finally release", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    expect(src).toContain("Mt5QuotePollInFlightGate");
+    expect(src).toContain("mt5QuotePollGate.tryAcquire()");
+    expect(src).toContain("MT5_QUOTE_POLL_SKIPPED");
+    expect(src).toContain("mt5QuotePollGate.release()");
+    const pollStart = src.indexOf("private async pollMt5Quote");
+    const pollEnd = src.indexOf("private async loadMt5ForwardSnapshot", pollStart);
+    const pollBody = src.slice(pollStart, pollEnd);
+    expect(pollBody).toMatch(/tryAcquire\(\)[\s\S]*finally[\s\S]*release\(\)/);
+  });
+
   it("routes MT5 quotes only into the CandleAggregator for broker_demo_mt5", () => {
     const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
     expect(src).toContain('source: this.executionBackend === "broker_demo_mt5" ? "MT5_LIVE_TICKS" : "LIVE_TICKS"');
