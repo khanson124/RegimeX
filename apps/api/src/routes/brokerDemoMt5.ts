@@ -14,10 +14,11 @@ import {
   isMt5RealPath,
   probeMt5BridgeLive,
   REAL_MT5_NOT_IMPLEMENTED,
-  isVolatilityOneSecondVariant,
   type Mt5LinkHealth
 } from "@regimex/trading-engine";
+import { upsertInternalInstrumentMetadataFromMt5 } from "../lib/mt5InstrumentMetadata.js";
 import { loadMt5BrokerMappings } from "../lib/mt5Mappings.js";
+import { registerMt5BrokerMapping } from "../lib/mt5RegisterMapping.js";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
 import { type FastifyInstance } from "fastify";
@@ -192,42 +193,7 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
       }
     });
     const meta = mapped.instrument;
-    const instrumentMetadata = await ctx.prisma.instrumentMetadata.upsert({
-      where: { symbolId: symbol.id },
-      create: {
-        symbolId: symbol.id,
-        enabled: meta.enabled,
-        verified: meta.verified,
-        source: meta.source ?? "mt5_live_discovery",
-        notes: meta.notes ?? null,
-        contractSize: meta.contractSize,
-        volumeStep: meta.volumeStep,
-        minVolume: meta.minVolume,
-        maxVolume: meta.maxVolume,
-        tickSize: meta.tickSize,
-        tickValue: meta.tickValue,
-        marginRate: meta.marginRate,
-        spreadBps: meta.spreadBps,
-        slippageBps: meta.slippageBps,
-        currency: meta.currency
-      },
-      update: {
-        enabled: meta.enabled,
-        verified: meta.verified,
-        source: meta.source ?? "mt5_live_discovery",
-        notes: meta.notes ?? null,
-        contractSize: meta.contractSize,
-        volumeStep: meta.volumeStep,
-        minVolume: meta.minVolume,
-        maxVolume: meta.maxVolume,
-        tickSize: meta.tickSize,
-        tickValue: meta.tickValue,
-        marginRate: meta.marginRate,
-        spreadBps: meta.spreadBps,
-        slippageBps: meta.slippageBps,
-        currency: meta.currency
-      }
-    });
+    const instrumentMetadata = await upsertInternalInstrumentMetadataFromMt5(ctx.prisma, symbol.id, meta);
     return {
       symbol,
       instrumentMetadata,
@@ -251,101 +217,11 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
       })
       .parse(request.body);
 
-    if (isVolatilityOneSecondVariant(body.brokerSymbol)) {
-      throw new ValidationError("Do not map (1s) variants onto R_10/R_25/R_50/R_75/R_100");
-    }
-
-    const internal = await ctx.prisma.symbol.findUnique({
-      where: { derivSymbol: body.internalSymbol }
-    });
-    if (!internal) {
-      throw new ValidationError(`Unknown internal RegimeX symbol: ${body.internalSymbol}`);
-    }
-
     const adapter = await connectMt5Adapter(ctx);
-    const live = await adapter.getLiveSymbol(body.brokerSymbol);
-    if (!live) {
-      throw new ValidationError(`MT5 symbol not found: ${body.brokerSymbol}`);
-    }
-    if (isVolatilityOneSecondVariant(live.name)) {
-      throw new ValidationError("Live MT5 name is a (1s) variant and cannot map to R_10/R_25/…");
-    }
-
-    const mapped = mapMt5SymbolToInstrument(live, adapter.getStatus().currency ?? "USD");
-    const meta = mapped.instrument;
-    if (!meta.verified) {
-      throw new ValidationError(
-        `MT5 instrument ${live.name} is not verified (${mapped.reasons.join("; ") || "incomplete metadata"})`
-      );
-    }
-
-    const mapping = await ctx.prisma.brokerSymbolMapping.upsert({
-      where: {
-        internalSymbolId_broker_venue_executionMode: {
-          internalSymbolId: internal.id,
-          broker: "Deriv",
-          venue: "MT5",
-          executionMode: "broker_demo_mt5"
-        }
-      },
-      create: {
-        internalSymbolId: internal.id,
-        broker: "Deriv",
-        venue: "MT5",
-        executionMode: "broker_demo_mt5",
-        brokerSymbol: live.name,
-        verified: true,
-        source: "mt5_live_discovery",
-        notes: meta.notes ?? null,
-        minVolume: meta.minVolume,
-        volumeStep: meta.volumeStep,
-        maxVolume: meta.maxVolume,
-        tickSize: meta.tickSize,
-        tickValue: meta.tickValue,
-        contractSize: meta.contractSize,
-        fillingMode: mapped.selectedFillingMode
-      },
-      update: {
-        brokerSymbol: live.name,
-        verified: true,
-        source: "mt5_live_discovery",
-        notes: meta.notes ?? null,
-        minVolume: meta.minVolume,
-        volumeStep: meta.volumeStep,
-        maxVolume: meta.maxVolume,
-        tickSize: meta.tickSize,
-        tickValue: meta.tickValue,
-        contractSize: meta.contractSize,
-        fillingMode: mapped.selectedFillingMode
-      }
-    });
-
-    return {
-      mapping: {
-        id: mapping.id,
-        internalSymbol: internal.derivSymbol,
-        brokerSymbol: mapping.brokerSymbol,
-        broker: mapping.broker,
-        venue: mapping.venue,
-        executionMode: mapping.executionMode,
-        verified: mapping.verified,
-        source: mapping.source,
-        minVolume: Number(mapping.minVolume),
-        volumeStep: Number(mapping.volumeStep),
-        maxVolume: Number(mapping.maxVolume),
-        tickSize: Number(mapping.tickSize),
-        tickValue: Number(mapping.tickValue),
-        contractSize: Number(mapping.contractSize),
-        fillingMode: mapping.fillingMode
-      },
-      live: {
-        name: live.name,
-        tradeMode: live.tradeMode,
-        filling: mapped.selectedFillingMode
-      },
-      tradingEnabled: false,
-      note: "Mapping verified from live MT5 discovery. This does not enable autonomous execution."
-    };
+    return registerMt5BrokerMapping(ctx.prisma, {
+      getLiveSymbol: (brokerSymbol) => adapter.getLiveSymbol(brokerSymbol),
+      getCurrency: () => adapter.getStatus().currency ?? "USD"
+    }, body);
   });
 
   const preflightSchema = z.object({
