@@ -23,6 +23,7 @@ import { StopTargetValidator } from "../execution/stopTargetValidator.js";
 import { applyExecutableFill } from "../execution/cfdMath.js";
 import { isCfdCapableStrategy, proposeCfdStopTarget } from "../strategies/cfdCapability.js";
 import { BarCfdPositionSimulator } from "./cfdSimulator.js";
+import { buildCfdTradeEntryFeatureSnapshot } from "../research/cfdTradeEntrySnapshot.js";
 import {
   computeCfdSummary,
   type CfdBacktestSummary,
@@ -308,6 +309,13 @@ export class CfdBacktester {
       }
 
       lastSignalIndex.set(chosen.strategy.id, i);
+      const entryFeatures = buildCfdTradeEntryFeatureSnapshot({
+        feature,
+        candle,
+        decision,
+        regime: regime.regime,
+        regimeConfidence: regime.confidence
+      });
       open = {
         base: {
           strategyId: decision.strategyId,
@@ -326,7 +334,8 @@ export class CfdBacktester {
           confidence: decision.confidence,
           entryReason: [...decision.entryReason, ...proposal.reasons],
           isOutOfSample: i >= testStart,
-          simulatorVersion: CFD_SIMULATOR_VERSION
+          simulatorVersion: CFD_SIMULATOR_VERSION,
+          entryFeatures
         },
         entryIndex: i,
         stopLoss: proposal.stopLoss,

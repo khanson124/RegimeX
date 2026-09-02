@@ -1,6 +1,7 @@
 import { addMoney, roundMoney, CFD_SIMULATOR_VERSION, type MarketRegime } from "@regimex/shared";
 import { type PositionCloseReason } from "@regimex/shared";
 import { type EquityPoint } from "./metrics.js";
+import { type CfdTradeEntryFeatureSnapshot } from "../research/cfdTradeEntrySnapshot.js";
 
 export type { EquityPoint };
 
@@ -40,6 +41,8 @@ export interface CfdSimulatedTrade {
   entryReason: string[];
   isOutOfSample: boolean;
   simulatorVersion: typeof CFD_SIMULATOR_VERSION;
+  /** Decision-time feature context at entry (no future candles). */
+  entryFeatures?: CfdTradeEntryFeatureSnapshot;
 }
 
 export interface CfdBacktestSummary {

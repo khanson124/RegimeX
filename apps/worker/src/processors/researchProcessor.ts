@@ -8,6 +8,7 @@ import {
   buildStrategyRegimeMetrics,
   buildCfdStrategyRegimeBreakdownMetrics,
   cfdSummaryToStrategyRegimeMetricFields,
+  analyzeCfdStrategyQuality,
   aggregateDemoForwardMetrics,
   createStrategy,
   DEFAULT_STRATEGY_PARAMETERS,
@@ -375,6 +376,16 @@ export function createResearchProcessor(deps: Deps) {
         }
         await prisma.strategyRegimeMetric.createMany({ data: metricRows });
 
+        const strategyQualityAnalysis = analyzeCfdStrategyQuality({
+          startingBalance,
+          segments: {
+            TRAIN: cfd.walkForward.walkForwardTrainTrades,
+            WALK_FORWARD: cfd.walkForward.walkForwardValidationTrades,
+            HOLDOUT: cfd.walkForward.holdoutTrades
+          },
+          strategyIds: cfdStrategies.map((s) => s.strategy.id)
+        });
+
         await prisma.researchRun.update({
           where: { id: researchRunId },
           data: {
@@ -411,6 +422,7 @@ export function createResearchProcessor(deps: Deps) {
               baselines: cfd.baselines,
               degradation: cfd.degradation,
               parameterStability: cfd.parameterStability,
+              strategyQualityAnalysis,
               conclusion: cfd.verdict.conclusion,
               windowCount: cfd.windows.length,
               metricsNote:

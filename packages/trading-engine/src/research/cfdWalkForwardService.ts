@@ -71,6 +71,7 @@ export interface CfdWalkForwardRunResult {
   holdoutSplit: HoldoutSplit;
   windows: CfdWalkForwardWindowResult[];
   walkForwardValidationTrades: CfdSimulatedTrade[];
+  walkForwardTrainTrades: CfdSimulatedTrade[];
   aggregate: CfdWalkForwardAggregate;
   holdoutSummary: CfdBacktestSummary | null;
   holdoutTrades: CfdSimulatedTrade[];
@@ -96,6 +97,7 @@ export class CfdWalkForwardService {
 
     const windowResults: CfdWalkForwardWindowResult[] = [];
     const walkForwardValidationTrades: CfdSimulatedTrade[] = [];
+    const walkForwardTrainTrades: CfdSimulatedTrade[] = [];
     const windowParamSets: Record<string, number | boolean | string>[] = [];
     let lastFrozen = this.freezeParametersFromConfig();
 
@@ -186,6 +188,7 @@ export class CfdWalkForwardService {
       }
 
       walkForwardValidationTrades.push(...validationRun.trades);
+      walkForwardTrainTrades.push(...trainRun.trades);
       windowResults.push({
         windowIndex: idx,
         window,
@@ -237,6 +240,7 @@ export class CfdWalkForwardService {
       holdoutSplit: split,
       windows: windowResults,
       walkForwardValidationTrades,
+      walkForwardTrainTrades,
       aggregate,
       holdoutSummary,
       holdoutTrades,

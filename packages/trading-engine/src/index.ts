@@ -77,6 +77,8 @@ export * from "./research/cfdExperimentService.js";
 export * from "./research/cfdWalkForwardService.js";
 export * from "./research/cfdWindowOptimizer.js";
 export * from "./research/cfdObjective.js";
+export * from "./research/cfdStrategyQualityAnalysis.js";
+export * from "./research/cfdTradeEntrySnapshot.js";
 export * from "./research/cfdResearchMetrics.js";
 export * from "./research/cfdWalkForwardAggregates.js";
 export * from "./research/cfdResearchVerdict.js";

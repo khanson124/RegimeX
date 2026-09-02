@@ -424,6 +424,9 @@ describe("CfdBacktester integration", () => {
       expect(t.volume).toBeGreaterThan(0);
       expect(t.initialRiskAmount).toBeGreaterThan(0);
       expect(["STOP_LOSS", "TAKE_PROFIT", "STRATEGY_EXIT", "MAX_HOLD_TIME"]).toContain(t.closeReason);
+      expect(t.entryFeatures).toBeDefined();
+      expect(t.entryFeatures!.timestamp).toBe(t.entryTime);
+      expect(t.entryFeatures!.strategyId).toBe(t.strategyId);
       if (t.netR !== null && t.initialRiskAmount > 0) {
         expect(Math.abs(t.netR - t.netPnl / t.initialRiskAmount)).toBeLessThan(0.02);
       }
