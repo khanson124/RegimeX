@@ -6,6 +6,8 @@ import {
   runCfdResearchExperiment,
   summarizeWalkForwardTests,
   buildStrategyRegimeMetrics,
+  buildCfdStrategyRegimeBreakdownMetrics,
+  cfdSummaryToStrategyRegimeMetricFields,
   aggregateDemoForwardMetrics,
   createStrategy,
   DEFAULT_STRATEGY_PARAMETERS,
@@ -258,6 +260,16 @@ export function createResearchProcessor(deps: Deps) {
         }
 
         const metricRows = [];
+        const wfBreakdownRows = buildCfdStrategyRegimeBreakdownMetrics(
+          cfd.walkForward.walkForwardValidationTrades,
+          "WALK_FORWARD",
+          startingBalance
+        );
+        const holdoutBreakdownRows = buildCfdStrategyRegimeBreakdownMetrics(
+          cfd.walkForward.holdoutTrades,
+          "HOLDOUT",
+          startingBalance
+        );
         for (const s of cfdStrategies) {
           const common = {
             researchRunId,
@@ -339,6 +351,26 @@ export function createResearchProcessor(deps: Deps) {
             expectancyR: cfd.holdoutSummary.expectancyR,
             averageR: cfd.holdoutSummary.averageR,
             averageGrossR: cfd.holdoutSummary.averageGrossR
+          });
+        }
+
+        for (const row of [...wfBreakdownRows, ...holdoutBreakdownRows]) {
+          metricRows.push({
+            researchRunId,
+            userId,
+            symbol: run.symbol,
+            interval: run.interval,
+            strategyId: row.strategyId,
+            regime: row.regime,
+            segment: row.segment,
+            evaluationStatus: cfd.confidence.evaluationStatus,
+            researchConfidence: cfd.confidence.score,
+            executionModel: "cfd_v1",
+            researchVerdict: cfd.verdict.verdict,
+            degradationPercent: degPct,
+            parameterStabilityScore: cfd.parameterStability.score,
+            parameterStabilityLevel: cfd.parameterStability.level,
+            ...cfdSummaryToStrategyRegimeMetricFields(row.summary)
           });
         }
         await prisma.strategyRegimeMetric.createMany({ data: metricRows });
