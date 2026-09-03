@@ -367,3 +367,231 @@ export function adaptMt5BrokerStops(input: AdaptMt5BrokerStopsInput): AdaptMt5Br
     validation: finalValidation
   };
 }
+
+export interface RecomputeMt5TakeProfitAtTargetRInput {
+  direction: "BUY" | "SELL";
+  /** Authoritative executable entry (fresh Ask for BUY, Bid for SELL). */
+  entryPrice: number;
+  stopLoss: number;
+  /** Strategy-intended R multiple (e.g. 2 for ema-pullback-v1). */
+  intendedTargetRMultiple: number;
+  bid: number;
+  ask: number;
+  point: number | null | undefined;
+  tickSize: number | null | undefined;
+  digits: number | null | undefined;
+  stopsLevel: number | null | undefined;
+  freezeLevel?: number | null | undefined;
+  safetyTicks?: number;
+}
+
+export interface RecomputeMt5TakeProfitAtTargetRResult {
+  ok: boolean;
+  reasonCode: string | null;
+  reasons: string[];
+  takeProfit: number | null;
+  stopLoss: number | null;
+  stopDistance: number | null;
+  targetDistance: number | null;
+  intendedTargetRMultiple: number;
+  actualTargetRMultiple: number | null;
+  validation: Mt5StopLevelValidationResult | null;
+}
+
+/**
+ * Recompute TP from final executable entry + final SL at the intended R multiple.
+ * Always used after final SL is known so entry drift cannot leave a stale TP.
+ */
+export function recomputeMt5TakeProfitAtTargetR(
+  input: RecomputeMt5TakeProfitAtTargetRInput
+): RecomputeMt5TakeProfitAtTargetRResult {
+  const intendedTargetRMultiple =
+    isFiniteNumber(input.intendedTargetRMultiple) && input.intendedTargetRMultiple > 0
+      ? input.intendedTargetRMultiple
+      : 2;
+  const empty: RecomputeMt5TakeProfitAtTargetRResult = {
+    ok: false,
+    reasonCode: null,
+    reasons: [],
+    takeProfit: null,
+    stopLoss: null,
+    stopDistance: null,
+    targetDistance: null,
+    intendedTargetRMultiple,
+    actualTargetRMultiple: null,
+    validation: null
+  };
+
+  if (!isFiniteNumber(input.entryPrice) || !isFiniteNumber(input.stopLoss)) {
+    return {
+      ...empty,
+      reasonCode: MT5_INVALID_STOP_DISTANCE_PRECHECK,
+      reasons: ["Final entry and stop-loss must be finite for target-R TP recompute"]
+    };
+  }
+
+  const stopDistance = Math.abs(input.entryPrice - input.stopLoss);
+  if (!(stopDistance > 0)) {
+    return {
+      ...empty,
+      reasonCode: MT5_INVALID_STOP_DISTANCE_PRECHECK,
+      reasons: ["Final stop distance must be positive for target-R TP recompute"]
+    };
+  }
+
+  const slValidation = validateAndNormalizeMt5Stops({
+    direction: input.direction,
+    stopLoss: input.stopLoss,
+    // Temporary TP far enough that SL-side validation can proceed; replaced below.
+    takeProfit:
+      input.direction === "BUY"
+        ? input.entryPrice + stopDistance * Math.max(intendedTargetRMultiple, 1)
+        : input.entryPrice - stopDistance * Math.max(intendedTargetRMultiple, 1),
+    bid: input.bid,
+    ask: input.ask,
+    point: input.point,
+    tickSize: input.tickSize,
+    digits: input.digits,
+    stopsLevel: input.stopsLevel,
+    freezeLevel: input.freezeLevel
+  });
+
+  if (
+    slValidation.reasonCode === MT5_STOP_METADATA_UNAVAILABLE ||
+    slValidation.point == null ||
+    slValidation.tickSize == null ||
+    slValidation.digits == null ||
+    slValidation.stopsLevel == null ||
+    slValidation.minimumStopDistance == null
+  ) {
+    return {
+      ...empty,
+      reasonCode: MT5_STOP_METADATA_UNAVAILABLE,
+      reasons: slValidation.reasons.length
+        ? slValidation.reasons
+        : ["MT5 stop metadata unavailable for target-R TP recompute"],
+      validation: slValidation
+    };
+  }
+
+  const point = slValidation.point;
+  const tickSize = slValidation.tickSize;
+  const digits = slValidation.digits;
+  const minimumStopDistance = slValidation.minimumStopDistance;
+  const safetyTicks =
+    isFiniteNumber(input.safetyTicks) && input.safetyTicks >= 0
+      ? input.safetyTicks
+      : MT5_BROKER_STOP_SAFETY_TICKS;
+  const safetyBuffer = safetyTicks * tickSize;
+  const referencePrice = input.direction === "BUY" ? input.bid : input.ask;
+  const normalizedSl =
+    slValidation.normalizedStopLoss ??
+    normalizeStopPriceToTick({
+      price: input.stopLoss,
+      tickSize,
+      digits,
+      direction: input.direction,
+      kind: "stopLoss"
+    });
+  const finalStopDistance = Math.abs(input.entryPrice - normalizedSl);
+  if (!(finalStopDistance > 0)) {
+    return {
+      ...empty,
+      reasonCode: MT5_INVALID_STOP_DISTANCE_PRECHECK,
+      reasons: ["Normalized final stop distance is not positive"],
+      stopLoss: normalizedSl,
+      validation: slValidation
+    };
+  }
+
+  const targetDistance = finalStopDistance * intendedTargetRMultiple;
+  const rawTp =
+    input.direction === "BUY"
+      ? input.entryPrice + targetDistance
+      : input.entryPrice - targetDistance;
+  let adjustedTp = normalizeStopPriceToTick({
+    price: rawTp,
+    tickSize,
+    digits,
+    direction: input.direction,
+    kind: "takeProfit"
+  });
+
+  // Broker min distance may require pushing TP further away (actual R ≥ intended).
+  const eps = Math.max(point * 0.1, tickSize * 0.1, 1e-12);
+  if (minimumStopDistance > 0) {
+    if (input.direction === "BUY") {
+      const minTp = referencePrice + minimumStopDistance;
+      if (adjustedTp + eps < minTp) {
+        adjustedTp = normalizeStopPriceToTick({
+          price: minTp + safetyBuffer,
+          tickSize,
+          digits,
+          direction: "BUY",
+          kind: "takeProfit"
+        });
+      }
+    } else {
+      const maxTp = referencePrice - minimumStopDistance;
+      if (adjustedTp - eps > maxTp) {
+        adjustedTp = normalizeStopPriceToTick({
+          price: maxTp - safetyBuffer,
+          tickSize,
+          digits,
+          direction: "SELL",
+          kind: "takeProfit"
+        });
+      }
+    }
+  }
+
+  const validation = validateAndNormalizeMt5Stops({
+    direction: input.direction,
+    stopLoss: normalizedSl,
+    takeProfit: adjustedTp,
+    bid: input.bid,
+    ask: input.ask,
+    point,
+    tickSize,
+    digits,
+    stopsLevel: slValidation.stopsLevel,
+    freezeLevel: input.freezeLevel
+  });
+
+  if (!validation.ok || validation.normalizedStopLoss == null || validation.normalizedTakeProfit == null) {
+    return {
+      ...empty,
+      reasonCode: validation.reasonCode ?? MT5_INVALID_STOP_DISTANCE_PRECHECK,
+      reasons: [
+        "Target-R TP recompute could not produce broker-valid SL/TP",
+        ...validation.reasons
+      ],
+      stopLoss: normalizedSl,
+      takeProfit: adjustedTp,
+      stopDistance: Number(finalStopDistance.toFixed(8)),
+      validation
+    };
+  }
+
+  const finalSl = validation.normalizedStopLoss;
+  const finalTp = validation.normalizedTakeProfit;
+  const finalRisk = Math.abs(input.entryPrice - finalSl);
+  const finalReward = Math.abs(finalTp - input.entryPrice);
+  const actualTargetRMultiple =
+    finalRisk > 0 ? Number((finalReward / finalRisk).toFixed(4)) : null;
+
+  return {
+    ok: true,
+    reasonCode: null,
+    reasons: [
+      `TP recomputed at ${intendedTargetRMultiple}R from final entry ${input.entryPrice} and SL ${finalSl}`
+    ],
+    takeProfit: finalTp,
+    stopLoss: finalSl,
+    stopDistance: Number(finalRisk.toFixed(8)),
+    targetDistance: Number(finalReward.toFixed(8)),
+    intendedTargetRMultiple,
+    actualTargetRMultiple,
+    validation
+  };
+}

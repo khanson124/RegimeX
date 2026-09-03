@@ -4,7 +4,8 @@ import type { InstrumentMetadata } from "@regimex/shared";
 import {
   MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
   MT5_BROKER_STOP_SAFETY_TICKS,
-  adaptMt5BrokerStops
+  adaptMt5BrokerStops,
+  recomputeMt5TakeProfitAtTargetR
 } from "./mt5BrokerStopAdaptation.js";
 import {
   MT5_INVALID_STOP_DISTANCE_PRECHECK,
@@ -480,5 +481,218 @@ describe("adaptMt5BrokerStops", () => {
       result.reasonCode === MT5_STOP_METADATA_UNAVAILABLE ||
         result.reasonCode === MT5_INVALID_STOP_DISTANCE_PRECHECK
     ).toBe(true);
+  });
+
+  it("A. BUY entry moves while SL stays valid → TP recomputed at ~2R", () => {
+    const preflight = adaptMt5BrokerStops({
+      bid: 4785.2,
+      ask: 4785.4,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "BUY",
+      stopLoss: 4784.0,
+      takeProfit: 4788.2,
+      entryPrice: 4785.4,
+      targetRMultiple: 2
+    });
+    expect(preflight.ok).toBe(true);
+    const finalEntry = 4785.935;
+    const finalAdapt = adaptMt5BrokerStops({
+      bid: 4785.82,
+      ask: finalEntry,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "BUY",
+      stopLoss: preflight.adjustedStopLoss!,
+      takeProfit: preflight.adjustedTakeProfit!,
+      entryPrice: finalEntry,
+      targetRMultiple: 2
+    });
+    expect(finalAdapt.ok).toBe(true);
+    const tp = recomputeMt5TakeProfitAtTargetR({
+      direction: "BUY",
+      entryPrice: finalEntry,
+      stopLoss: finalAdapt.adjustedStopLoss!,
+      intendedTargetRMultiple: 2,
+      bid: 4785.82,
+      ask: finalEntry,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0
+    });
+    expect(tp.ok).toBe(true);
+    expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("B. SELL entry moves while SL stays valid → TP recomputed at ~2R", () => {
+    const preflight = adaptMt5BrokerStops({
+      bid: 4785.4,
+      ask: 4785.55,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: 4786.6,
+      takeProfit: 4783.1,
+      entryPrice: 4785.4,
+      targetRMultiple: 2
+    });
+    const finalEntry = 4785.2;
+    const finalAdapt = adaptMt5BrokerStops({
+      bid: finalEntry,
+      ask: 4785.35,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: preflight.adjustedStopLoss!,
+      takeProfit: preflight.adjustedTakeProfit!,
+      entryPrice: finalEntry,
+      targetRMultiple: 2
+    });
+    const tp = recomputeMt5TakeProfitAtTargetR({
+      direction: "SELL",
+      entryPrice: finalEntry,
+      stopLoss: finalAdapt.adjustedStopLoss!,
+      intendedTargetRMultiple: 2,
+      bid: finalEntry,
+      ask: 4785.35,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0
+    });
+    expect(tp.ok).toBe(true);
+    expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("C. second SL adaptation still recomputes TP from final entry + adapted SL at ~2R", () => {
+    const preflight = adaptMt5BrokerStops({
+      bid: 4784.1,
+      ask: 4784.233,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: 4784.8,
+      takeProfit: 4782.5,
+      entryPrice: 4784.1,
+      targetRMultiple: 2
+    });
+    const finalEntry = 4784.26;
+    const finalAdapt = adaptMt5BrokerStops({
+      bid: finalEntry,
+      ask: 4784.393,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: preflight.adjustedStopLoss!,
+      takeProfit: preflight.adjustedTakeProfit!,
+      entryPrice: finalEntry,
+      targetRMultiple: 2
+    });
+    expect(finalAdapt.brokerAdjusted).toBe(true);
+    const tp = recomputeMt5TakeProfitAtTargetR({
+      direction: "SELL",
+      entryPrice: finalEntry,
+      stopLoss: finalAdapt.adjustedStopLoss!,
+      intendedTargetRMultiple: 2,
+      bid: finalEntry,
+      ask: 4784.393,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0
+    });
+    expect(tp.ok).toBe(true);
+    expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("D. no price movement keeps ~2R after TP recompute", () => {
+    const first = adaptMt5BrokerStops({
+      ...v10,
+      direction: "BUY",
+      stopLoss: 4770.8,
+      takeProfit: 4771.4,
+      entryPrice: v10.ask,
+      targetRMultiple: 2
+    });
+    const tp = recomputeMt5TakeProfitAtTargetR({
+      ...v10,
+      direction: "BUY",
+      entryPrice: v10.ask,
+      stopLoss: first.adjustedStopLoss!,
+      intendedTargetRMultiple: 2
+    });
+    expect(tp.ok).toBe(true);
+    expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("F. production BUY 4785.935 / 4784.660 stale TP 4788.065 recomputes to ~4788.485", () => {
+    const entry = 4785.935;
+    const sl = 4784.66;
+    const staleTp = 4788.065;
+    const staleR = (staleTp - entry) / (entry - sl);
+    expect(staleR).toBeCloseTo(1.6706, 3);
+    const tp = recomputeMt5TakeProfitAtTargetR({
+      direction: "BUY",
+      entryPrice: entry,
+      stopLoss: sl,
+      intendedTargetRMultiple: 2,
+      bid: 4785.8,
+      ask: entry,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0
+    });
+    expect(tp.ok).toBe(true);
+    expect(tp.takeProfit!).toBeGreaterThanOrEqual(4788.485 - 0.001);
+    expect(tp.takeProfit!).toBeLessThanOrEqual(4788.485 + 0.001);
+    expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("G. production BUY 4786.695 / 4785.483 stale TP 4788.889 recomputes to ~2R", () => {
+    const entry = 4786.695;
+    const sl = 4785.483;
+    const staleTp = 4788.889;
+    const staleR = (staleTp - entry) / (entry - sl);
+    expect(staleR).toBeCloseTo(1.8102, 3);
+    const tp = recomputeMt5TakeProfitAtTargetR({
+      direction: "BUY",
+      entryPrice: entry,
+      stopLoss: sl,
+      intendedTargetRMultiple: 2,
+      bid: 4786.55,
+      ask: entry,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0
+    });
+    expect(tp.ok).toBe(true);
+    expect(tp.takeProfit).toBeCloseTo(entry + (entry - sl) * 2, 3);
+    expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
   });
 });

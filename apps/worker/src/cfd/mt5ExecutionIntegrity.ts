@@ -450,8 +450,11 @@ export async function refreshPendingExecutionParams(input: {
   executionIntentId: string;
   signalId: string;
   volume: number;
+  entryPrice?: number;
   stopLoss: number;
   takeProfit: number;
+  stopDistance?: number;
+  targetDistance?: number;
   riskAmount: number;
   riskPercent: number;
   initialRiskReward: number | null;
@@ -499,8 +502,12 @@ export async function refreshPendingExecutionParams(input: {
       where: { id: input.signalId },
       data: {
         proposedVolume: input.volume,
+        ...(input.entryPrice != null ? { proposedEntryPrice: input.entryPrice } : {}),
         stopLoss: input.stopLoss,
-        takeProfit: input.takeProfit
+        takeProfit: input.takeProfit,
+        ...(input.stopDistance != null ? { stopDistance: input.stopDistance } : {}),
+        ...(input.targetDistance != null ? { targetDistance: input.targetDistance } : {}),
+        ...(input.initialRiskReward != null ? { riskRewardRatio: input.initialRiskReward } : {})
       }
     });
   });

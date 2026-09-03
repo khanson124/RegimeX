@@ -27,6 +27,12 @@ export interface Mt5ExecutionTelemetry {
   openedAt?: string | null;
   /** Documents legacy Position.initialRiskReward semantics for operators. */
   initialRiskRewardLegacyNote?: string;
+  finalEntry?: number | null;
+  intendedTargetRMultiple?: number | null;
+  actualFinalTargetRMultiple?: number | null;
+  finalStopDistance?: number | null;
+  finalTargetDistance?: number | null;
+  brokerAdjustedAgain?: boolean | null;
 }
 
 const LEGACY_RR_NOTE =
@@ -97,6 +103,12 @@ export function buildPendingMt5ExecutionTelemetry(input: {
   finalVolume: number;
   perUnitLossAtPreflight: number | null;
   instrument: Pick<InstrumentMetadata, "tickSize" | "tickValue">;
+  finalEntry?: number | null;
+  intendedTargetRMultiple?: number | null;
+  actualFinalTargetRMultiple?: number | null;
+  finalStopDistance?: number | null;
+  finalTargetDistance?: number | null;
+  brokerAdjustedAgain?: boolean | null;
 }): Mt5ExecutionTelemetry {
   const strategyRequestedRiskReward =
     input.strategyRequestedRiskReward ??
@@ -139,7 +151,13 @@ export function buildPendingMt5ExecutionTelemetry(input: {
     requestedVolume: input.requestedVolume,
     tickSize: input.instrument.tickSize,
     tickValue: input.instrument.tickValue,
-    initialRiskRewardLegacyNote: LEGACY_RR_NOTE
+    initialRiskRewardLegacyNote: LEGACY_RR_NOTE,
+    finalEntry: input.finalEntry ?? input.preflightEntry,
+    intendedTargetRMultiple: input.intendedTargetRMultiple ?? input.targetRMultiple,
+    actualFinalTargetRMultiple: input.actualFinalTargetRMultiple ?? brokerRequestedRiskReward,
+    finalStopDistance: input.finalStopDistance ?? null,
+    finalTargetDistance: input.finalTargetDistance ?? null,
+    brokerAdjustedAgain: input.brokerAdjustedAgain ?? null
   };
 }
 

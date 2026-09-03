@@ -34,6 +34,9 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(src).toContain("previousAdaptedStopLoss");
     expect(src).toContain("brokerAdjustedAgain");
     expect(src).toContain("quote: submitQuote");
+    expect(src).toContain("recomputeMt5TakeProfitAtTargetR");
+    expect(src).toContain("intendedTargetRMultiple");
+    expect(src).toContain("actualFinalTargetRMultiple");
   });
 
   it("uses one effectiveMaxConcurrentPositions for gate log and reservation", () => {

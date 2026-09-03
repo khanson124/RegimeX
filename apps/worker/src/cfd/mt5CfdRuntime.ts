@@ -36,6 +36,7 @@ import {
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
+  recomputeMt5TakeProfitAtTargetR,
   buildPendingMt5ExecutionTelemetry,
   classifyOpenMarketFailure,
   compareProposedToFrozenExecutionParams,
@@ -793,6 +794,8 @@ export class Mt5CfdRuntime {
     let submitRequestedVolume = volumeDecision.riskSizedVolume;
     let submitPreflight = preflight;
     let submitExecutionTelemetry = executionTelemetry;
+    let previousAdaptedStopLoss = submitStopLoss;
+    let previousAdaptedTakeProfit = submitTakeProfit;
 
     if (resumeBeforeSubmit) {
       const frozen = extractFrozenExecutionParams(existingIntent!, existing!);
@@ -992,8 +995,8 @@ export class Mt5CfdRuntime {
         };
       }
       const finalLiveSymbol = await this.adapter!.getLiveSymbol(submitBrokerSymbol);
-      const previousAdaptedStopLoss = submitStopLoss;
-      const previousAdaptedTakeProfit = submitTakeProfit;
+      previousAdaptedStopLoss = submitStopLoss;
+      previousAdaptedTakeProfit = submitTakeProfit;
       const finalFillPrice = submitDirection === "BUY" ? finalQuote.ask : finalQuote.bid;
       const finalAdaptation = adaptMt5BrokerStops({
         direction: submitDirection,
@@ -1035,15 +1038,56 @@ export class Mt5CfdRuntime {
 
       submitQuote = finalQuote;
       submitStopLoss = finalAdaptation.adjustedStopLoss;
-      submitTakeProfit = finalAdaptation.adjustedTakeProfit;
+      const intendedTargetRMultiple = targetRMultiple;
+      const tpRecompute = recomputeMt5TakeProfitAtTargetR({
+        direction: submitDirection,
+        entryPrice: finalFillPrice,
+        stopLoss: submitStopLoss,
+        intendedTargetRMultiple,
+        bid: finalQuote.bid,
+        ask: finalQuote.ask,
+        point: finalLiveSymbol?.point,
+        tickSize: finalLiveSymbol?.tickSize ?? instrument.tickSize,
+        digits: finalLiveSymbol?.digits ?? instrument.pricePrecision,
+        stopsLevel: finalLiveSymbol?.stopsLevel,
+        freezeLevel: finalLiveSymbol?.freezeLevel
+      });
+      if (!tpRecompute.ok || tpRecompute.takeProfit == null || tpRecompute.stopLoss == null) {
+        const code =
+          tpRecompute.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
+            ? "MT5_STOP_METADATA_UNAVAILABLE"
+            : MT5_INVALID_STOP_DISTANCE_PRECHECK;
+        const reasons = [code, ...tpRecompute.reasons];
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code,
+          message: reasons.join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", { reasons });
+        return {
+          opened: false,
+          reasons,
+          decisionCode: code,
+          requestedVolume: submitRequestedVolume,
+          preflight
+        };
+      }
+      submitStopLoss = tpRecompute.stopLoss;
+      submitTakeProfit = tpRecompute.takeProfit;
+      const finalStopDistance = tpRecompute.stopDistance ?? Math.abs(finalFillPrice - submitStopLoss);
+      const finalTargetDistance = tpRecompute.targetDistance ?? Math.abs(submitTakeProfit - finalFillPrice);
+      const actualFinalTargetRMultiple = tpRecompute.actualTargetRMultiple;
       proposal = {
         ...proposal,
         stopLoss: submitStopLoss,
         takeProfit: submitTakeProfit,
-        stopDistance: finalAdaptation.adjustedStopDistance ?? Math.abs(finalFillPrice - submitStopLoss),
-        targetDistance: Math.abs(submitTakeProfit - finalFillPrice),
-        initialRiskReward: submitInitialRiskReward ?? targetRMultiple,
-        riskRewardRatio: submitInitialRiskReward ?? targetRMultiple
+        stopDistance: finalStopDistance,
+        targetDistance: finalTargetDistance,
+        initialRiskReward: intendedTargetRMultiple,
+        riskRewardRatio: intendedTargetRMultiple
       };
 
       const finalStopValidation = this.stopValidator.validate({
@@ -1151,7 +1195,7 @@ export class Mt5CfdRuntime {
 
       submitVolume = finalVolumeDecision.finalVolume;
       submitRiskAmount = roundMoney((finalRawSizing.perUnitLoss ?? 0) * submitVolume);
-      submitInitialRiskReward = finalStopValidation.riskRewardRatio;
+      submitInitialRiskReward = intendedTargetRMultiple;
       submitExecutionTelemetry = buildPendingMt5ExecutionTelemetry({
         direction: submitDirection,
         strategyEntryPrice: strategyAtCandleClose.entryPrice,
@@ -1161,12 +1205,18 @@ export class Mt5CfdRuntime {
         preflightEntry: finalFillPrice,
         adaptedStopLoss: submitStopLoss,
         adaptedTakeProfit: submitTakeProfit,
-        targetRMultiple: submitInitialRiskReward ?? targetRMultiple,
+        targetRMultiple: intendedTargetRMultiple,
         allowedRiskAmount: finalRawSizing.riskAmount,
         requestedVolume: submitRequestedVolume,
         finalVolume: submitVolume,
         perUnitLossAtPreflight: finalRawSizing.perUnitLoss,
-        instrument
+        instrument,
+        finalEntry: finalFillPrice,
+        intendedTargetRMultiple,
+        actualFinalTargetRMultiple,
+        finalStopDistance,
+        finalTargetDistance,
+        brokerAdjustedAgain: finalAdaptation.brokerAdjusted
       });
       submitPreflight = buildAutonomousExecutionPreflight({
         internalSymbol: input.symbol,
@@ -1189,8 +1239,8 @@ export class Mt5CfdRuntime {
           requestedTakeProfit: previousAdaptedTakeProfit,
           normalizedStopLoss: submitStopLoss,
           normalizedTakeProfit: submitTakeProfit,
-          stopDistanceFromMarket: finalAdaptation.validation?.stopDistanceFromMarket ?? null,
-          targetDistanceFromMarket: finalAdaptation.validation?.targetDistanceFromMarket ?? null,
+          stopDistanceFromMarket: tpRecompute.validation?.stopDistanceFromMarket ?? null,
+          targetDistanceFromMarket: tpRecompute.validation?.targetDistanceFromMarket ?? null,
           originalStopLoss,
           originalTakeProfit,
           originalStopDistance,
@@ -1198,7 +1248,7 @@ export class Mt5CfdRuntime {
           adjustedStopLoss: finalAdaptation.adjustedStopLoss,
           adjustedTakeProfit: finalAdaptation.adjustedTakeProfit,
           adjustedStopDistance: finalAdaptation.adjustedStopDistance,
-          targetRMultiple: submitInitialRiskReward ?? targetRMultiple,
+          targetRMultiple: intendedTargetRMultiple,
           safetyBuffer: finalAdaptation.safetyBuffer,
           riskAmountBeforeAdjustment: riskAmountBeforeAdjustment,
           riskAmountAfterAdjustment: submitRiskAmount,
@@ -1217,14 +1267,17 @@ export class Mt5CfdRuntime {
           finalExecution: {
             bid: finalQuote.bid,
             ask: finalQuote.ask,
+            finalEntry: finalFillPrice,
             previousAdaptedStopLoss,
             previousAdaptedTakeProfit,
             finalAdaptedStopLoss: submitStopLoss,
             finalAdaptedTakeProfit: submitTakeProfit,
             minimumStopDistance: finalAdaptation.minimumStopDistance,
             brokerAdjustedAgain: finalAdaptation.brokerAdjusted,
-            finalStopDistance: finalAdaptation.validation?.stopDistanceFromMarket ?? null,
-            finalTargetDistance: finalAdaptation.validation?.targetDistanceFromMarket ?? null,
+            intendedTargetRMultiple,
+            actualFinalTargetRMultiple,
+            finalStopDistance,
+            finalTargetDistance,
             finalRiskAmount: submitRiskAmount
           }
         },
@@ -1236,24 +1289,30 @@ export class Mt5CfdRuntime {
         executionIntentId: executionIntent.id,
         signalId: input.signalId,
         volume: submitVolume,
+        entryPrice: finalFillPrice,
         stopLoss: submitStopLoss,
         takeProfit: submitTakeProfit,
+        stopDistance: finalStopDistance,
+        targetDistance: finalTargetDistance,
         riskAmount: submitRiskAmount,
         riskPercent: submitRiskPercent,
-        initialRiskReward: submitInitialRiskReward,
+        initialRiskReward: intendedTargetRMultiple,
         preflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
         finalExecution: {
           bid: finalQuote.bid,
           ask: finalQuote.ask,
+          finalEntry: finalFillPrice,
           previousAdaptedStopLoss,
           previousAdaptedTakeProfit,
           finalAdaptedStopLoss: submitStopLoss,
           finalAdaptedTakeProfit: submitTakeProfit,
           minimumStopDistance: finalAdaptation.minimumStopDistance,
           brokerAdjustedAgain: finalAdaptation.brokerAdjusted,
-          finalStopDistance: finalAdaptation.validation?.stopDistanceFromMarket ?? null,
-          finalTargetDistance: finalAdaptation.validation?.targetDistanceFromMarket ?? null,
+          intendedTargetRMultiple,
+          actualFinalTargetRMultiple,
+          finalStopDistance,
+          finalTargetDistance,
           finalRiskAmount: submitRiskAmount
         },
         logger: this.log
@@ -1287,7 +1346,18 @@ export class Mt5CfdRuntime {
         brokerSymbol: submitBrokerSymbol,
         frozenResume: resumeBeforeSubmit,
         volumePreflight: submitPreflight,
-        executionTelemetry: submitExecutionTelemetry
+        executionTelemetry: submitExecutionTelemetry,
+        finalExecution: {
+          bid: submitQuote.bid,
+          ask: submitQuote.ask,
+          finalEntry: submitDirection === "BUY" ? submitQuote.ask : submitQuote.bid,
+          previousAdaptedStopLoss,
+          previousAdaptedTakeProfit,
+          finalAdaptedStopLoss: submitStopLoss,
+          finalAdaptedTakeProfit: submitTakeProfit,
+          intendedTargetRMultiple: submitInitialRiskReward,
+          finalRiskAmount: submitRiskAmount
+        }
       }
     });
 
