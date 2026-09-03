@@ -26,6 +26,16 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(openIdx).toBeGreaterThan(sizingIdx);
   });
 
+  it("re-adapts stops against a fresh final quote before broker submit", () => {
+    const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
+    expect(src).toContain("MT5 final execution parameters refreshed before broker submit");
+    expect(src).toContain("refreshPendingExecutionParams");
+    expect(src).toContain("const finalQuote = await this.adapter!.getQuote(submitBrokerSymbol)");
+    expect(src).toContain("previousAdaptedStopLoss");
+    expect(src).toContain("brokerAdjustedAgain");
+    expect(src).toContain("quote: submitQuote");
+  });
+
   it("uses one effectiveMaxConcurrentPositions for gate log and reservation", () => {
     const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
     expect(src).toContain("resolveMt5EffectiveMaxConcurrentPositions");

@@ -372,6 +372,34 @@ describe("DerivMT5BrokerAdapter mocked transport", () => {
     expect(result.position?.takeProfit).toBe(1020.5);
   });
 
+  it("uses the caller-provided final quote for precheck/submit instead of refetching another quote", async () => {
+    const mock = new MockMt5BridgeTransport({ quotes: [] });
+    const { adapter } = await connectedAdapter(mock);
+    const result = await adapter.openMarketPosition(
+      openReq({
+        idempotencyKey: "caller-final-quote",
+        quote: { symbol: instrument.symbol, bid: 1000.1, ask: 1000.3, mid: 1000.2, timestamp: Date.now() },
+        metadata: {
+          origin: "TEST",
+          finalExecution: {
+            previousAdaptedStopLoss: 990.5,
+            previousAdaptedTakeProfit: 1020.5,
+            brokerAdjustedAgain: true,
+            finalRiskAmount: 0.75
+          }
+        }
+      })
+    );
+    expect(result.accepted).toBe(true);
+    expect(result.position?.metadata?.finalExecution).toMatchObject({
+      previousAdaptedStopLoss: 990.5,
+      previousAdaptedTakeProfit: 1020.5,
+      brokerAdjustedAgain: true,
+      finalRiskAmount: 0.75
+    });
+    expect(result.position?.metadata?.requestedPrice).toBe(1000.3);
+  });
+
   it("rejects broker order failures", async () => {
     const mock = new MockMt5BridgeTransport({ quotes: [quote()] });
     mock.seedQuote(quote());

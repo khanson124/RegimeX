@@ -260,6 +260,137 @@ describe("adaptMt5BrokerStops", () => {
     expect(result.adjustedStopLoss! - 4771.95).toBeGreaterThanOrEqual(0.72);
   });
 
+  it("15. BUY re-adapts on final quote drift instead of failing old 0.721 -> 0.661 case", () => {
+    const preflight = adaptMt5BrokerStops({
+      bid: 4783.819,
+      ask: 4784.233,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "BUY",
+      stopLoss: 4783.2,
+      takeProfit: 4785.5,
+      entryPrice: 4784.233,
+      targetRMultiple: 2
+    });
+    expect(preflight.ok).toBe(true);
+    expect(preflight.validation?.stopDistanceFromMarket).toBeCloseTo(0.721, 3);
+
+    const final = adaptMt5BrokerStops({
+      bid: 4783.759,
+      ask: 4784.173,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "BUY",
+      stopLoss: preflight.adjustedStopLoss!,
+      takeProfit: preflight.adjustedTakeProfit!,
+      entryPrice: 4784.173,
+      targetRMultiple: 2
+    });
+    expect(final.ok).toBe(true);
+    expect(final.brokerAdjusted).toBe(true);
+    expect(final.validation?.stopDistanceFromMarket).toBeGreaterThanOrEqual(0.72);
+  });
+
+  it("16. SELL re-adapts on final quote drift instead of failing old 0.721 -> 0.651 case", () => {
+    const preflight = adaptMt5BrokerStops({
+      bid: 4784.1,
+      ask: 4784.233,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: 4784.8,
+      takeProfit: 4782.5,
+      entryPrice: 4784.1,
+      targetRMultiple: 2
+    });
+    expect(preflight.ok).toBe(true);
+    expect(preflight.validation?.stopDistanceFromMarket).toBeCloseTo(0.721, 3);
+
+    const final = adaptMt5BrokerStops({
+      bid: 4784.17,
+      ask: 4784.303,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: preflight.adjustedStopLoss!,
+      takeProfit: preflight.adjustedTakeProfit!,
+      entryPrice: 4784.17,
+      targetRMultiple: 2
+    });
+    expect(final.ok).toBe(true);
+    expect(final.brokerAdjusted).toBe(true);
+    expect(final.validation?.stopDistanceFromMarket).toBeGreaterThanOrEqual(0.72);
+  });
+
+  it("17. SELL re-adapts on larger drift instead of failing old 0.721 -> 0.561 case", () => {
+    const preflight = adaptMt5BrokerStops({
+      bid: 4784.1,
+      ask: 4784.233,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: 4784.8,
+      takeProfit: 4782.5,
+      entryPrice: 4784.1,
+      targetRMultiple: 2
+    });
+    const final = adaptMt5BrokerStops({
+      bid: 4784.26,
+      ask: 4784.393,
+      point: 0.001,
+      tickSize: 0.001,
+      digits: 3,
+      stopsLevel: 720,
+      freezeLevel: 0,
+      direction: "SELL",
+      stopLoss: preflight.adjustedStopLoss!,
+      takeProfit: preflight.adjustedTakeProfit!,
+      entryPrice: 4784.26,
+      targetRMultiple: 2
+    });
+    expect(final.ok).toBe(true);
+    expect(final.brokerAdjusted).toBe(true);
+    expect(final.validation?.stopDistanceFromMarket).toBeGreaterThanOrEqual(0.72);
+  });
+
+  it("18. no price movement requires no second adjustment", () => {
+    const first = adaptMt5BrokerStops({
+      ...v10,
+      direction: "BUY",
+      stopLoss: 4770.8,
+      takeProfit: 4771.4,
+      entryPrice: v10.ask,
+      targetRMultiple: 2
+    });
+    const second = adaptMt5BrokerStops({
+      ...v10,
+      direction: "BUY",
+      stopLoss: first.adjustedStopLoss!,
+      takeProfit: first.adjustedTakeProfit!,
+      entryPrice: v10.ask,
+      targetRMultiple: 2
+    });
+    expect(second.ok).toBe(true);
+    expect(second.brokerAdjusted).toBe(false);
+    expect(second.adjustedStopLoss).toBe(first.adjustedStopLoss);
+    expect(second.adjustedTakeProfit).toBe(first.adjustedTakeProfit);
+  });
+
   it("11. stopsLevel=0 → no unnecessary widening", () => {
     const stopLoss = 4771.25;
     const takeProfit = 4770.9;

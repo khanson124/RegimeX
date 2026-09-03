@@ -444,6 +444,79 @@ export async function markExecutionIntentSubmitted(prisma: PrismaClient, executi
   return intent;
 }
 
+export async function refreshPendingExecutionParams(input: {
+  prisma: PrismaClient;
+  positionId: string;
+  executionIntentId: string;
+  signalId: string;
+  volume: number;
+  stopLoss: number;
+  takeProfit: number;
+  riskAmount: number;
+  riskPercent: number;
+  initialRiskReward: number | null;
+  preflight: unknown;
+  executionTelemetry: object;
+  finalExecution: object;
+  logger: Logger;
+}): Promise<void> {
+  const existing = await input.prisma.position.findUnique({
+    where: { id: input.positionId },
+    select: { metadata: true }
+  });
+  const existingMetadata = (existing?.metadata ?? {}) as Record<string, unknown>;
+  await input.prisma.$transaction(async (tx) => {
+    await tx.position.update({
+      where: { id: input.positionId },
+      data: {
+        volume: input.volume,
+        initialStopLoss: input.stopLoss,
+        stopLoss: input.stopLoss,
+        initialTakeProfit: input.takeProfit,
+        takeProfit: input.takeProfit,
+        initialRiskAmount: input.riskAmount,
+        initialRiskPercent: input.riskPercent,
+        initialRiskReward: input.initialRiskReward,
+        riskAmount: input.riskAmount,
+        riskPercent: input.riskPercent,
+        metadata: {
+          ...existingMetadata,
+          executionTelemetry: input.executionTelemetry,
+          volumePreflight: input.preflight,
+          finalExecution: input.finalExecution
+        } as never
+      }
+    });
+    await tx.executionIntent.update({
+      where: { id: input.executionIntentId },
+      data: {
+        requestedVolume: input.volume,
+        requestedStopLoss: input.stopLoss,
+        requestedTakeProfit: input.takeProfit
+      }
+    });
+    await tx.signal.update({
+      where: { id: input.signalId },
+      data: {
+        proposedVolume: input.volume,
+        stopLoss: input.stopLoss,
+        takeProfit: input.takeProfit
+      }
+    });
+  });
+  input.logger.info(
+    {
+      positionId: input.positionId,
+      executionIntentId: input.executionIntentId,
+      signalId: input.signalId,
+      volume: input.volume,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit
+    },
+    "MT5 pending execution parameters refreshed before submit"
+  );
+}
+
 export async function markExecutionIntentBrokerConfirmed(
   prisma: PrismaClient,
   executionIntentId: string,

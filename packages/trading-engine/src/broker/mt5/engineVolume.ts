@@ -190,6 +190,10 @@ export interface AutonomousExecutionPreflight {
   riskAmountAfterAdjustment?: number | null;
   /** Alias for riskAmountAfterAdjustment / allowed budget at adapted stop. */
   allowedRiskAmountAtAdaptedStop?: number | null;
+  previousAdaptedStopLoss?: number | null;
+  previousAdaptedTakeProfit?: number | null;
+  brokerAdjustedAgain?: boolean;
+  finalRiskAmount?: number | null;
 }
 
 export function buildAutonomousExecutionPreflight(input: {
@@ -227,6 +231,10 @@ export function buildAutonomousExecutionPreflight(input: {
     riskAmountBeforeAdjustment?: number | null;
     riskAmountAfterAdjustment?: number | null;
     allowedRiskAmountAtAdaptedStop?: number | null;
+    previousAdaptedStopLoss?: number | null;
+    previousAdaptedTakeProfit?: number | null;
+    brokerAdjustedAgain?: boolean;
+    finalRiskAmount?: number | null;
   };
 }): AutonomousExecutionPreflight {
   return {

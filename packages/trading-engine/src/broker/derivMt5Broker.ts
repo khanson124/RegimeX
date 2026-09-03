@@ -429,18 +429,12 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       return this.reject(null, ["TAKE_PROFIT_REQUIRED"]);
     }
 
-    // Fresh quote immediately before stop-distance precheck / OrderSend.
-    const liveQuote = await this.getQuote(request.symbol);
-    if (!liveQuote) {
-      return this.reject(null, ["STALE_QUOTE"]);
-    }
-
     const stopCheck = validateAndNormalizeMt5Stops({
       direction: request.direction,
       stopLoss: request.stopLoss,
       takeProfit: request.takeProfit,
-      bid: liveQuote.bid,
-      ask: liveQuote.ask,
+      bid: request.quote.bid,
+      ask: request.quote.ask,
       point: live.point,
       tickSize: live.tickSize > 0 ? live.tickSize : live.point,
       digits: live.digits,
@@ -457,12 +451,24 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
           minimumStopDistance: stopCheck.minimumStopDistance,
           bid: stopCheck.bid,
           ask: stopCheck.ask,
+          previousAdaptedStopLoss:
+            (request.metadata as { finalExecution?: { previousAdaptedStopLoss?: number } } | undefined)?.finalExecution
+              ?.previousAdaptedStopLoss ?? null,
+          previousAdaptedTakeProfit:
+            (request.metadata as { finalExecution?: { previousAdaptedTakeProfit?: number } } | undefined)?.finalExecution
+              ?.previousAdaptedTakeProfit ?? null,
           requestedStopLoss: stopCheck.requestedStopLoss,
           requestedTakeProfit: stopCheck.requestedTakeProfit,
           normalizedStopLoss: stopCheck.normalizedStopLoss,
           normalizedTakeProfit: stopCheck.normalizedTakeProfit,
           stopDistanceFromMarket: stopCheck.stopDistanceFromMarket,
           targetDistanceFromMarket: stopCheck.targetDistanceFromMarket,
+          brokerAdjustedAgain:
+            (request.metadata as { finalExecution?: { brokerAdjustedAgain?: boolean } } | undefined)?.finalExecution
+              ?.brokerAdjustedAgain ?? false,
+          finalRiskAmount:
+            (request.metadata as { finalExecution?: { finalRiskAmount?: number } } | undefined)?.finalExecution
+              ?.finalRiskAmount ?? null,
           ok: stopCheck.ok,
           reasonCode: stopCheck.reasonCode
         }
@@ -843,6 +849,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       marginUsed: request.marginRequired,
       openedAt: Date.now(),
       metadata: {
+        ...((request.metadata ?? {}) as Record<string, unknown>),
         orderTicket: fill.orderTicket,
         dealTicket: fill.dealTicket,
         positionTicket: fill.positionTicket,
