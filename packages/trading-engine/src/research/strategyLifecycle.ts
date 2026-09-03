@@ -57,7 +57,9 @@ function pfOk(pf: number | null | undefined, min: number): boolean {
 
 /**
  * Evidence-driven lifecycle. Never enables live money.
- * A single loss cannot demote. Tiny samples stay EXPERIMENTAL.
+ * Tiny samples stay soft (EXPERIMENTAL / VALIDATING). Hard expectancy demotion
+ * requires minForwardTrades and corroborating negative edge (PF<1 or net PnL≤0).
+ * DEGRADED is observational for DEMO; SUSPENDED/REJECTED remain hard safety stops.
  */
 export function evaluateStrategyLifecycle(input: {
   current: StrategyEvidenceLifecycle;
@@ -88,10 +90,16 @@ export function evaluateStrategyLifecycle(input: {
 
   if (trades < t.minTradesForTransition) {
     const stay = input.current === "EXPERIMENTAL" ? "EXPERIMENTAL" : input.current;
-    if (stay === "EXPERIMENTAL" || stay === "CANDIDATE" || stay === "MT5_FORWARD_VALIDATING") {
+    if (
+      stay === "EXPERIMENTAL" ||
+      stay === "CANDIDATE" ||
+      stay === "MT5_FORWARD_VALIDATING" ||
+      stay === "DEGRADED"
+    ) {
+      const next = stay === "DEGRADED" ? ("MT5_FORWARD_VALIDATING" as const) : stay;
       return {
-        next: stay,
-        changed: false,
+        next,
+        changed: next !== input.current,
         reasonCodes: [`INSUFFICIENT_SAMPLE:${trades}`],
         hasPositiveExpectancyEvidence,
         riskSafeOnly: true
@@ -104,21 +112,57 @@ export function evaluateStrategyLifecycle(input: {
   const consec = mt5?.consecutiveLosses ?? 0;
   const degradation = input.evidence.degradationPercent ?? 0;
   const wfPct = input.evidence.walkForwardPositivePct ?? null;
+  const profitFactor = mt5?.profitFactor ?? null;
+  const netRealizedPnl = mt5?.netRealizedPnl ?? 0;
+  const expectancyDeeplyNegative = expectancyR < -Math.abs(t.minExpectancyR);
+  const conflictingPositiveLedger =
+    (profitFactor == null || profitFactor >= 1) && netRealizedPnl > 0;
 
   if (consec >= t.consecutiveLossesSuspend && trades >= t.minTradesForTransition) {
     reasons.push(`CONSECUTIVE_LOSSES:${consec}`);
     return finish(input.current, "SUSPENDED", reasons, hasPositiveExpectancyEvidence);
   }
 
-  if (trades >= t.minTradesForTransition && expectancyR < -Math.abs(t.minExpectancyR)) {
+  // Soft warning below minForwardTrades: never hard-demote on expectancy alone.
+  if (
+    trades >= t.minTradesForTransition &&
+    trades < t.minForwardTrades &&
+    expectancyDeeplyNegative
+  ) {
+    reasons.push(`SOFT_NEGATIVE_EXPECTANCY:${expectancyR.toFixed(3)}`);
+    if (conflictingPositiveLedger) {
+      reasons.push("CONFLICTING_POSITIVE_LEDGER");
+    }
+    const softNext: StrategyEvidenceLifecycle =
+      input.current === "CANDIDATE"
+        ? "CANDIDATE"
+        : input.current === "MT5_FORWARD_VALIDATING"
+          ? "MT5_FORWARD_VALIDATING"
+          : "MT5_FORWARD_VALIDATING";
+    return finish(input.current, softNext, reasons, false);
+  }
+
+  // Hard expectancy demotion only at the same sample bar as PF/DD demotions,
+  // and only when the ledger corroborates negative edge.
+  if (trades >= t.minForwardTrades && expectancyDeeplyNegative) {
     reasons.push(`EXPECTANCY_R_NEGATIVE:${expectancyR.toFixed(3)}`);
+    if (conflictingPositiveLedger) {
+      reasons.push("CONFLICTING_POSITIVE_LEDGER");
+      const softNext: StrategyEvidenceLifecycle =
+        input.current === "SUSPENDED"
+          ? "SUSPENDED"
+          : input.current === "DEGRADED" || input.current === "EXPERIMENTAL"
+            ? "MT5_FORWARD_VALIDATING"
+            : input.current;
+      return finish(input.current, softNext, reasons, false);
+    }
     const next: StrategyEvidenceLifecycle =
       input.current === "DEGRADED" || input.current === "SUSPENDED" ? "SUSPENDED" : "DEGRADED";
     return finish(input.current, next, reasons, false);
   }
 
-  if (trades >= t.minForwardTrades && mt5?.profitFactor != null && mt5.profitFactor < 1) {
-    reasons.push(`PROFIT_FACTOR_BELOW_ONE:${mt5.profitFactor}`);
+  if (trades >= t.minForwardTrades && profitFactor != null && profitFactor < 1) {
+    reasons.push(`PROFIT_FACTOR_BELOW_ONE:${profitFactor}`);
     return finish(input.current, "DEGRADED", reasons, false);
   }
 
@@ -161,6 +205,12 @@ export function evaluateStrategyLifecycle(input: {
     return finish(input.current, "MT5_FORWARD_VALIDATING", reasons, false);
   }
 
+  // Hysteresis: leave DEGRADED once deep-negative expectancy clears.
+  if (input.current === "DEGRADED" && !expectancyDeeplyNegative) {
+    reasons.push("DEGRADED_EXPECTANCY_RECOVERED");
+    return finish(input.current, "MT5_FORWARD_VALIDATING", reasons, false);
+  }
+
   if ((input.evidence.holdoutExpectancyR ?? 0) > 0 || (input.evidence.historicalExpectancyR ?? 0) > 0) {
     reasons.push("HISTORICAL_CANDIDATE_THIN_FORWARD");
     return finish(input.current, "CANDIDATE", reasons, false);
@@ -185,7 +235,8 @@ function finish(
 }
 
 export function lifecycleBlocksNewEntries(lifecycle: StrategyEvidenceLifecycle | null | undefined): boolean {
-  return lifecycle === "DEGRADED" || lifecycle === "SUSPENDED" || lifecycle === "REJECTED";
+  // DEGRADED is observational for DEMO evidence collection; only hard safety states block.
+  return lifecycle === "SUSPENDED" || lifecycle === "REJECTED";
 }
 
 export function autonomousDecisionFromGate(

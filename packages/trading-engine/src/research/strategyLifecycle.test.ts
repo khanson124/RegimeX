@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { evaluateStrategyLifecycle } from "./strategyLifecycle.js";
+import {
+  evaluateStrategyLifecycle,
+  lifecycleBlocksNewEntries
+} from "./strategyLifecycle.js";
 import { hasPositiveExpectancyEvidence, rankEvidenceScore } from "./evidenceRanking.js";
 import { buildMt5ForwardLedger } from "./mt5ForwardLedger.js";
+
+const productionLike = {
+  trades: 9,
+  expectancyR: -0.0801,
+  profitFactor: 1.0719,
+  maxDrawdownPercent: 1.25,
+  consecutiveLosses: 1,
+  netRealizedPnl: 0.24
+};
 
 describe("strategy evidence lifecycle", () => {
   it("keeps tiny samples experimental and does not demote on a single loss", () => {
@@ -59,12 +71,74 @@ describe("strategy evidence lifecycle", () => {
     ).toBe(true);
   });
 
-  it("degrades then suspends on material negative expectancy without a single-loss flap", () => {
-    const degraded = evaluateStrategyLifecycle({
+  it("8→9 trades with slightly negative expectancy does not hard-lock when PF and PnL stay positive", () => {
+    const after8 = evaluateStrategyLifecycle({
+      current: "EXPERIMENTAL",
+      evidence: {
+        mt5: {
+          trades: 8,
+          expectancyR: 0.048,
+          profitFactor: 1.321,
+          maxDrawdownPercent: 1,
+          consecutiveLosses: 0,
+          netRealizedPnl: 0.87
+        }
+      }
+    });
+    expect(after8.next).toBe("MT5_FORWARD_VALIDATING");
+
+    const after9 = evaluateStrategyLifecycle({
+      current: "MT5_FORWARD_VALIDATING",
+      evidence: { mt5: productionLike }
+    });
+    expect(after9.next).toBe("MT5_FORWARD_VALIDATING");
+    expect(after9.reasonCodes).toContain("SOFT_NEGATIVE_EXPECTANCY:-0.080");
+    expect(after9.reasonCodes).toContain("CONFLICTING_POSITIVE_LEDGER");
+    expect(lifecycleBlocksNewEntries(after9.next)).toBe(false);
+  });
+
+  it("small-sample negative expectancy stays soft, not DEGRADED", () => {
+    const soft = evaluateStrategyLifecycle({
       current: "MT5_FORWARD_VALIDATING",
       evidence: {
         mt5: {
           trades: 12,
+          expectancyR: -0.4,
+          profitFactor: 0.6,
+          maxDrawdownPercent: 8,
+          consecutiveLosses: 3,
+          netRealizedPnl: -4
+        }
+      }
+    });
+    expect(soft.next).toBe("MT5_FORWARD_VALIDATING");
+    expect(soft.reasonCodes.some((r) => r.startsWith("SOFT_NEGATIVE_EXPECTANCY"))).toBe(true);
+  });
+
+  it("PF > 1 with slightly negative expectancyR does not hard-demote even at minForwardTrades", () => {
+    const decision = evaluateStrategyLifecycle({
+      current: "MT5_FORWARD_VALIDATING",
+      evidence: {
+        mt5: {
+          trades: 20,
+          expectancyR: -0.08,
+          profitFactor: 1.07,
+          maxDrawdownPercent: 2,
+          consecutiveLosses: 2,
+          netRealizedPnl: 0.24
+        }
+      }
+    });
+    expect(decision.next).toBe("MT5_FORWARD_VALIDATING");
+    expect(decision.reasonCodes).toContain("CONFLICTING_POSITIVE_LEDGER");
+  });
+
+  it("hard-demotes only with minForwardTrades and corroborated negative edge", () => {
+    const degraded = evaluateStrategyLifecycle({
+      current: "MT5_FORWARD_VALIDATING",
+      evidence: {
+        mt5: {
+          trades: 20,
           expectancyR: -0.4,
           profitFactor: 0.6,
           maxDrawdownPercent: 8,
@@ -78,7 +152,7 @@ describe("strategy evidence lifecycle", () => {
       current: "DEGRADED",
       evidence: {
         mt5: {
-          trades: 12,
+          trades: 20,
           expectancyR: -0.5,
           profitFactor: 0.5,
           maxDrawdownPercent: 9,
@@ -88,6 +162,61 @@ describe("strategy evidence lifecycle", () => {
       }
     });
     expect(suspended.next).toBe("SUSPENDED");
+  });
+
+  it("recovers DEGRADED → MT5_FORWARD_VALIDATING when soft/conflicting evidence reappears", () => {
+    const recovered = evaluateStrategyLifecycle({
+      current: "DEGRADED",
+      evidence: { mt5: productionLike }
+    });
+    expect(recovered.next).toBe("MT5_FORWARD_VALIDATING");
+    expect(recovered.changed).toBe(true);
+    expect(lifecycleBlocksNewEntries(recovered.next)).toBe(false);
+  });
+
+  it("recovers DEGRADED when deep-negative expectancy clears", () => {
+    const recovered = evaluateStrategyLifecycle({
+      current: "DEGRADED",
+      evidence: {
+        mt5: {
+          trades: 20,
+          expectancyR: -0.01,
+          profitFactor: 1.05,
+          maxDrawdownPercent: 3,
+          consecutiveLosses: 1,
+          netRealizedPnl: 0.1
+        }
+      }
+    });
+    expect(recovered.next).toBe("MT5_FORWARD_VALIDATING");
+    expect(recovered.reasonCodes).toContain("DEGRADED_EXPECTANCY_RECOVERED");
+  });
+
+  it("uses current lifecycle as the from-state (changed when current !== next)", () => {
+    const decision = evaluateStrategyLifecycle({
+      current: "MT5_FORWARD_VALIDATING",
+      evidence: {
+        mt5: {
+          trades: 20,
+          expectancyR: -0.4,
+          profitFactor: 0.5,
+          maxDrawdownPercent: 8,
+          consecutiveLosses: 2,
+          netRealizedPnl: -3
+        }
+      }
+    });
+    expect(decision.changed).toBe(true);
+    expect(decision.next).toBe("DEGRADED");
+    // Callers must pass the ALL-keyed current; finish() compares against that input.current.
+    expect(decision.changed).toBe(decision.next !== "MT5_FORWARD_VALIDATING");
+  });
+
+  it("DEGRADED does not block DEMO entries; SUSPENDED/REJECTED do", () => {
+    expect(lifecycleBlocksNewEntries("DEGRADED")).toBe(false);
+    expect(lifecycleBlocksNewEntries("SUSPENDED")).toBe(true);
+    expect(lifecycleBlocksNewEntries("REJECTED")).toBe(true);
+    expect(lifecycleBlocksNewEntries("MT5_FORWARD_VALIDATING")).toBe(false);
   });
 
   it("suspends on excessive consecutive losses only after min transition sample", () => {

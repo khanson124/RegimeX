@@ -115,7 +115,8 @@ export const PROMOTION_ELIGIBILITIES = [
 
 /**
  * Persisted MT5 DEMO evidence lifecycle. Never enables live money.
- * Allowlists are the rollout gate; SUSPENDED / REJECTED / DEGRADED block new entries.
+ * Allowlists are the rollout gate; SUSPENDED / REJECTED block new entries.
+ * DEGRADED is observational and does not hard-block DEMO collection.
  */
 export const STRATEGY_EVIDENCE_LIFECYCLES = [
   "EXPERIMENTAL",

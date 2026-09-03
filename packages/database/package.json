@@ -16,7 +16,8 @@
     "migrate:deploy": "prisma migrate deploy",
     "push": "prisma db push",
     "studio": "prisma studio",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "recover:mt5-evidence-lifecycle": "tsx src/scripts/recoverMt5EvidenceLifecycle.ts"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

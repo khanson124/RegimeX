@@ -71,52 +71,48 @@ export async function refreshMt5ForwardEvidence(
     const model = String((p.metadata as { executionModel?: string } | null)?.executionModel ?? "");
     return model === "broker_demo_mt5";
   });
+  // Strategy evidence state is always keyed by regime ALL. Position regime is
+  // only used for StrategyRegimeMetric rows — never for loadLifecycle current.
+  const current = await loadLifecycle(prisma, {
+    userId: input.userId,
+    strategyId: input.strategyId,
+    symbol: input.symbol,
+    interval: input.interval,
+    regime: "ALL"
+  });
+  const mappedRows = mt5Closed.map((p) => ({
+    strategyId: p.strategyId,
+    strategyVersion: p.strategyVersion,
+    symbol: p.symbol,
+    interval: p.interval,
+    regime: p.regime,
+    direction: p.direction,
+    entryPrice: p.entryPrice != null ? num(p.entryPrice) : null,
+    closePrice: p.closePrice != null ? num(p.closePrice) : null,
+    volume: num(p.volume),
+    realizedPnl: p.realizedPnl != null ? num(p.realizedPnl) : null,
+    riskAmount: p.riskAmount != null ? num(p.riskAmount) : null,
+    initialRiskAmount: p.initialRiskAmount != null ? num(p.initialRiskAmount) : null,
+    openedAt: p.openedAt,
+    closedAt: p.closedAt,
+    origin: p.origin,
+    closeReason: p.closeReason,
+    metadata: p.metadata as { executionModel?: string } | null,
+    appliedEntrySlippageBps:
+      p.appliedEntrySlippageBps != null ? num(p.appliedEntrySlippageBps) : null,
+    appliedExitSlippageBps: p.appliedExitSlippageBps != null ? num(p.appliedExitSlippageBps) : null
+  }));
+  const regimeMetricStats =
+    ledgerFromPositions(mappedRows).find((s) => s.regime === input.regime || s.regime === "UNKNOWN") ??
+    null;
+  // Lifecycle decisions use the ALL-regime forward ledger, not a single-regime slice.
   const stats =
     ledgerFromPositions(
-      mt5Closed.map((p) => ({
-        strategyId: p.strategyId,
-        strategyVersion: p.strategyVersion,
-        symbol: p.symbol,
-        interval: p.interval,
-        regime: p.regime,
-        direction: p.direction,
-        entryPrice: p.entryPrice != null ? num(p.entryPrice) : null,
-        closePrice: p.closePrice != null ? num(p.closePrice) : null,
-        volume: num(p.volume),
-        realizedPnl: p.realizedPnl != null ? num(p.realizedPnl) : null,
-        riskAmount: p.riskAmount != null ? num(p.riskAmount) : null,
-        initialRiskAmount: p.initialRiskAmount != null ? num(p.initialRiskAmount) : null,
-        openedAt: p.openedAt,
-        closedAt: p.closedAt,
-        origin: p.origin,
-        closeReason: p.closeReason,
-        metadata: p.metadata as { executionModel?: string } | null,
-        appliedEntrySlippageBps:
-          p.appliedEntrySlippageBps != null ? num(p.appliedEntrySlippageBps) : null,
-        appliedExitSlippageBps: p.appliedExitSlippageBps != null ? num(p.appliedExitSlippageBps) : null
+      mappedRows.map((r) => ({
+        ...r,
+        regime: "ALL"
       }))
-    ).find((s) => s.regime === input.regime || s.regime === "UNKNOWN") ??
-    ledgerFromPositions(
-      mt5Closed.map((p) => ({
-        strategyId: p.strategyId,
-        symbol: p.symbol,
-        interval: p.interval,
-        regime: "ALL",
-        direction: p.direction,
-        entryPrice: p.entryPrice != null ? num(p.entryPrice) : null,
-        closePrice: p.closePrice != null ? num(p.closePrice) : null,
-        volume: num(p.volume),
-        realizedPnl: p.realizedPnl != null ? num(p.realizedPnl) : null,
-        riskAmount: p.riskAmount != null ? num(p.riskAmount) : null,
-        openedAt: p.openedAt,
-        closedAt: p.closedAt,
-        origin: p.origin,
-        metadata: p.metadata as { executionModel?: string } | null
-      }))
-    )[0] ??
-    null;
-
-  const current = await loadLifecycle(prisma, input);
+    )[0] ?? null;
   const decision = evaluateStrategyLifecycle({
     current,
     evidence: {
@@ -134,7 +130,8 @@ export async function refreshMt5ForwardEvidence(
     thresholds: input.thresholds
   });
 
-  if (stats) {
+  const metricSource = regimeMetricStats ?? stats;
+  if (metricSource) {
     const existing = await prisma.strategyRegimeMetric.findFirst({
       where: {
         userId: input.userId,
@@ -149,25 +146,25 @@ export async function refreshMt5ForwardEvidence(
     });
     const metricData = {
       evaluationStatus:
-        stats.trades >= input.thresholds.minForwardTrades ? "VALID" : "PRELIMINARY",
-      totalTrades: stats.trades,
-      wins: stats.wins,
-      losses: stats.losses,
-      winRate: stats.winRate,
-      profitFactor: stats.profitFactor,
-      expectancy: stats.expectancy,
-      expectancyR: stats.expectancyR,
-      averageR: stats.averageRealizedR,
-      averageWin: stats.averageWin,
-      averageLoss: stats.averageLoss,
-      netProfit: stats.netRealizedPnl,
+        metricSource.trades >= input.thresholds.minForwardTrades ? "VALID" : "PRELIMINARY",
+      totalTrades: metricSource.trades,
+      wins: metricSource.wins,
+      losses: metricSource.losses,
+      winRate: metricSource.winRate,
+      profitFactor: metricSource.profitFactor,
+      expectancy: metricSource.expectancy,
+      expectancyR: metricSource.expectancyR,
+      averageR: metricSource.averageRealizedR,
+      averageWin: metricSource.averageWin,
+      averageLoss: metricSource.averageLoss,
+      netProfit: metricSource.netRealizedPnl,
       returnPercent: 0,
       maxDrawdown: 0,
-      maxDrawdownPercent: stats.maxDrawdownPercent,
-      longestLossStreak: stats.consecutiveLosses,
+      maxDrawdownPercent: metricSource.maxDrawdownPercent,
+      longestLossStreak: metricSource.consecutiveLosses,
       researchVerdict: decision.hasPositiveExpectancyEvidence ? "PROMISING" : "INSUFFICIENT_EVIDENCE",
-      forwardTradeCount: stats.trades,
-      recentForwardExpectancyR: stats.expectancyR
+      forwardTradeCount: metricSource.trades,
+      recentForwardExpectancyR: metricSource.expectancyR
     };
     if (existing) {
       await prisma.strategyRegimeMetric.update({ where: { id: existing.id }, data: metricData });

@@ -229,7 +229,7 @@ describe("MT5 engine rollout gates", () => {
     ).toBe("MAX_CONCURRENT_POSITIONS");
   });
 
-  it("blocks degraded/suspended/rejected lifecycles", () => {
+  it("blocks suspended/rejected lifecycles but allows degraded DEMO collection", () => {
     expect(
       gateMt5EngineSubmission({
         config: demoBase,
@@ -237,6 +237,16 @@ describe("MT5 engine rollout gates", () => {
         strategyId: "ema-pullback-v1",
         openOwnedCount: 0,
         lifecycle: "DEGRADED",
+        mapping: v10Mapping
+      }).allowed
+    ).toBe(true);
+    expect(
+      gateMt5EngineSubmission({
+        config: demoBase,
+        symbol: "R_10",
+        strategyId: "ema-pullback-v1",
+        openOwnedCount: 0,
+        lifecycle: "SUSPENDED",
         mapping: v10Mapping
       }).decisionCode
     ).toBe("LIFECYCLE_BLOCKED");
