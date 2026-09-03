@@ -56,6 +56,54 @@ export function classifyOpenMarketFailure(reasons: readonly string[]): Execution
   return "DO_NOT_RETRY";
 }
 
+/** EA last-tick stop rejection before OrderSend (no silent SL widen). */
+export const MT5_INVALID_STOPS_AT_SEND = "MT5_INVALID_STOPS_AT_SEND";
+
+/**
+ * Max worker resubmits after a confirmed invalid-stops rejection (10016 / EA pre-send).
+ * Initial attempt + this many retries. Never blind-retry ambiguous timeouts.
+ */
+export const MT5_INVALID_STOPS_MAX_RESUBMITS = 1;
+
+/**
+ * True when the broker/EA confirmed invalid stops and no fill can have occurred.
+ * Ambiguous transport failures are never treated as confirmed invalid stops.
+ */
+export function isConfirmedInvalidStopsRejection(reasons: readonly string[]): boolean {
+  for (const r of reasons) {
+    if (AMBIGUOUS_CODES.has(r) || r.includes("AMBIGUOUS")) return false;
+  }
+  if (reasons.includes(MT5_INVALID_STOPS_AT_SEND)) return true;
+  if (reasons.some((r) => r === "10016" || r.includes("TRADE_RETCODE_10016"))) return true;
+  const joined = reasons.join(" ");
+  if (reasons.includes("ORDER_SEND_FAILED") && /\b10016\b/.test(joined)) return true;
+  return false;
+}
+
+/**
+ * Bounded invalid-stops resubmit gate for executeCfdSignal only.
+ * Generic classifyOpenMarketFailure stays DO_NOT_RETRY for 10016 so other paths
+ * never auto-retry; this explicit gate requires no broker position and a budget.
+ */
+export function decideInvalidStopsResubmit(input: {
+  reasons: readonly string[];
+  brokerPositionFound: boolean;
+  resubmitCount: number;
+  maxResubmits?: number;
+}): { retry: boolean; reason: string } {
+  if (input.brokerPositionFound) {
+    return { retry: false, reason: "broker_position_exists" };
+  }
+  const maxResubmits = input.maxResubmits ?? MT5_INVALID_STOPS_MAX_RESUBMITS;
+  if (input.resubmitCount >= maxResubmits) {
+    return { retry: false, reason: "retry_exhausted" };
+  }
+  if (!isConfirmedInvalidStopsRejection(input.reasons)) {
+    return { retry: false, reason: "not_confirmed_invalid_stops" };
+  }
+  return { retry: true, reason: "invalid_stops_resubmit" };
+}
+
 /** True when transport failed before a command could have reached the EA mailbox. */
 export function isPreSubmitTransportFailure(reasons: readonly string[]): boolean {
   return reasons.some(

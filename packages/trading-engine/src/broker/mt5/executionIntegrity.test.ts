@@ -4,9 +4,13 @@ import {
   classifyOpenMarketFailure,
   compareProposedToFrozenExecutionParams,
   CREATED_INTENT_RESUME_TTL_MS,
+  decideInvalidStopsResubmit,
   executionIntentIdempotencyKey,
+  isConfirmedInvalidStopsRejection,
   isCreatedIntentExpired,
-  isUnresolvedExecutionIntentState
+  isUnresolvedExecutionIntentState,
+  MT5_INVALID_STOPS_AT_SEND,
+  MT5_INVALID_STOPS_MAX_RESUBMITS
 } from "./executionIntegrity.js";
 
 describe("executionIntegrity", () => {
@@ -19,6 +23,47 @@ describe("executionIntegrity", () => {
     expect(classifyOpenMarketFailure([AMBIGUOUS_TIMEOUT_QUERY_BEFORE_RESUBMIT])).toBe("AMBIGUOUS");
     expect(classifyOpenMarketFailure(["MT5_EA_TIMEOUT"])).toBe("AMBIGUOUS");
     expect(classifyOpenMarketFailure(["MT5_BRIDGE_TIMEOUT"])).toBe("AMBIGUOUS");
+  });
+
+  it("recognizes confirmed invalid-stops rejections for bounded worker resubmit", () => {
+    expect(isConfirmedInvalidStopsRejection(["ORDER_SEND_FAILED", "10016"])).toBe(true);
+    expect(isConfirmedInvalidStopsRejection([MT5_INVALID_STOPS_AT_SEND, "SELL_SL"])).toBe(true);
+    expect(isConfirmedInvalidStopsRejection(["ORDER_REJECTED", "margin"])).toBe(false);
+    expect(
+      isConfirmedInvalidStopsRejection([AMBIGUOUS_TIMEOUT_QUERY_BEFORE_RESUBMIT, "10016"])
+    ).toBe(false);
+  });
+
+  it("bounds invalid-stops resubmit and never retries when a broker position exists", () => {
+    expect(MT5_INVALID_STOPS_MAX_RESUBMITS).toBe(1);
+    expect(
+      decideInvalidStopsResubmit({
+        reasons: ["ORDER_SEND_FAILED", "10016"],
+        brokerPositionFound: false,
+        resubmitCount: 0
+      }).retry
+    ).toBe(true);
+    expect(
+      decideInvalidStopsResubmit({
+        reasons: ["ORDER_SEND_FAILED", "10016"],
+        brokerPositionFound: false,
+        resubmitCount: 1
+      })
+    ).toEqual({ retry: false, reason: "retry_exhausted" });
+    expect(
+      decideInvalidStopsResubmit({
+        reasons: ["ORDER_SEND_FAILED", "10016"],
+        brokerPositionFound: true,
+        resubmitCount: 0
+      })
+    ).toEqual({ retry: false, reason: "broker_position_exists" });
+    expect(
+      decideInvalidStopsResubmit({
+        reasons: [AMBIGUOUS_TIMEOUT_QUERY_BEFORE_RESUBMIT],
+        brokerPositionFound: false,
+        resubmitCount: 0
+      }).retry
+    ).toBe(false);
   });
 
   it("uses stable signal-scoped idempotency key", () => {

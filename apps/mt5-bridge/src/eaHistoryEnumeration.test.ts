@@ -75,4 +75,16 @@ describe("RegimeXExec.mq5 history enumeration", () => {
     expect(openBody).not.toMatch(/HistoryDealsTotal\s*\(/);
     expect(closeBody).not.toMatch(/HistoryDealsTotal\s*\(/);
   });
+
+  it("HandleOpen validates SymbolInfoTick stops immediately before OrderSend without widening SL/TP", () => {
+    const body = extractFunction("HandleOpen");
+    expect(body).toContain("SymbolInfoTick");
+    expect(body).toContain("MT5_INVALID_STOPS_AT_SEND");
+    expect(body).toContain("SYMBOL_TRADE_STOPS_LEVEL");
+    const orderSendIdx = body.indexOf("if(!OrderSend");
+    expect(orderSendIdx).toBeGreaterThan(-1);
+    expect(body.indexOf("MT5_INVALID_STOPS_AT_SEND")).toBeLessThan(orderSendIdx);
+    expect(body).not.toMatch(/\bsl\s*=\s*tick\./);
+    expect(body).not.toMatch(/\btp\s*=\s*tick\./);
+  });
 });

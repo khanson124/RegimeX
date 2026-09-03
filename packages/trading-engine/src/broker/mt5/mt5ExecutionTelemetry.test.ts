@@ -195,6 +195,32 @@ describe("buildPendingMt5ExecutionTelemetry", () => {
     expect(pending.strategyRequestedRiskReward).toBe(2);
     expect(pending.initialRiskRewardLegacyNote).toContain("initialRiskReward");
   });
+
+  it("6. intendedTargetRMultiple stays 2 while actualFinalTargetRMultiple is telemetry-only", () => {
+    const pending = buildPendingMt5ExecutionTelemetry({
+      direction: "SELL",
+      strategyEntryPrice: 4785.886,
+      strategyStopLoss: 4787.021,
+      strategyTakeProfit: 4783.616,
+      strategyRequestedRiskReward: 2,
+      preflightEntry: 4785.886,
+      adaptedStopLoss: 4787.021,
+      adaptedTakeProfit: 4783.967,
+      targetRMultiple: 2,
+      intendedTargetRMultiple: 2,
+      actualFinalTargetRMultiple: 1.6907,
+      allowedRiskAmount: 1,
+      requestedVolume: 0.5,
+      finalVolume: 0.5,
+      perUnitLossAtPreflight: 1.135,
+      instrument: VOL10_INSTRUMENT
+    });
+    expect(pending.targetRMultiple).toBe(2);
+    expect(pending.intendedTargetRMultiple).toBe(2);
+    expect(pending.actualFinalTargetRMultiple).toBeCloseTo(1.6907, 4);
+    expect(pending.brokerRequestedRiskReward).toBeCloseTo(1.6907, 3);
+    expect(pending.intendedTargetRMultiple).not.toBe(pending.actualFinalTargetRMultiple);
+  });
 });
 
 describe("mergeOpenMt5ExecutionTelemetry", () => {

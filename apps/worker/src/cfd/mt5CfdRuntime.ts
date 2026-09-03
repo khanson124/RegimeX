@@ -36,9 +36,10 @@ import {
   resolveMt5EngineVolume,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
-  recomputeMt5TakeProfitAtTargetR,
+  finalizeMt5StopsForSubmit,
   buildPendingMt5ExecutionTelemetry,
   classifyOpenMarketFailure,
+  decideInvalidStopsResubmit,
   compareProposedToFrozenExecutionParams,
   EXECUTION_INTENT_PARAMETER_MISMATCH,
   EXECUTION_INTENT_STALE,
@@ -46,6 +47,7 @@ import {
   MT5_INVALID_STOP_DISTANCE_PRECHECK,
   MT5_STOP_METADATA_UNAVAILABLE,
   MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
+  MT5_INVALID_STOPS_MAX_RESUBMITS,
   MIN_VOLUME_EXCEEDS_RISK,
   type AutonomousExecutionPreflight
 } from "@regimex/trading-engine";
@@ -397,7 +399,13 @@ export class Mt5CfdRuntime {
       takeProfit: proposal.takeProfit,
       initialRiskReward: proposal.initialRiskReward ?? proposal.riskRewardRatio ?? null
     };
-    const targetRMultiple = proposal.initialRiskReward ?? proposal.riskRewardRatio ?? 2;
+    // Immutable strategy intent — never overwrite with actual/preflight/broker R.
+    const intendedTargetRMultiple =
+      typeof strategyAtCandleClose.initialRiskReward === "number" &&
+      Number.isFinite(strategyAtCandleClose.initialRiskReward) &&
+      strategyAtCandleClose.initialRiskReward > 0
+        ? strategyAtCandleClose.initialRiskReward
+        : 2;
     const originalStopLoss = proposal.stopLoss;
     const originalTakeProfit = proposal.takeProfit!;
     const originalStopDistance = Math.abs(fillPrice - originalStopLoss);
@@ -407,7 +415,7 @@ export class Mt5CfdRuntime {
       stopLoss: originalStopLoss,
       takeProfit: originalTakeProfit,
       entryPrice: fillPrice,
-      targetRMultiple,
+      targetRMultiple: intendedTargetRMultiple,
       bid: preflightQuote.bid,
       ask: preflightQuote.ask,
       point: liveSymbol?.point,
@@ -458,8 +466,8 @@ export class Mt5CfdRuntime {
       takeProfit: adaptation.adjustedTakeProfit,
       stopDistance: adaptation.adjustedStopDistance ?? Math.abs(fillPrice - adaptation.adjustedStopLoss),
       targetDistance: Math.abs(adaptation.adjustedTakeProfit - fillPrice),
-      initialRiskReward: targetRMultiple,
-      riskRewardRatio: targetRMultiple
+      initialRiskReward: intendedTargetRMultiple,
+      riskRewardRatio: intendedTargetRMultiple
     };
 
     const account = await this.adapter.getAccount();
@@ -477,7 +485,7 @@ export class Mt5CfdRuntime {
 
     const stopCheck = this.stopValidator.validate({
       direction: proposal.direction,
-      entryPrice: proposal.entryPrice,
+      entryPrice: fillPrice,
       stopLoss: proposal.stopLoss,
       takeProfit: proposal.takeProfit,
       instrument,
@@ -566,7 +574,7 @@ export class Mt5CfdRuntime {
         adjustedStopLoss: adaptation.adjustedStopLoss,
         adjustedTakeProfit: adaptation.adjustedTakeProfit,
         adjustedStopDistance: adaptation.adjustedStopDistance,
-        targetRMultiple,
+        targetRMultiple: intendedTargetRMultiple,
         safetyBuffer: adaptation.safetyBuffer,
         riskAmountBeforeAdjustment,
         riskAmountAfterAdjustment: rawSizing.riskAmount,
@@ -627,7 +635,7 @@ export class Mt5CfdRuntime {
       preflightEntry: fillPrice,
       adaptedStopLoss: proposal.stopLoss,
       adaptedTakeProfit: proposal.takeProfit,
-      targetRMultiple,
+      targetRMultiple: intendedTargetRMultiple,
       allowedRiskAmount: rawSizing.riskAmount,
       requestedVolume: volumeDecision.riskSizedVolume,
       finalVolume: volume,
@@ -651,7 +659,7 @@ export class Mt5CfdRuntime {
         takeProfit: proposal.takeProfit,
         stopDistance: proposal.stopDistance,
         targetDistance: proposal.targetDistance,
-        riskRewardRatio: targetRMultiple
+        riskRewardRatio: intendedTargetRMultiple
       }
     });
 
@@ -789,7 +797,7 @@ export class Mt5CfdRuntime {
     let submitBrokerSymbol = brokerSymbol;
     let submitRiskAmount = riskAmount;
     let submitRiskPercent = limits.riskPerTradePercent;
-    let submitInitialRiskReward = stopCheck.riskRewardRatio;
+    let submitInitialRiskReward = intendedTargetRMultiple;
     let submitQuote = preflightQuote;
     let submitRequestedVolume = volumeDecision.riskSizedVolume;
     let submitPreflight = preflight;
@@ -809,7 +817,7 @@ export class Mt5CfdRuntime {
         strategyId: input.strategyId,
         riskAmount,
         riskPercent: limits.riskPerTradePercent,
-        initialRiskReward: stopCheck.riskRewardRatio
+        initialRiskReward: intendedTargetRMultiple
       };
       const paramCheck = compareProposedToFrozenExecutionParams(frozen, proposed);
       if (!paramCheck.match) {
@@ -880,7 +888,7 @@ export class Mt5CfdRuntime {
       submitBrokerSymbol = frozen.brokerSymbol;
       submitRiskAmount = frozen.riskAmount;
       submitRiskPercent = frozen.riskPercent;
-      submitInitialRiskReward = frozen.initialRiskReward;
+      submitInitialRiskReward = frozen.initialRiskReward ?? intendedTargetRMultiple;
 
       this.log.info(
         {
@@ -914,7 +922,7 @@ export class Mt5CfdRuntime {
           takeProfit: proposal.takeProfit,
           riskAmount,
           riskPercent: limits.riskPerTradePercent,
-          initialRiskReward: stopCheck.riskRewardRatio,
+          initialRiskReward: intendedTargetRMultiple,
           maxConcurrentPositions: maxConcurrentForReserve,
           reasoning: {
             entry: input.decision.entryReason,
@@ -998,12 +1006,13 @@ export class Mt5CfdRuntime {
       previousAdaptedStopLoss = submitStopLoss;
       previousAdaptedTakeProfit = submitTakeProfit;
       const finalFillPrice = submitDirection === "BUY" ? finalQuote.ask : finalQuote.bid;
-      const finalAdaptation = adaptMt5BrokerStops({
+      const finalized = finalizeMt5StopsForSubmit({
         direction: submitDirection,
         stopLoss: previousAdaptedStopLoss,
         takeProfit: previousAdaptedTakeProfit,
         entryPrice: finalFillPrice,
-        targetRMultiple: submitInitialRiskReward ?? targetRMultiple,
+        intendedTargetRMultiple,
+        targetRMultiple: intendedTargetRMultiple,
         bid: finalQuote.bid,
         ask: finalQuote.ask,
         point: finalLiveSymbol?.point,
@@ -1012,12 +1021,13 @@ export class Mt5CfdRuntime {
         stopsLevel: finalLiveSymbol?.stopsLevel,
         freezeLevel: finalLiveSymbol?.freezeLevel
       });
-      if (!finalAdaptation.ok || finalAdaptation.adjustedStopLoss == null || finalAdaptation.adjustedTakeProfit == null) {
+      const finalAdaptation = finalized.adaptation;
+      if (!finalized.ok || finalized.stopLoss == null || finalized.takeProfit == null) {
         const code =
-          finalAdaptation.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
+          finalized.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
             ? "MT5_STOP_METADATA_UNAVAILABLE"
             : MT5_INVALID_STOP_DISTANCE_PRECHECK;
-        const reasons = [code, ...finalAdaptation.reasons];
+        const reasons = [code, ...finalized.reasons];
         await failClosedPendingExecution({
           prisma: this.deps.prisma,
           positionId: pending.id,
@@ -1037,49 +1047,12 @@ export class Mt5CfdRuntime {
       }
 
       submitQuote = finalQuote;
-      submitStopLoss = finalAdaptation.adjustedStopLoss;
-      const intendedTargetRMultiple = targetRMultiple;
-      const tpRecompute = recomputeMt5TakeProfitAtTargetR({
-        direction: submitDirection,
-        entryPrice: finalFillPrice,
-        stopLoss: submitStopLoss,
-        intendedTargetRMultiple,
-        bid: finalQuote.bid,
-        ask: finalQuote.ask,
-        point: finalLiveSymbol?.point,
-        tickSize: finalLiveSymbol?.tickSize ?? instrument.tickSize,
-        digits: finalLiveSymbol?.digits ?? instrument.pricePrecision,
-        stopsLevel: finalLiveSymbol?.stopsLevel,
-        freezeLevel: finalLiveSymbol?.freezeLevel
-      });
-      if (!tpRecompute.ok || tpRecompute.takeProfit == null || tpRecompute.stopLoss == null) {
-        const code =
-          tpRecompute.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
-            ? "MT5_STOP_METADATA_UNAVAILABLE"
-            : MT5_INVALID_STOP_DISTANCE_PRECHECK;
-        const reasons = [code, ...tpRecompute.reasons];
-        await failClosedPendingExecution({
-          prisma: this.deps.prisma,
-          positionId: pending.id,
-          executionIntentId: executionIntent.id,
-          code,
-          message: reasons.join("; "),
-          logger: this.log
-        });
-        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", { reasons });
-        return {
-          opened: false,
-          reasons,
-          decisionCode: code,
-          requestedVolume: submitRequestedVolume,
-          preflight
-        };
-      }
-      submitStopLoss = tpRecompute.stopLoss;
-      submitTakeProfit = tpRecompute.takeProfit;
-      const finalStopDistance = tpRecompute.stopDistance ?? Math.abs(finalFillPrice - submitStopLoss);
-      const finalTargetDistance = tpRecompute.targetDistance ?? Math.abs(submitTakeProfit - finalFillPrice);
-      const actualFinalTargetRMultiple = tpRecompute.actualTargetRMultiple;
+      submitStopLoss = finalized.stopLoss;
+      submitTakeProfit = finalized.takeProfit;
+      const finalStopDistance = finalized.stopDistance ?? Math.abs(finalFillPrice - submitStopLoss);
+      const finalTargetDistance = finalized.targetDistance ?? Math.abs(submitTakeProfit - finalFillPrice);
+      const actualFinalTargetRMultiple = finalized.actualTargetRMultiple;
+      const tpRecompute = finalized.tpRecompute;
       proposal = {
         ...proposal,
         stopLoss: submitStopLoss,
@@ -1239,8 +1212,8 @@ export class Mt5CfdRuntime {
           requestedTakeProfit: previousAdaptedTakeProfit,
           normalizedStopLoss: submitStopLoss,
           normalizedTakeProfit: submitTakeProfit,
-          stopDistanceFromMarket: tpRecompute.validation?.stopDistanceFromMarket ?? null,
-          targetDistanceFromMarket: tpRecompute.validation?.targetDistanceFromMarket ?? null,
+          stopDistanceFromMarket: tpRecompute?.validation?.stopDistanceFromMarket ?? null,
+          targetDistanceFromMarket: tpRecompute?.validation?.targetDistanceFromMarket ?? null,
           originalStopLoss,
           originalTakeProfit,
           originalStopDistance,
@@ -1319,9 +1292,7 @@ export class Mt5CfdRuntime {
       });
     }
 
-    await markExecutionIntentSubmitted(this.deps.prisma, executionIntent.id, this.log);
-
-    const result = await this.adapter.openMarketPosition({
+    const buildOpenRequest = () => ({
       idempotencyKey,
       symbol: submitBrokerSymbol,
       direction: submitDirection,
@@ -1332,7 +1303,7 @@ export class Mt5CfdRuntime {
       instrument,
       riskAmount: submitRiskAmount,
       riskPercent: submitRiskPercent,
-      initialRiskReward: submitInitialRiskReward,
+      initialRiskReward: intendedTargetRMultiple,
       marginRequired: estimateMarginRequired(
         submitDirection === "BUY" ? submitQuote.ask : submitQuote.bid,
         submitVolume,
@@ -1355,13 +1326,30 @@ export class Mt5CfdRuntime {
           previousAdaptedTakeProfit,
           finalAdaptedStopLoss: submitStopLoss,
           finalAdaptedTakeProfit: submitTakeProfit,
-          intendedTargetRMultiple: submitInitialRiskReward,
-          finalRiskAmount: submitRiskAmount
+          intendedTargetRMultiple,
+          actualFinalTargetRMultiple:
+            (submitExecutionTelemetry as { actualFinalTargetRMultiple?: number | null }).actualFinalTargetRMultiple ??
+            null,
+          finalRiskAmount: submitRiskAmount,
+          invalidStopsResubmits: undefined as number | undefined
         }
       }
     });
 
-    if (!result.accepted || !result.position) {
+    let invalidStopsResubmits = 0;
+    let result: Awaited<ReturnType<DerivMT5BrokerAdapter["openMarketPosition"]>> | null = null;
+
+    for (;;) {
+      await markExecutionIntentSubmitted(this.deps.prisma, executionIntent.id, this.log);
+      const openRequest = buildOpenRequest();
+      (openRequest.metadata.finalExecution as { invalidStopsResubmits?: number }).invalidStopsResubmits =
+        invalidStopsResubmits;
+      result = await this.adapter.openMarketPosition(openRequest);
+
+      if (result.accepted && result.position) {
+        break;
+      }
+
       const failureClass = classifyOpenMarketFailure(result.rejectionReasons);
       if (failureClass === "AMBIGUOUS") {
         await markExecutionIntentAmbiguous(
@@ -1415,49 +1403,371 @@ export class Mt5CfdRuntime {
         };
       }
 
-      const mappedCode = result.rejectionReasons.find((r) => isAutonomousDecisionCode(r));
-      const decisionCode: AutonomousDecisionCode = mappedCode ?? "EXECUTION_REJECTED";
-      await failClosedPendingExecution({
+      const adopted = await this.adapter.tryAdoptOpenByIdempotency(openRequest);
+      if (adopted?.accepted && adopted.position) {
+        result = adopted;
+        break;
+      }
+
+      const resubmit = decideInvalidStopsResubmit({
+        reasons: result.rejectionReasons,
+        brokerPositionFound: false,
+        resubmitCount: invalidStopsResubmits,
+        maxResubmits: MT5_INVALID_STOPS_MAX_RESUBMITS
+      });
+      if (!resubmit.retry) {
+        const mappedCode = result.rejectionReasons.find((r) => isAutonomousDecisionCode(r));
+        const decisionCode: AutonomousDecisionCode = mappedCode ?? "EXECUTION_REJECTED";
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code: decisionCode,
+          message: result.rejectionReasons.join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
+          reasons: result.rejectionReasons
+        });
+        this.log.warn(
+          {
+            reasons: result.rejectionReasons,
+            signalId: input.signalId,
+            internalSymbol: input.symbol,
+            brokerSymbol,
+            decisionCode,
+            invalidStopsResubmits,
+            resubmitDenied: resubmit.reason
+          },
+          "MT5 rejected autonomous open"
+        );
+        this.logExecutionDecision({
+          ...input,
+          decisionCode,
+          reasons: result.rejectionReasons,
+          mappingStatus: "verified",
+          riskStatus: "approved",
+          volumePreflight: submitPreflight,
+          opened: false,
+          brokerSymbol
+        });
+        this.telegram.notifyRejected({
+          signalId: input.signalId,
+          symbol: input.symbol,
+          direction: proposal.direction,
+          strategyId: input.strategyId,
+          regime: input.regime,
+          reasons: result.rejectionReasons,
+          stopLoss: proposal.stopLoss,
+          takeProfit: proposal.takeProfit
+        });
+        return {
+          opened: false,
+          reasons: result.rejectionReasons,
+          decisionCode,
+          requestedVolume: submitRequestedVolume,
+          acceptedVolume: undefined,
+          preflight: submitPreflight
+        };
+      }
+
+      invalidStopsResubmits += 1;
+      this.log.warn(
+        {
+          signalId: input.signalId,
+          executionIntentId: executionIntent.id,
+          idempotencyKey,
+          invalidStopsResubmits,
+          maxResubmits: MT5_INVALID_STOPS_MAX_RESUBMITS,
+          reasons: result.rejectionReasons
+        },
+        "MT5 confirmed invalid stops — refreshing quote and resubmitting once under risk controls"
+      );
+
+      const retryQuote = await this.adapter.getQuote(submitBrokerSymbol);
+      if (!retryQuote) {
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code: "QUOTE_STALE",
+          message: `No fresh MT5 quote for ${submitBrokerSymbol} before invalid-stops resubmit`,
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
+          reasons: ["QUOTE_STALE", "invalid-stops resubmit quote unavailable"]
+        });
+        return {
+          opened: false,
+          reasons: ["QUOTE_STALE", "invalid-stops resubmit quote unavailable"],
+          decisionCode: "QUOTE_STALE",
+          requestedVolume: submitRequestedVolume,
+          preflight: submitPreflight
+        };
+      }
+      const retryLiveSymbol = await this.adapter.getLiveSymbol(submitBrokerSymbol);
+      previousAdaptedStopLoss = submitStopLoss;
+      previousAdaptedTakeProfit = submitTakeProfit;
+      const retryFillPrice = submitDirection === "BUY" ? retryQuote.ask : retryQuote.bid;
+      const retryFinalized = finalizeMt5StopsForSubmit({
+        direction: submitDirection,
+        stopLoss: previousAdaptedStopLoss,
+        takeProfit: previousAdaptedTakeProfit,
+        entryPrice: retryFillPrice,
+        intendedTargetRMultiple,
+        targetRMultiple: intendedTargetRMultiple,
+        bid: retryQuote.bid,
+        ask: retryQuote.ask,
+        point: retryLiveSymbol?.point,
+        tickSize: retryLiveSymbol?.tickSize ?? instrument.tickSize,
+        digits: retryLiveSymbol?.digits ?? instrument.pricePrecision,
+        stopsLevel: retryLiveSymbol?.stopsLevel,
+        freezeLevel: retryLiveSymbol?.freezeLevel
+      });
+      if (!retryFinalized.ok || retryFinalized.stopLoss == null || retryFinalized.takeProfit == null) {
+        const code =
+          retryFinalized.reasonCode === MT5_STOP_METADATA_UNAVAILABLE
+            ? "MT5_STOP_METADATA_UNAVAILABLE"
+            : MT5_INVALID_STOP_DISTANCE_PRECHECK;
+        const reasons = [code, ...retryFinalized.reasons];
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code,
+          message: reasons.join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", { reasons });
+        return {
+          opened: false,
+          reasons,
+          decisionCode: code,
+          requestedVolume: submitRequestedVolume,
+          preflight: submitPreflight
+        };
+      }
+
+      const retryStopValidation = this.stopValidator.validate({
+        direction: submitDirection,
+        entryPrice: retryFillPrice,
+        stopLoss: retryFinalized.stopLoss,
+        takeProfit: retryFinalized.takeProfit,
+        instrument,
+        limits
+      });
+      if (!retryStopValidation.valid) {
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code: "STOP_INVALID",
+          message: retryStopValidation.reasons.join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
+          reasons: retryStopValidation.reasons
+        });
+        return {
+          opened: false,
+          reasons: retryStopValidation.reasons,
+          decisionCode: "STOP_INVALID",
+          requestedVolume: submitRequestedVolume,
+          preflight: submitPreflight
+        };
+      }
+
+      const retryRawSizing = this.sizing.calculateRaw({
+        equity: account.equity,
+        direction: submitDirection,
+        entryPrice: retryFillPrice,
+        stopLoss: retryFinalized.stopLoss,
+        riskPerTradePercent: limits.riskPerTradePercent,
+        instrument
+      });
+      if (!retryRawSizing.success || retryRawSizing.rawVolume == null || retryRawSizing.riskAmount == null) {
+        const code = retryFinalized.adaptation.brokerAdjusted
+          ? MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED
+          : "RISK_BLOCKED";
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code,
+          message: retryRawSizing.rejectionReasons.join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
+          reasons: retryRawSizing.rejectionReasons
+        });
+        return {
+          opened: false,
+          reasons: retryRawSizing.rejectionReasons,
+          decisionCode: code,
+          requestedVolume: submitRequestedVolume,
+          preflight: submitPreflight
+        };
+      }
+
+      const retryVolumeDecision = resolveMt5EngineVolume({
+        equity: account.equity,
+        riskPerTradePercent: limits.riskPerTradePercent,
+        riskSizedVolume: retryRawSizing.rawVolume,
+        direction: submitDirection,
+        entryPrice: retryFillPrice,
+        stopLoss: retryFinalized.stopLoss,
+        instrument,
+        engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+      });
+      if (!retryVolumeDecision.wouldSubmit || retryVolumeDecision.finalVolume == null) {
+        const code =
+          retryFinalized.adaptation.brokerAdjusted &&
+          (retryVolumeDecision.reasonCode === MIN_VOLUME_EXCEEDS_RISK ||
+            retryVolumeDecision.reasonCode === "RISK_BLOCKED")
+            ? MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED
+            : ((retryVolumeDecision.reasonCode === "MIN_VOLUME_EXCEEDS_RISK" ||
+                retryVolumeDecision.reasonCode === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
+                retryVolumeDecision.reasonCode === "STOP_INVALID"
+                ? retryVolumeDecision.reasonCode
+                : "RISK_BLOCKED") as AutonomousDecisionCode);
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code,
+          message: [retryVolumeDecision.reasonCode ?? "volume blocked"].join("; "),
+          logger: this.log
+        });
+        await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
+          reasons: [retryVolumeDecision.reasonCode ?? "volume blocked"]
+        });
+        return {
+          opened: false,
+          reasons: [retryVolumeDecision.reasonCode ?? "volume blocked"],
+          decisionCode: code,
+          requestedVolume: retryVolumeDecision.riskSizedVolume,
+          preflight: submitPreflight
+        };
+      }
+
+      submitQuote = retryQuote;
+      submitStopLoss = retryFinalized.stopLoss;
+      submitTakeProfit = retryFinalized.takeProfit;
+      submitVolume = retryVolumeDecision.finalVolume;
+      submitRequestedVolume = retryVolumeDecision.riskSizedVolume;
+      submitRiskAmount = roundMoney((retryRawSizing.perUnitLoss ?? 0) * submitVolume);
+      submitInitialRiskReward = intendedTargetRMultiple;
+      const retryStopDistance =
+        retryFinalized.stopDistance ?? Math.abs(retryFillPrice - submitStopLoss);
+      const retryTargetDistance =
+        retryFinalized.targetDistance ?? Math.abs(submitTakeProfit - retryFillPrice);
+      const retryActualR = retryFinalized.actualTargetRMultiple;
+      submitExecutionTelemetry = buildPendingMt5ExecutionTelemetry({
+        direction: submitDirection,
+        strategyEntryPrice: strategyAtCandleClose.entryPrice,
+        strategyStopLoss: strategyAtCandleClose.stopLoss,
+        strategyTakeProfit: strategyAtCandleClose.takeProfit,
+        strategyRequestedRiskReward: strategyAtCandleClose.initialRiskReward,
+        preflightEntry: retryFillPrice,
+        adaptedStopLoss: submitStopLoss,
+        adaptedTakeProfit: submitTakeProfit,
+        targetRMultiple: intendedTargetRMultiple,
+        allowedRiskAmount: retryRawSizing.riskAmount,
+        requestedVolume: submitRequestedVolume,
+        finalVolume: submitVolume,
+        perUnitLossAtPreflight: retryRawSizing.perUnitLoss,
+        instrument,
+        finalEntry: retryFillPrice,
+        intendedTargetRMultiple,
+        actualFinalTargetRMultiple: retryActualR,
+        finalStopDistance: retryStopDistance,
+        finalTargetDistance: retryTargetDistance,
+        brokerAdjustedAgain: retryFinalized.adaptation.brokerAdjusted
+      });
+      submitPreflight = buildAutonomousExecutionPreflight({
+        internalSymbol: input.symbol,
+        brokerSymbol: submitBrokerSymbol,
+        strategyId: input.strategyId,
+        equity: account.equity,
+        entry: retryFillPrice,
+        stopLoss: submitStopLoss,
+        takeProfit: submitTakeProfit,
+        volume: retryVolumeDecision,
+        stopLevels: {
+          point: retryFinalized.adaptation.point,
+          tickSize: retryFinalized.adaptation.tickSize,
+          stopsLevel: retryFinalized.adaptation.stopsLevel,
+          freezeLevel: retryFinalized.adaptation.freezeLevel,
+          minimumStopDistance: retryFinalized.adaptation.minimumStopDistance,
+          bid: retryQuote.bid,
+          ask: retryQuote.ask,
+          requestedStopLoss: previousAdaptedStopLoss,
+          requestedTakeProfit: previousAdaptedTakeProfit,
+          normalizedStopLoss: submitStopLoss,
+          normalizedTakeProfit: submitTakeProfit,
+          stopDistanceFromMarket: retryFinalized.tpRecompute?.validation?.stopDistanceFromMarket ?? null,
+          targetDistanceFromMarket: retryFinalized.tpRecompute?.validation?.targetDistanceFromMarket ?? null,
+          originalStopLoss,
+          originalTakeProfit,
+          originalStopDistance,
+          brokerAdjusted: adaptation.brokerAdjusted,
+          adjustedStopLoss: retryFinalized.adaptation.adjustedStopLoss,
+          adjustedTakeProfit: retryFinalized.adaptation.adjustedTakeProfit,
+          adjustedStopDistance: retryFinalized.adaptation.adjustedStopDistance,
+          targetRMultiple: intendedTargetRMultiple,
+          safetyBuffer: retryFinalized.adaptation.safetyBuffer,
+          riskAmountBeforeAdjustment: riskAmountBeforeAdjustment,
+          riskAmountAfterAdjustment: submitRiskAmount,
+          allowedRiskAmountAtAdaptedStop: retryRawSizing.riskAmount,
+          previousAdaptedStopLoss,
+          previousAdaptedTakeProfit,
+          brokerAdjustedAgain: retryFinalized.adaptation.brokerAdjusted,
+          finalRiskAmount: submitRiskAmount
+        }
+      });
+      await refreshPendingExecutionParams({
         prisma: this.deps.prisma,
         positionId: pending.id,
         executionIntentId: executionIntent.id,
-        code: decisionCode,
-        message: result.rejectionReasons.join("; "),
+        signalId: input.signalId,
+        volume: submitVolume,
+        entryPrice: retryFillPrice,
+        stopLoss: submitStopLoss,
+        takeProfit: submitTakeProfit,
+        stopDistance: retryStopDistance,
+        targetDistance: retryTargetDistance,
+        riskAmount: submitRiskAmount,
+        riskPercent: submitRiskPercent,
+        initialRiskReward: intendedTargetRMultiple,
+        preflight: submitPreflight,
+        executionTelemetry: submitExecutionTelemetry,
+        finalExecution: {
+          bid: retryQuote.bid,
+          ask: retryQuote.ask,
+          finalEntry: retryFillPrice,
+          previousAdaptedStopLoss,
+          previousAdaptedTakeProfit,
+          finalAdaptedStopLoss: submitStopLoss,
+          finalAdaptedTakeProfit: submitTakeProfit,
+          minimumStopDistance: retryFinalized.adaptation.minimumStopDistance,
+          brokerAdjustedAgain: retryFinalized.adaptation.brokerAdjusted,
+          intendedTargetRMultiple,
+          actualFinalTargetRMultiple: retryActualR,
+          finalStopDistance: retryStopDistance,
+          finalTargetDistance: retryTargetDistance,
+          finalRiskAmount: submitRiskAmount,
+          invalidStopsResubmits
+        },
         logger: this.log
       });
-      await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
-        reasons: result.rejectionReasons
-      });
-      this.log.warn(
-        { reasons: result.rejectionReasons, signalId: input.signalId, internalSymbol: input.symbol, brokerSymbol, decisionCode },
-        "MT5 rejected autonomous open"
-      );
-      this.logExecutionDecision({
-        ...input,
-        decisionCode,
-        reasons: result.rejectionReasons,
-        mappingStatus: "verified",
-        riskStatus: "approved",
-        volumePreflight: submitPreflight,
-        opened: false,
-        brokerSymbol
-      });
-      this.telegram.notifyRejected({
-        signalId: input.signalId,
-        symbol: input.symbol,
-        direction: proposal.direction,
-        strategyId: input.strategyId,
-        regime: input.regime,
-        reasons: result.rejectionReasons,
-        stopLoss: proposal.stopLoss,
-        takeProfit: proposal.takeProfit
-      });
+    }
+
+    if (!result?.accepted || !result.position) {
       return {
         opened: false,
-        reasons: result.rejectionReasons,
-        decisionCode,
+        reasons: result?.rejectionReasons ?? ["EXECUTION_REJECTED"],
+        decisionCode: "EXECUTION_REJECTED",
         requestedVolume: submitRequestedVolume,
-        acceptedVolume: undefined,
         preflight: submitPreflight
       };
     }

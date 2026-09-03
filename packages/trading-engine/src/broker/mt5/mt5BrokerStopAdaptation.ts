@@ -15,7 +15,14 @@ import {
   type Mt5StopLevelValidationResult
 } from "./mt5StopLevels.js";
 
-/** Extra ticks beyond exact broker minimum when widening (floating-point / one-tick safety). */
+/**
+ * Extra ticks beyond exact broker minimum when widening.
+ * This is a floating-point / tick-rounding buffer only — not a latency hedge.
+ * Observed worker→EA latency (~1.9s) can move V10 by more than one tick; prior
+ * TOCTOU moves were tens to hundreds of ticks, so a constant pad cannot cover
+ * transport drift. Final validity is enforced on the EA immediately before
+ * OrderSend, with one worker-side invalid-stops resubmit after a fresh quote.
+ */
 export const MT5_BROKER_STOP_SAFETY_TICKS = 1;
 
 export const MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED = "MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED";
@@ -593,5 +600,105 @@ export function recomputeMt5TakeProfitAtTargetR(
     intendedTargetRMultiple,
     actualTargetRMultiple,
     validation
+  };
+}
+
+export interface FinalizeMt5StopsForSubmitInput extends AdaptMt5BrokerStopsInput {
+  /**
+   * Immutable strategy-intended R (e.g. 2 for ema-pullback-v1).
+   * Must never be an actual/preflight/brokerRequested R.
+   */
+  intendedTargetRMultiple: number;
+}
+
+export interface FinalizeMt5StopsForSubmitResult {
+  ok: boolean;
+  reasonCode: string | null;
+  reasons: string[];
+  adaptation: AdaptMt5BrokerStopsResult;
+  tpRecompute: RecomputeMt5TakeProfitAtTargetRResult | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  stopDistance: number | null;
+  targetDistance: number | null;
+  intendedTargetRMultiple: number;
+  actualTargetRMultiple: number | null;
+}
+
+/**
+ * Final submit geometry: adapt SL to live stop levels, then always recompute TP
+ * from immutable intendedTargetRMultiple. Adaptation must never receive an
+ * actual/stale R in place of strategy intent.
+ */
+export function finalizeMt5StopsForSubmit(
+  input: FinalizeMt5StopsForSubmitInput
+): FinalizeMt5StopsForSubmitResult {
+  const intendedTargetRMultiple =
+    isFiniteNumber(input.intendedTargetRMultiple) && input.intendedTargetRMultiple > 0
+      ? input.intendedTargetRMultiple
+      : 2;
+  const adaptation = adaptMt5BrokerStops({
+    ...input,
+    targetRMultiple: intendedTargetRMultiple
+  });
+  if (!adaptation.ok || adaptation.adjustedStopLoss == null) {
+    return {
+      ok: false,
+      reasonCode: adaptation.reasonCode,
+      reasons: adaptation.reasons,
+      adaptation,
+      tpRecompute: null,
+      stopLoss: adaptation.adjustedStopLoss,
+      takeProfit: adaptation.adjustedTakeProfit,
+      stopDistance: adaptation.adjustedStopDistance,
+      targetDistance: null,
+      intendedTargetRMultiple,
+      actualTargetRMultiple: null
+    };
+  }
+
+  const tpRecompute = recomputeMt5TakeProfitAtTargetR({
+    direction: input.direction,
+    entryPrice: input.entryPrice,
+    stopLoss: adaptation.adjustedStopLoss,
+    intendedTargetRMultiple,
+    bid: input.bid,
+    ask: input.ask,
+    point: input.point,
+    tickSize: input.tickSize,
+    digits: input.digits,
+    stopsLevel: input.stopsLevel,
+    freezeLevel: input.freezeLevel,
+    safetyTicks: input.safetyTicks
+  });
+
+  if (!tpRecompute.ok || tpRecompute.takeProfit == null || tpRecompute.stopLoss == null) {
+    return {
+      ok: false,
+      reasonCode: tpRecompute.reasonCode,
+      reasons: tpRecompute.reasons,
+      adaptation,
+      tpRecompute,
+      stopLoss: tpRecompute.stopLoss ?? adaptation.adjustedStopLoss,
+      takeProfit: tpRecompute.takeProfit,
+      stopDistance: tpRecompute.stopDistance,
+      targetDistance: tpRecompute.targetDistance,
+      intendedTargetRMultiple,
+      actualTargetRMultiple: tpRecompute.actualTargetRMultiple
+    };
+  }
+
+  return {
+    ok: true,
+    reasonCode: null,
+    reasons: [...adaptation.reasons, ...tpRecompute.reasons],
+    adaptation,
+    tpRecompute,
+    stopLoss: tpRecompute.stopLoss,
+    takeProfit: tpRecompute.takeProfit,
+    stopDistance: tpRecompute.stopDistance,
+    targetDistance: tpRecompute.targetDistance,
+    intendedTargetRMultiple,
+    actualTargetRMultiple: tpRecompute.actualTargetRMultiple
   };
 }

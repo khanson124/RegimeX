@@ -549,7 +549,54 @@ void HandleOpen(string json, string requestId, string idempotencyKey, string com
    req.symbol = symbol;
    req.volume = volume;
    req.type = (direction == "SELL" ? ORDER_TYPE_SELL : ORDER_TYPE_BUY);
-   req.price = (req.type == ORDER_TYPE_BUY ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID));
+
+   // Final broker-visible tick immediately before OrderSend. Worker quote can be
+   // ~1–2s stale by the time the EA runs; do NOT silently widen SL/TP here —
+   // reject so the worker can re-adapt under its risk controls and resubmit once.
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick))
+     {
+      WriteReply(requestId, idempotencyKey, command, false, "MT5_NO_TICK", symbol, "", false);
+      return;
+     }
+   req.price = (req.type == ORDER_TYPE_BUY ? tick.ask : tick.bid);
+   long stopsLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   double minDist = stopsLevel * point;
+   bool stopsOk = true;
+   string stopsDetail = "";
+   if(direction == "SELL")
+     {
+      if(sl - tick.ask + 1e-12 < minDist)
+        {
+         stopsOk = false;
+         stopsDetail = StringFormat("SELL_SL;sl=%.8f;ask=%.8f;min=%.8f;dist=%.8f", sl, tick.ask, minDist, sl - tick.ask);
+        }
+      else if(tick.ask - tp + 1e-12 < minDist)
+        {
+         stopsOk = false;
+         stopsDetail = StringFormat("SELL_TP;tp=%.8f;ask=%.8f;min=%.8f;dist=%.8f", tp, tick.ask, minDist, tick.ask - tp);
+        }
+     }
+   else
+     {
+      if(tick.bid - sl + 1e-12 < minDist)
+        {
+         stopsOk = false;
+         stopsDetail = StringFormat("BUY_SL;sl=%.8f;bid=%.8f;min=%.8f;dist=%.8f", sl, tick.bid, minDist, tick.bid - sl);
+        }
+      else if(tp - tick.bid + 1e-12 < minDist)
+        {
+         stopsOk = false;
+         stopsDetail = StringFormat("BUY_TP;tp=%.8f;bid=%.8f;min=%.8f;dist=%.8f", tp, tick.bid, minDist, tp - tick.bid);
+        }
+     }
+   if(!stopsOk)
+     {
+      WriteReply(requestId, idempotencyKey, command, false, "MT5_INVALID_STOPS_AT_SEND", stopsDetail, "", false);
+      return;
+     }
+
    req.sl = sl;
    req.tp = tp;
    req.deviation = 50;

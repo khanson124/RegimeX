@@ -5,6 +5,7 @@ import {
   MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
   MT5_BROKER_STOP_SAFETY_TICKS,
   adaptMt5BrokerStops,
+  finalizeMt5StopsForSubmit,
   recomputeMt5TakeProfitAtTargetR
 } from "./mt5BrokerStopAdaptation.js";
 import {
@@ -694,5 +695,141 @@ describe("adaptMt5BrokerStops", () => {
     expect(tp.ok).toBe(true);
     expect(tp.takeProfit).toBeCloseTo(entry + (entry - sl) * 2, 3);
     expect(tp.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+});
+
+describe("finalizeMt5StopsForSubmit production regressions", () => {
+  const meta = {
+    point: 0.001,
+    tickSize: 0.001,
+    digits: 3,
+    stopsLevel: 720,
+    freezeLevel: 0
+  };
+
+  it("SELL production: preserves intended 2R TP (~4783.616) not stale 1.6907 TP", () => {
+    const bid = 4785.886;
+    const ask = 4786.3;
+    const sl = 4787.021;
+    const staleTp = 4783.967;
+    const staleR = (bid - staleTp) / (sl - bid);
+    expect(staleR).toBeCloseTo(1.6907, 3);
+
+    const finalized = finalizeMt5StopsForSubmit({
+      ...meta,
+      direction: "SELL",
+      stopLoss: sl,
+      takeProfit: staleTp,
+      entryPrice: bid,
+      intendedTargetRMultiple: 2,
+      targetRMultiple: 1.6907, // poisoned actual R must not win
+      bid,
+      ask
+    });
+    expect(finalized.ok).toBe(true);
+    expect(finalized.intendedTargetRMultiple).toBe(2);
+    expect(finalized.takeProfit).toBeCloseTo(4783.616, 3);
+    expect(finalized.actualTargetRMultiple).toBeCloseTo(2, 2);
+    expect(finalized.takeProfit).not.toBeCloseTo(staleTp, 3);
+  });
+
+  it("SELL production: price drift invalidates 0.721 clearance; finalize recovers at intended 2R", () => {
+    const bid = 4785.886;
+    const ask = 4786.3;
+    const sl = 4787.021;
+    const minDist = 0.72;
+    expect(sl - ask).toBeCloseTo(0.721, 3);
+    expect(sl - ask).toBeGreaterThan(minDist);
+
+    const driftedAsk = 4786.302;
+    expect(sl - driftedAsk).toBeLessThan(minDist);
+
+    const finalized = finalizeMt5StopsForSubmit({
+      ...meta,
+      direction: "SELL",
+      stopLoss: sl,
+      takeProfit: 4783.967,
+      entryPrice: bid,
+      intendedTargetRMultiple: 2,
+      targetRMultiple: 2,
+      bid,
+      ask: driftedAsk
+    });
+    expect(finalized.ok).toBe(true);
+    expect(finalized.adaptation.brokerAdjusted).toBe(true);
+    expect(finalized.stopLoss! - driftedAsk).toBeGreaterThanOrEqual(minDist - 1e-9);
+    expect(finalized.intendedTargetRMultiple).toBe(2);
+    expect(finalized.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("BUY equivalent: preserves intended 2R after SL widen", () => {
+    const bid = 4786.3;
+    const ask = 4786.714;
+    const entry = ask;
+    const sl = 4785.579;
+    const staleTp = 4788.633;
+    const finalized = finalizeMt5StopsForSubmit({
+      ...meta,
+      direction: "BUY",
+      stopLoss: sl,
+      takeProfit: staleTp,
+      entryPrice: entry,
+      intendedTargetRMultiple: 2,
+      targetRMultiple: 1.69,
+      bid,
+      ask
+    });
+    expect(finalized.ok).toBe(true);
+    expect(finalized.intendedTargetRMultiple).toBe(2);
+    expect(finalized.actualTargetRMultiple).toBeCloseTo(2, 2);
+    const risk = entry - finalized.stopLoss!;
+    expect(finalized.takeProfit).toBeCloseTo(entry + risk * 2, 3);
+  });
+
+  it("BUY price drift recovers broker-valid SL with intended 2R TP", () => {
+    const bid = 4786.3;
+    const ask = 4786.714;
+    const sl = 4785.579;
+    expect(bid - sl).toBeCloseTo(0.721, 3);
+    const driftedBid = 4786.298;
+    expect(driftedBid - sl).toBeLessThan(0.72);
+
+    const finalized = finalizeMt5StopsForSubmit({
+      ...meta,
+      direction: "BUY",
+      stopLoss: sl,
+      takeProfit: 4788.0,
+      entryPrice: ask,
+      intendedTargetRMultiple: 2,
+      targetRMultiple: 2,
+      bid: driftedBid,
+      ask
+    });
+    expect(finalized.ok).toBe(true);
+    expect(finalized.adaptation.brokerAdjusted).toBe(true);
+    expect(driftedBid - finalized.stopLoss!).toBeGreaterThanOrEqual(0.72 - 1e-9);
+    expect(finalized.actualTargetRMultiple).toBeCloseTo(2, 2);
+  });
+
+  it("no-drift single attempt keeps ~2R without changing valid geometry beyond tick tolerance", () => {
+    const bid = 4785.886;
+    const ask = 4786.3;
+    const entry = bid;
+    const sl = 4787.5;
+    const tp = entry - (sl - entry) * 2;
+    const finalized = finalizeMt5StopsForSubmit({
+      ...meta,
+      direction: "SELL",
+      stopLoss: sl,
+      takeProfit: tp,
+      entryPrice: entry,
+      intendedTargetRMultiple: 2,
+      targetRMultiple: 2,
+      bid,
+      ask
+    });
+    expect(finalized.ok).toBe(true);
+    expect(finalized.adaptation.brokerAdjusted).toBe(false);
+    expect(finalized.actualTargetRMultiple).toBeCloseTo(2, 2);
   });
 });
