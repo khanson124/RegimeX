@@ -133,7 +133,7 @@ describe("strategy evidence lifecycle", () => {
     expect(decision.reasonCodes).toContain("CONFLICTING_POSITIVE_LEDGER");
   });
 
-  it("hard-demotes only with minForwardTrades and corroborated negative edge", () => {
+  it("hard-demotes VALIDATING → DEGRADED with minForwardTrades and corroborated negative edge", () => {
     const degraded = evaluateStrategyLifecycle({
       current: "MT5_FORWARD_VALIDATING",
       evidence: {
@@ -148,20 +148,69 @@ describe("strategy evidence lifecycle", () => {
       }
     });
     expect(degraded.next).toBe("DEGRADED");
-    const suspended = evaluateStrategyLifecycle({
+    expect(lifecycleBlocksNewEntries(degraded.next)).toBe(false);
+  });
+
+  it("persistent deep-negative expectancy keeps DEGRADED observational (no auto SUSPEND)", () => {
+    // Production-shaped: trade 20 demotes to DEGRADED; trade 21 still negative but
+    // consecutiveLosses (4) is below consecutiveLossesSuspend (8).
+    const stillDegraded = evaluateStrategyLifecycle({
       current: "DEGRADED",
       evidence: {
         mt5: {
-          trades: 20,
+          trades: 21,
+          expectancyR: -0.266,
+          profitFactor: 0.7896,
+          maxDrawdownPercent: 9,
+          consecutiveLosses: 4,
+          netRealizedPnl: -1.91
+        }
+      }
+    });
+    expect(stillDegraded.next).toBe("DEGRADED");
+    expect(stillDegraded.changed).toBe(false);
+    expect(stillDegraded.reasonCodes.some((r) => r.startsWith("EXPECTANCY_R_NEGATIVE"))).toBe(true);
+    expect(lifecycleBlocksNewEntries(stillDegraded.next)).toBe(false);
+  });
+
+  it("SUSPENDED remains sticky when reevaluated with negative evidence", () => {
+    const sticky = evaluateStrategyLifecycle({
+      current: "SUSPENDED",
+      evidence: {
+        mt5: {
+          trades: 21,
           expectancyR: -0.5,
           profitFactor: 0.5,
-          maxDrawdownPercent: 9,
-          consecutiveLosses: 3,
+          maxDrawdownPercent: 12,
+          consecutiveLosses: 4,
           netRealizedPnl: -5
         }
       }
     });
-    expect(suspended.next).toBe("SUSPENDED");
+    expect(sticky.next).toBe("SUSPENDED");
+    expect(sticky.changed).toBe(false);
+    expect(sticky.reasonCodes).toContain("STAY_SUSPENDED");
+    expect(lifecycleBlocksNewEntries(sticky.next)).toBe(true);
+  });
+
+  it("SUSPENDED does not auto-resume when expectancy improves", () => {
+    const sticky = evaluateStrategyLifecycle({
+      current: "SUSPENDED",
+      evidence: {
+        mt5: {
+          trades: 25,
+          expectancyR: 0.2,
+          profitFactor: 1.5,
+          maxDrawdownPercent: 4,
+          consecutiveLosses: 0,
+          netRealizedPnl: 5
+        },
+        walkForwardPositivePct: 70,
+        degradationPercent: 10
+      }
+    });
+    expect(sticky.next).toBe("SUSPENDED");
+    expect(sticky.changed).toBe(false);
   });
 
   it("recovers DEGRADED → MT5_FORWARD_VALIDATING when soft/conflicting evidence reappears", () => {

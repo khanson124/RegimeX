@@ -58,8 +58,10 @@ function pfOk(pf: number | null | undefined, min: number): boolean {
 /**
  * Evidence-driven lifecycle. Never enables live money.
  * Tiny samples stay soft (EXPERIMENTAL / VALIDATING). Hard expectancy demotion
- * requires minForwardTrades and corroborating negative edge (PF<1 or net PnL≤0).
- * DEGRADED is observational for DEMO; SUSPENDED/REJECTED remain hard safety stops.
+ * requires minForwardTrades and corroborating negative edge (PF<1 or net PnL≤0)
+ * and demotes into DEGRADED only — never auto-escalates DEGRADED → SUSPENDED.
+ * DEGRADED is observational for DEMO; SUSPENDED/REJECTED remain sticky hard stops
+ * (SUSPENDED via consecutiveLossesSuspend or equivalent explicit safety triggers).
  */
 export function evaluateStrategyLifecycle(input: {
   current: StrategyEvidenceLifecycle;
@@ -83,6 +85,18 @@ export function evaluateStrategyLifecycle(input: {
       next: "REJECTED",
       changed: false,
       reasonCodes: ["STAY_REJECTED"],
+      hasPositiveExpectancyEvidence,
+      riskSafeOnly
+    };
+  }
+
+  // SUSPENDED is sticky: only an explicit operator/recovery path may leave it.
+  // Do not auto-resume when expectancy, PF, or sample improve.
+  if (input.current === "SUSPENDED") {
+    return {
+      next: "SUSPENDED",
+      changed: false,
+      reasonCodes: ["STAY_SUSPENDED"],
       hasPositiveExpectancyEvidence,
       riskSafeOnly
     };
@@ -144,21 +158,20 @@ export function evaluateStrategyLifecycle(input: {
 
   // Hard expectancy demotion only at the same sample bar as PF/DD demotions,
   // and only when the ledger corroborates negative edge.
+  // Deep-negative expectancy may demote into DEGRADED (observational for DEMO)
+  // but must not escalate DEGRADED → SUSPENDED on its own — that is reserved for
+  // explicit hard safety triggers (e.g. consecutiveLossesSuspend).
   if (trades >= t.minForwardTrades && expectancyDeeplyNegative) {
     reasons.push(`EXPECTANCY_R_NEGATIVE:${expectancyR.toFixed(3)}`);
     if (conflictingPositiveLedger) {
       reasons.push("CONFLICTING_POSITIVE_LEDGER");
       const softNext: StrategyEvidenceLifecycle =
-        input.current === "SUSPENDED"
-          ? "SUSPENDED"
-          : input.current === "DEGRADED" || input.current === "EXPERIMENTAL"
-            ? "MT5_FORWARD_VALIDATING"
-            : input.current;
+        input.current === "DEGRADED" || input.current === "EXPERIMENTAL"
+          ? "MT5_FORWARD_VALIDATING"
+          : input.current;
       return finish(input.current, softNext, reasons, false);
     }
-    const next: StrategyEvidenceLifecycle =
-      input.current === "DEGRADED" || input.current === "SUSPENDED" ? "SUSPENDED" : "DEGRADED";
-    return finish(input.current, next, reasons, false);
+    return finish(input.current, "DEGRADED", reasons, false);
   }
 
   if (trades >= t.minForwardTrades && profitFactor != null && profitFactor < 1) {
