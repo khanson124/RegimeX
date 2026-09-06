@@ -928,6 +928,7 @@ export class LiveEngineSession {
         symbol: this.symbol,
         strategyId: chosen.strategy.id,
         regime: regime.regime,
+        regimeConfidence: regime.confidence,
         interval: this.interval,
         decision,
         candle,
@@ -980,6 +981,7 @@ export class LiveEngineSession {
             internalSymbol: this.symbol,
             strategyDecision: decision.action,
             volumePreflight: result.preflight ?? null,
+            entryFeatureTelemetry: result.entryFeatureTelemetry ?? null,
             ...(result.preflight ?? {}),
             ...(this.mt5Cfd?.getHealthSnapshot() ?? {})
           }
@@ -1000,6 +1002,7 @@ export class LiveEngineSession {
             internalSymbol: this.symbol,
             strategyDecision: decision.action,
             volumePreflight: result.preflight ?? null,
+            entryFeatureTelemetry: result.entryFeatureTelemetry ?? null,
             ...(result.preflight ?? {})
           }
         });

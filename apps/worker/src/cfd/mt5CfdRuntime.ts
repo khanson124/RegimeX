@@ -38,6 +38,7 @@ import {
   adaptMt5BrokerStops,
   finalizeMt5StopsForSubmit,
   buildPendingMt5ExecutionTelemetry,
+  buildEntryFeatureTelemetry,
   classifyOpenMarketFailure,
   decideInvalidStopsResubmit,
   compareProposedToFrozenExecutionParams,
@@ -49,7 +50,8 @@ import {
   MT5_BROKER_ADJUSTED_STOP_RISK_BLOCKED,
   MT5_INVALID_STOPS_MAX_RESUBMITS,
   MIN_VOLUME_EXCEEDS_RISK,
-  type AutonomousExecutionPreflight
+  type AutonomousExecutionPreflight,
+  type EntryFeatureTelemetry
 } from "@regimex/trading-engine";
 import { type EventPublisher } from "../lib/events.js";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
@@ -100,6 +102,8 @@ export interface Mt5ExecuteResult {
   requestedVolume?: number;
   acceptedVolume?: number;
   preflight?: AutonomousExecutionPreflight;
+  /** Decision-time entry features — telemetry only; never gates execution. */
+  entryFeatureTelemetry?: EntryFeatureTelemetry | null;
 }
 
 /**
@@ -175,14 +179,35 @@ export class Mt5CfdRuntime {
     symbol: string;
     strategyId: string;
     regime: string;
+    /** Regime classifier confidence at signal time (telemetry only). */
+    regimeConfidence?: number;
     interval: string;
     decision: StrategyDecision;
     candle: Candle;
     features: import("@regimex/shared").MarketFeatureSnapshot;
     candles: Candle[];
   }): Promise<Mt5ExecuteResult> {
+    const entryFeatureTelemetry =
+      input.decision.action === "BUY" || input.decision.action === "SELL"
+        ? buildEntryFeatureTelemetry({
+            feature: input.features,
+            candle: input.candle,
+            decision: input.decision,
+            regime: input.regime,
+            regimeConfidence: input.regimeConfidence ?? 0,
+            symbol: input.symbol,
+            interval: input.interval
+          })
+        : null;
     try {
-      return await this.executeCfdSignalInner(input);
+      const result = await this.executeCfdSignalInner({
+        ...input,
+        entryFeatureTelemetry
+      });
+      return {
+        ...result,
+        entryFeatureTelemetry: result.entryFeatureTelemetry ?? entryFeatureTelemetry
+      };
     } catch (err) {
       const decisionCode = toAutonomousMt5DecisionCode(mt5ErrorCodeFromUnknown(err));
       const reasons = [decisionCode, err instanceof Error ? err.message : String(err)];
@@ -195,7 +220,7 @@ export class Mt5CfdRuntime {
         volumePreflight: null,
         opened: false
       });
-      return { opened: false, reasons, decisionCode };
+      return { opened: false, reasons, decisionCode, entryFeatureTelemetry };
     }
   }
 
@@ -205,11 +230,13 @@ export class Mt5CfdRuntime {
     symbol: string;
     strategyId: string;
     regime: string;
+    regimeConfidence?: number;
     interval: string;
     decision: StrategyDecision;
     candle: Candle;
     features: import("@regimex/shared").MarketFeatureSnapshot;
     candles: Candle[];
+    entryFeatureTelemetry?: EntryFeatureTelemetry | null;
   }): Promise<Mt5ExecuteResult> {
     assertCfdExecutionReachable(this.deps.config);
 
@@ -940,7 +967,10 @@ export class Mt5CfdRuntime {
             engineSymbol: input.symbol,
             ...symbolAudit,
             volumePreflight: preflight,
-            executionTelemetry
+            executionTelemetry,
+            ...(input.entryFeatureTelemetry
+              ? { entryFeatureTelemetry: input.entryFeatureTelemetry }
+              : {})
           }
         },
         this.log

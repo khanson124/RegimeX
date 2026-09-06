@@ -45,6 +45,20 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(src).toContain("entryPrice: fillPrice");
   });
 
+  it("persists entryFeatureTelemetry on pending Position metadata without gating decisions", () => {
+    const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
+    expect(src).toContain("buildEntryFeatureTelemetry");
+    expect(src).toContain("entryFeatureTelemetry");
+    const buildIdx = src.indexOf("buildEntryFeatureTelemetry");
+    const openIdx = src.indexOf("this.adapter.openMarketPosition");
+    const metadataIdx = src.indexOf("entryFeatureTelemetry: input.entryFeatureTelemetry");
+    expect(buildIdx).toBeGreaterThan(-1);
+    expect(metadataIdx).toBeGreaterThan(-1);
+    expect(openIdx).toBeGreaterThan(buildIdx);
+    // Telemetry must not appear in gate/risk decision strings.
+    expect(src).not.toMatch(/if\s*\([^)]*entryFeatureTelemetry[^)]*\)\s*\{[^}]*return/);
+  });
+
   it("uses one effectiveMaxConcurrentPositions for gate log and reservation", () => {
     const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
     expect(src).toContain("resolveMt5EffectiveMaxConcurrentPositions");
