@@ -39,6 +39,9 @@ import {
   finalizeMt5StopsForSubmit,
   buildPendingMt5ExecutionTelemetry,
   buildEntryFeatureTelemetry,
+  buildPreSubmitQuoteSnapshot,
+  finalExecutionCostFields,
+  buildExitCostTelemetry,
   classifyOpenMarketFailure,
   decideInvalidStopsResubmit,
   compareProposedToFrozenExecutionParams,
@@ -1303,8 +1306,17 @@ export class Mt5CfdRuntime {
         preflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
         finalExecution: {
-          bid: finalQuote.bid,
-          ask: finalQuote.ask,
+          ...finalExecutionCostFields(
+            buildPreSubmitQuoteSnapshot({
+              symbol: input.symbol,
+              side: submitDirection,
+              bid: finalQuote.bid,
+              ask: finalQuote.ask,
+              brokerQuoteTimestampMs: finalQuote.timestamp ?? null,
+              localReceivedAtMs: Date.now(),
+              tickSize: instrument.tickSize
+            })
+          ),
           finalEntry: finalFillPrice,
           previousAdaptedStopLoss,
           previousAdaptedTakeProfit,
@@ -1322,7 +1334,18 @@ export class Mt5CfdRuntime {
       });
     }
 
-    const buildOpenRequest = () => ({
+    const buildOpenRequest = () => {
+      const localNow = Date.now();
+      const preSubmit = buildPreSubmitQuoteSnapshot({
+        symbol: input.symbol,
+        side: submitDirection,
+        bid: submitQuote.bid,
+        ask: submitQuote.ask,
+        brokerQuoteTimestampMs: submitQuote.timestamp ?? null,
+        localReceivedAtMs: localNow,
+        tickSize: instrument.tickSize
+      });
+      return {
       idempotencyKey,
       symbol: submitBrokerSymbol,
       direction: submitDirection,
@@ -1349,8 +1372,7 @@ export class Mt5CfdRuntime {
         volumePreflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
         finalExecution: {
-          bid: submitQuote.bid,
-          ask: submitQuote.ask,
+          ...finalExecutionCostFields(preSubmit),
           finalEntry: submitDirection === "BUY" ? submitQuote.ask : submitQuote.bid,
           previousAdaptedStopLoss,
           previousAdaptedTakeProfit,
@@ -1361,10 +1383,12 @@ export class Mt5CfdRuntime {
             (submitExecutionTelemetry as { actualFinalTargetRMultiple?: number | null }).actualFinalTargetRMultiple ??
             null,
           finalRiskAmount: submitRiskAmount,
+          localSubmittedAtMs: localNow,
           invalidStopsResubmits: undefined as number | undefined
         }
       }
-    });
+    };
+    };
 
     let invalidStopsResubmits = 0;
     let result: Awaited<ReturnType<DerivMT5BrokerAdapter["openMarketPosition"]>> | null = null;
@@ -1772,8 +1796,17 @@ export class Mt5CfdRuntime {
         preflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
         finalExecution: {
-          bid: retryQuote.bid,
-          ask: retryQuote.ask,
+          ...finalExecutionCostFields(
+            buildPreSubmitQuoteSnapshot({
+              symbol: input.symbol,
+              side: submitDirection,
+              bid: retryQuote.bid,
+              ask: retryQuote.ask,
+              brokerQuoteTimestampMs: retryQuote.timestamp ?? null,
+              localReceivedAtMs: Date.now(),
+              tickSize: instrument.tickSize
+            })
+          ),
           finalEntry: retryFillPrice,
           previousAdaptedStopLoss,
           previousAdaptedTakeProfit,
@@ -2081,6 +2114,24 @@ export class Mt5CfdRuntime {
       if (!closeResult.applied) {
         continue;
       }
+      // Reconciliation closes after the fact — persist exit price but do not invent exit slippage.
+      const existingMeta = (local.metadata ?? {}) as Record<string, unknown>;
+      await this.deps.prisma.position.update({
+        where: { id: local.id },
+        data: {
+          metadata: {
+            ...existingMeta,
+            exitCostTelemetry: buildExitCostTelemetry({
+              closeReason: evidence.closeReason ?? "BROKER_CLOSE",
+              direction: local.direction as "BUY" | "SELL",
+              actualExitPrice: evidence.exitPrice,
+              brokerCloseTimestampMs: evidence.closedAt ?? null,
+              localClosedAtMs: closedAt.getTime(),
+              preCloseQuote: null
+            })
+          } as object
+        }
+      });
       await recordPositionEvent(this.deps.prisma, local.id, "CLOSED", {
         source: "reconcile",
         realizedPnl: evidence.realizedPnl,

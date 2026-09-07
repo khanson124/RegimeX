@@ -119,6 +119,11 @@ const envSchema = z.object({
   MT5_ENGINE_ENABLED: envBoolean.default(false),
   /** Guarded TEST / status / preflight APIs. Does not enable engine automation. */
   MT5_TEST_MODE: envBoolean.default(false),
+  /**
+   * Research-only: throttle for passive R_10 (etc.) MT5 spread JSONL sampling on quote poll.
+   * 60000 = once per minute. 0 disables. Does not place trades or change decisions.
+   */
+  MT5_PASSIVE_SPREAD_SAMPLE_MS: z.coerce.number().int().min(0).default(60_000),
   MT5_MAX_TEST_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_MAX_TEST_RISK_PERCENT: z.coerce.number().positive().default(0.1),
   MT5_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),

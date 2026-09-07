@@ -58,6 +58,7 @@ import {
   recordMt5QuotePollFailure,
   recordMt5QuotePollSuccess,
   shouldConsumeStrategySignalCooldown,
+  Mt5PassiveSpreadSampler,
   type Mt5QuotePollHealth
 } from "@regimex/trading-engine";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
@@ -117,6 +118,7 @@ export class LiveEngineSession {
   private executedSignals = new Set<string>();
   private lastTickAt: number | null = null;
   private readonly mt5QuoteHealth: Mt5QuotePollHealth = createMt5QuotePollHealth();
+  private mt5PassiveSpreadSampler: Mt5PassiveSpreadSampler | null = null;
   private lastDegradedReasonCode: string | null = null;
   private paused = false;
   private mode: "ANALYSIS_ONLY" | "DEMO_TRADING" = "ANALYSIS_ONLY";
@@ -1513,6 +1515,24 @@ export class LiveEngineSession {
       }
       recordMt5QuotePollSuccess(this.mt5QuoteHealth, quote.timestamp, now);
       this.lastTickAt = quote.timestamp;
+      // Research-only throttled spread sample — never influences trade decisions.
+      if (!this.mt5PassiveSpreadSampler) {
+        const intervalMs = Number(this.deps.config.MT5_PASSIVE_SPREAD_SAMPLE_MS ?? 60_000);
+        if (intervalMs > 0) {
+          this.mt5PassiveSpreadSampler = new Mt5PassiveSpreadSampler({
+            symbol: this.symbol,
+            intervalMs,
+            outPath: `${process.cwd()}/../../research-datasets/${this.symbol}_mt5_passive_spread_samples.jsonl`
+          });
+        }
+      }
+      this.mt5PassiveSpreadSampler?.maybeSample({
+        bid: quote.bid,
+        ask: quote.ask,
+        brokerQuoteTimestampMs: quote.timestamp,
+        localReceivedAtMs: now,
+        nowMs: now
+      });
       this.aggregator?.processTick({
         symbol: this.symbol,
         epochMs: quote.timestamp,

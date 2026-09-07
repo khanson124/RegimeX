@@ -1,6 +1,9 @@
 import { type AppConfig } from "@regimex/config";
 import { type PrismaClient } from "@regimex/database";
-import { selectMt5PositionsForEmergencyClose } from "@regimex/trading-engine";
+import {
+  selectMt5PositionsForEmergencyClose,
+  buildExitCostTelemetry
+} from "@regimex/trading-engine";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
 import { type Logger } from "pino";
 import { refreshEvidenceForClosedPosition } from "./mt5ForwardEvidence.js";
@@ -9,6 +12,48 @@ import {
   type TelegramTradeNotifier
 } from "../notifications/telegram.js";
 import { closeLocalPositionIfCloseable } from "./mt5ExecutionIntegrity.js";
+
+async function attachExitCostTelemetry(input: {
+  prisma: PrismaClient;
+  positionId: string;
+  direction: string;
+  symbol: string;
+  closeReason: string;
+  actualExitPrice: number | null;
+  preCloseQuote: { bid: number; ask: number; timestamp?: number } | null;
+  tickSize?: number;
+}): Promise<void> {
+  const existing = await input.prisma.position.findUnique({
+    where: { id: input.positionId },
+    select: { metadata: true }
+  });
+  const meta = (existing?.metadata ?? {}) as Record<string, unknown>;
+  const exitCostTelemetry = buildExitCostTelemetry({
+    closeReason: input.closeReason,
+    direction: input.direction as "BUY" | "SELL",
+    actualExitPrice: input.actualExitPrice,
+    localClosedAtMs: Date.now(),
+    preCloseQuote: input.preCloseQuote
+      ? {
+          bid: input.preCloseQuote.bid,
+          ask: input.preCloseQuote.ask,
+          brokerQuoteTimestampMs: input.preCloseQuote.timestamp ?? null,
+          localReceivedAtMs: Date.now(),
+          tickSize: input.tickSize ?? 0.001,
+          symbol: input.symbol
+        }
+      : null
+  });
+  await input.prisma.position.update({
+    where: { id: input.positionId },
+    data: {
+      metadata: {
+        ...meta,
+        exitCostTelemetry
+      } as object
+    }
+  });
+}
 
 export async function closeMt5LocalPosition(input: {
   prisma: PrismaClient;
@@ -31,6 +76,14 @@ export async function closeMt5LocalPosition(input: {
   }
 
   const adapter = await getOrConnectMt5Adapter(input.config);
+  let preCloseQuote: { bid: number; ask: number; timestamp?: number } | null = null;
+  try {
+    const brokerSymbol =
+      ((pos.metadata ?? {}) as { brokerSymbol?: string }).brokerSymbol ?? pos.symbol;
+    preCloseQuote = (await adapter.getQuote(brokerSymbol)) ?? null;
+  } catch {
+    preCloseQuote = null;
+  }
   const closed = await adapter.closePosition({
     brokerPositionId: pos.brokerPositionId,
     reason: "MANUAL"
@@ -50,6 +103,15 @@ export async function closeMt5LocalPosition(input: {
   if (!applied.applied) {
     return { closed: true, reasons: ["Already closed or stale state"] };
   }
+  await attachExitCostTelemetry({
+    prisma: input.prisma,
+    positionId: pos.id,
+    direction: pos.direction,
+    symbol: pos.symbol,
+    closeReason: "MANUAL",
+    actualExitPrice: closed.closePrice,
+    preCloseQuote
+  });
   await input.prisma.positionEvent.create({
     data: {
       positionId: pos.id,

@@ -1,0 +1,1103 @@
+{
+  "dataAvailability": {
+    "totalInDb": 185759,
+    "historyApiCount": 182708,
+    "loaded": 182708,
+    "loadSourcePreference": "HISTORY_API",
+    "moreThanPrevious7000Sample": true,
+    "note": "Loaded HISTORY_API R_10 1m only (research provenance)"
+  },
+  "audit": {
+    "actualCandleCount": 182708,
+    "firstOpenTime": 1777593660000,
+    "lastOpenTime": 1788739200000,
+    "firstIso": "2026-05-01T00:01:00.000Z",
+    "lastIso": "2026-09-07T00:00:00.000Z",
+    "spanMs": 11145540000,
+    "expectedContinuous1mCount": 185760,
+    "missingCandleCount": 3052,
+    "missingCandlePct": 0.01643,
+    "coveragePct": 0.98357,
+    "duplicateTimestamps": 0,
+    "outOfOrderTimestamps": 0,
+    "invalidOhlc": 0,
+    "zeroRange": 182,
+    "gapCount": 83,
+    "gapSizeDistribution": {
+      "missing1": 22,
+      "missing2to4": 32,
+      "missing5to14": 3,
+      "missing15to59": 9,
+      "missing60to1439": 17,
+      "missing1dayPlus": 0
+    },
+    "longestGaps": [
+      {
+        "afterIndex": 154438,
+        "fromOpenTime": 1786928520000,
+        "toOpenTime": 1786969620000,
+        "fromIso": "2026-08-17T01:02:00.000Z",
+        "toIso": "2026-08-17T12:27:00.000Z",
+        "deltaMs": 41100000,
+        "missingMinutes": 684,
+        "priceJumpAbs": 1.54,
+        "priceJumpPct": 0.000161
+      },
+      {
+        "afterIndex": 154239,
+        "fromOpenTime": 1786864080000,
+        "toOpenTime": 1786884900000,
+        "fromIso": "2026-08-16T07:08:00.000Z",
+        "toIso": "2026-08-16T12:55:00.000Z",
+        "deltaMs": 20820000,
+        "missingMinutes": 346,
+        "priceJumpAbs": 44.18,
+        "priceJumpPct": 0.004648
+      },
+      {
+        "afterIndex": 154422,
+        "fromOpenTime": 1786910040000,
+        "toOpenTime": 1786927620000,
+        "fromIso": "2026-08-16T19:54:00.000Z",
+        "toIso": "2026-08-17T00:47:00.000Z",
+        "deltaMs": 17580000,
+        "missingMinutes": 292,
+        "priceJumpAbs": 15.57,
+        "priceJumpPct": 0.001628
+      },
+      {
+        "afterIndex": 158715,
+        "fromOpenTime": 1787239620000,
+        "toOpenTime": 1787254860000,
+        "fromIso": "2026-08-20T15:27:00.000Z",
+        "toIso": "2026-08-20T19:41:00.000Z",
+        "deltaMs": 15240000,
+        "missingMinutes": 253,
+        "priceJumpAbs": 18.03,
+        "priceJumpPct": 0.001848
+      },
+      {
+        "afterIndex": 160676,
+        "fromOpenTime": 1787406720000,
+        "toOpenTime": 1787414160000,
+        "fromIso": "2026-08-22T13:52:00.000Z",
+        "toIso": "2026-08-22T15:56:00.000Z",
+        "deltaMs": 7440000,
+        "missingMinutes": 123,
+        "priceJumpAbs": 12.25,
+        "priceJumpPct": 0.001248
+      },
+      {
+        "afterIndex": 154335,
+        "fromOpenTime": 1786894380000,
+        "toOpenTime": 1786901580000,
+        "fromIso": "2026-08-16T15:33:00.000Z",
+        "toIso": "2026-08-16T17:33:00.000Z",
+        "deltaMs": 7200000,
+        "missingMinutes": 119,
+        "priceJumpAbs": 12.48,
+        "priceJumpPct": 0.001304
+      },
+      {
+        "afterIndex": 160580,
+        "fromOpenTime": 1787375400000,
+        "toOpenTime": 1787382240000,
+        "fromIso": "2026-08-22T05:10:00.000Z",
+        "toIso": "2026-08-22T07:04:00.000Z",
+        "deltaMs": 6840000,
+        "missingMinutes": 113,
+        "priceJumpAbs": 6.15,
+        "priceJumpPct": 0.000628
+      },
+      {
+        "afterIndex": 106075,
+        "fromOpenTime": 1783960380000,
+        "toOpenTime": 1783966800000,
+        "fromIso": "2026-07-13T16:33:00.000Z",
+        "toIso": "2026-07-13T18:20:00.000Z",
+        "deltaMs": 6420000,
+        "missingMinutes": 106,
+        "priceJumpAbs": 4.93,
+        "priceJumpPct": 0.000522
+      },
+      {
+        "afterIndex": 154486,
+        "fromOpenTime": 1786976520000,
+        "toOpenTime": 1786981080000,
+        "fromIso": "2026-08-17T14:22:00.000Z",
+        "toIso": "2026-08-17T15:38:00.000Z",
+        "deltaMs": 4560000,
+        "missingMinutes": 75,
+        "priceJumpAbs": 6.81,
+        "priceJumpPct": 0.000711
+      },
+      {
+        "afterIndex": 154501,
+        "fromOpenTime": 1786981920000,
+        "toOpenTime": 1786986300000,
+        "fromIso": "2026-08-17T15:52:00.000Z",
+        "toIso": "2026-08-17T17:05:00.000Z",
+        "deltaMs": 4380000,
+        "missingMinutes": 72,
+        "priceJumpAbs": 21.65,
+        "priceJumpPct": 0.002257
+      }
+    ],
+    "suspiciousPriceJumpsNearGaps": []
+  },
+  "resampling": {
+    "legacyRaw5mBars": 36578,
+    "contiguousValid5mBars": 36477,
+    "excluded5mBars": 109,
+    "excludeReasons": {
+      "INCOMPLETE_COUNT": 109
+    },
+    "legacyBarsThatWouldBridgeGaps": 101,
+    "expectedSourceBarsPerBucket": 5
+  },
+  "research": {
+    "holdoutStartOpenTime": 1785283440000,
+    "holdoutStartIso": "2026-07-29T00:04:00.000Z",
+    "holdoutUsedForParameterSelection": false,
+    "runs": [
+      {
+        "strategyId": "breakout-momentum-v1",
+        "timeframe": "1m",
+        "candleCount": 182708,
+        "developmentCount": 127895,
+        "holdoutCount": 54813,
+        "classification": "RAW_EDGE_COST_KILLED",
+        "realistic": {
+          "development": {
+            "trades": 434,
+            "wins": 45,
+            "losses": 389,
+            "winRate": 0.1037,
+            "profitFactor": 0.0432,
+            "expectancyR": -0.7865,
+            "averageWinR": 0.3265,
+            "averageLossR": -0.9152,
+            "netR": -341.3301,
+            "netPnl": -7435.19,
+            "maxDrawdown": 7443.08,
+            "maxDrawdownPercent": 0.7437212039700677,
+            "longestLossStreak": 53,
+            "averageBarsHeld": 51.15668202764977,
+            "averageHoldingMs": 3069400.9216589862,
+            "buyTrades": 204,
+            "sellTrades": 230,
+            "buyExpectancyR": -0.8264,
+            "sellExpectancyR": -0.7511,
+            "buyWinRate": 0.0931,
+            "sellWinRate": 0.113,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 434,
+                "winRate": 0.1037,
+                "expectancyR": -0.7865
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 391,
+            "wins": 37,
+            "losses": 354,
+            "winRate": 0.0946,
+            "profitFactor": 0.028,
+            "expectancyR": -0.7702,
+            "averageWinR": 0.2503,
+            "averageLossR": -0.8769,
+            "netR": -301.1666,
+            "netPnl": -6926.35,
+            "maxDrawdown": 6927.4,
+            "maxDrawdownPercent": 0.6926672699366566,
+            "longestLossStreak": 35,
+            "averageBarsHeld": 50.59846547314578,
+            "averageHoldingMs": 3035907.928388747,
+            "buyTrades": 209,
+            "sellTrades": 182,
+            "buyExpectancyR": -0.7378,
+            "sellExpectancyR": -0.8075,
+            "buyWinRate": 0.1005,
+            "sellWinRate": 0.0879,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 391,
+                "winRate": 0.0946,
+                "expectancyR": -0.7702
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "walkForward": {
+            "windows": 308,
+            "percentPositiveExpectancy": 0.013,
+            "percentProfitFactorAboveOne": 0.013,
+            "medianExpectancyR": -0.7615,
+            "worstExpectancyR": -1.4574,
+            "bestExpectancyR": 0.2374,
+            "totalOosTrades": 900,
+            "singleWindowDominated": false
+          },
+          "costToMoveDevelopment": {
+            "trades": 434,
+            "withAtr": 434,
+            "medianCostAtr": 3.4080719999999998,
+            "medianRoundTripCostAtr": 6.816145000000001,
+            "medianStopAtr": 8.866931000000001,
+            "medianTargetAtr": 17.7338615,
+            "medianCostDragR": 0.3853,
+            "medianCostAsPctOfStop": 0.7706675000000001
+          },
+          "costToMoveHoldout": {
+            "trades": 391,
+            "withAtr": 391,
+            "medianCostAtr": 3.416062,
+            "medianRoundTripCostAtr": 6.832124,
+            "medianStopAtr": 9.035193,
+            "medianTargetAtr": 18.070385,
+            "medianCostDragR": 0.3784,
+            "medianCostAsPctOfStop": 0.75738
+          }
+        },
+        "zeroCost": {
+          "development": {
+            "trades": 1171,
+            "wins": 548,
+            "losses": 622,
+            "winRate": 0.468,
+            "profitFactor": 0.9885,
+            "expectancyR": -0.0002,
+            "averageWinR": 0.7388,
+            "averageLossR": -0.6514,
+            "netR": -0.2651,
+            "netPnl": -208.08,
+            "maxDrawdown": 973.48,
+            "maxDrawdownPercent": 0.0925423674031232,
+            "longestLossStreak": 14,
+            "averageBarsHeld": 52.23654995730145,
+            "averageHoldingMs": 3134192.997438087,
+            "buyTrades": 556,
+            "sellTrades": 615,
+            "buyExpectancyR": -0.0447,
+            "sellExpectancyR": 0.04,
+            "buyWinRate": 0.4424,
+            "sellWinRate": 0.4911,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 1171,
+                "winRate": 0.468,
+                "expectancyR": -0.0002
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 493,
+            "wins": 248,
+            "losses": 245,
+            "winRate": 0.503,
+            "profitFactor": 1.1044,
+            "expectancyR": 0.0368,
+            "averageWinR": 0.7501,
+            "averageLossR": -0.6852,
+            "netR": 18.1348,
+            "netPnl": 814.3,
+            "maxDrawdown": 633.75,
+            "maxDrawdownPercent": 0.058277094596023635,
+            "longestLossStreak": 6,
+            "averageBarsHeld": 51.15212981744422,
+            "averageHoldingMs": 3069127.789046653,
+            "buyTrades": 252,
+            "sellTrades": 241,
+            "buyExpectancyR": 0.057,
+            "sellExpectancyR": 0.0156,
+            "buyWinRate": 0.5159,
+            "sellWinRate": 0.4896,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 493,
+                "winRate": 0.503,
+                "expectancyR": 0.0368
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          }
+        },
+        "costSweep": [
+          {
+            "spreadBps": 4,
+            "slippageBps": 1,
+            "trades": 489,
+            "expectancyR": -0.3792,
+            "profitFactor": 0.2493,
+            "netR": -185.4501
+          },
+          {
+            "spreadBps": 6,
+            "slippageBps": 2,
+            "trades": 476,
+            "expectancyR": -0.5612,
+            "profitFactor": 0.0961,
+            "netR": -267.1166
+          },
+          {
+            "spreadBps": 8,
+            "slippageBps": 3,
+            "trades": 391,
+            "expectancyR": -0.7702,
+            "profitFactor": 0.028,
+            "netR": -301.1666
+          },
+          {
+            "spreadBps": 10,
+            "slippageBps": 4,
+            "trades": 328,
+            "expectancyR": -0.8836,
+            "profitFactor": 0.0112,
+            "netR": -289.811
+          }
+        ],
+        "breakEven": {
+          "maximumCostForPositiveExpectancy": null,
+          "crossedBetween": null,
+          "note": "No tested cost level produced positive expectancy"
+        },
+        "winLossMedians": {
+          "wins": {
+            "atr": 2.033193093554174,
+            "adx": 27.9525524915752,
+            "donchianWidthAtr": 5.0131187067559395,
+            "stopDistanceAtr": 9.073474897662804,
+            "targetDistanceAtr": 18.146949795326545,
+            "netR": 0.21885,
+            "grossR": 0.6184499999999999,
+            "barsHeld": 60,
+            "candleBodySizeAtr": 0.8505168430297132,
+            "distanceFromLongEmaAtr": 7.091432853503055
+          },
+          "losses": {
+            "atr": 2.0225089388615713,
+            "adx": 27.574227816802814,
+            "donchianWidthAtr": 5.022202914383572,
+            "stopDistanceAtr": 8.924027109049062,
+            "targetDistanceAtr": 17.848054218098124,
+            "netR": -0.8903,
+            "grossR": -0.5133,
+            "barsHeld": 60,
+            "candleBodySizeAtr": 0.8612760752257438,
+            "distanceFromLongEmaAtr": 6.9947286872722
+          },
+          "winN": 82,
+          "lossN": 743
+        }
+      },
+      {
+        "strategyId": "breakout-momentum-v1",
+        "timeframe": "5m",
+        "candleCount": 36477,
+        "developmentCount": 25566,
+        "holdoutCount": 10911,
+        "classification": "RAW_EDGE_COST_KILLED",
+        "realistic": {
+          "development": {
+            "trades": 258,
+            "wins": 49,
+            "losses": 209,
+            "winRate": 0.1899,
+            "profitFactor": 0.0904,
+            "expectancyR": -0.4581,
+            "averageWinR": 0.2305,
+            "averageLossR": -0.6195,
+            "netR": -118.1864,
+            "netPnl": -3674.87,
+            "maxDrawdown": 3692.2,
+            "maxDrawdownPercent": 0.3685812486960098,
+            "longestLossStreak": 37,
+            "averageBarsHeld": 23.011627906976745,
+            "averageHoldingMs": 6903488.372093023,
+            "buyTrades": 121,
+            "sellTrades": 137,
+            "buyExpectancyR": -0.4497,
+            "sellExpectancyR": -0.4655,
+            "buyWinRate": 0.1983,
+            "sellWinRate": 0.1825,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 258,
+                "winRate": 0.1899,
+                "expectancyR": -0.4581
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 135,
+            "wins": 23,
+            "losses": 112,
+            "winRate": 0.1704,
+            "profitFactor": 0.0867,
+            "expectancyR": -0.4043,
+            "averageWinR": 0.2389,
+            "averageLossR": -0.5364,
+            "netR": -54.5822,
+            "netPnl": -1807.07,
+            "maxDrawdown": 1809.34,
+            "maxDrawdownPercent": 0.18089293730323214,
+            "longestLossStreak": 13,
+            "averageBarsHeld": 23.266666666666666,
+            "averageHoldingMs": 6984444.444444444,
+            "buyTrades": 68,
+            "sellTrades": 67,
+            "buyExpectancyR": -0.364,
+            "sellExpectancyR": -0.4452,
+            "buyWinRate": 0.1765,
+            "sellWinRate": 0.1642,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 135,
+                "winRate": 0.1704,
+                "expectancyR": -0.4043
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "walkForward": {
+            "windows": 11,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": -0.4096,
+            "worstExpectancyR": -0.549,
+            "bestExpectancyR": -0.2853,
+            "totalOosTrades": 11,
+            "singleWindowDominated": false
+          },
+          "costToMoveDevelopment": {
+            "trades": 258,
+            "withAtr": 258,
+            "medianCostAtr": 1.440452,
+            "medianRoundTripCostAtr": 2.880904,
+            "medianStopAtr": 6.6780545,
+            "medianTargetAtr": 13.356109,
+            "medianCostDragR": 0.21600000000000003,
+            "medianCostAsPctOfStop": 0.4324945
+          },
+          "costToMoveHoldout": {
+            "trades": 135,
+            "withAtr": 135,
+            "medianCostAtr": 1.445243,
+            "medianRoundTripCostAtr": 2.890486,
+            "medianStopAtr": 6.97002,
+            "medianTargetAtr": 13.94004,
+            "medianCostDragR": 0.209,
+            "medianCostAsPctOfStop": 0.418287
+          }
+        },
+        "zeroCost": {
+          "development": {
+            "trades": 315,
+            "wins": 159,
+            "losses": 156,
+            "winRate": 0.5048,
+            "profitFactor": 0.9627,
+            "expectancyR": -0.0218,
+            "averageWinR": 0.4582,
+            "averageLossR": -0.511,
+            "netR": -6.8707,
+            "netPnl": -107.07,
+            "maxDrawdown": 637.34,
+            "maxDrawdownPercent": 0.06087198202130434,
+            "longestLossStreak": 8,
+            "averageBarsHeld": 23.022222222222222,
+            "averageHoldingMs": 6906666.666666667,
+            "buyTrades": 142,
+            "sellTrades": 173,
+            "buyExpectancyR": -0.031,
+            "sellExpectancyR": -0.0143,
+            "buyWinRate": 0.4859,
+            "sellWinRate": 0.5202,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 315,
+                "winRate": 0.5048,
+                "expectancyR": -0.0218
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 141,
+            "wins": 74,
+            "losses": 67,
+            "winRate": 0.5248,
+            "profitFactor": 1.045,
+            "expectancyR": 0.0138,
+            "averageWinR": 0.4477,
+            "averageLossR": -0.4655,
+            "netR": 1.9407,
+            "netPnl": 55,
+            "maxDrawdown": 402.96,
+            "maxDrawdownPercent": 0.0385314153047057,
+            "longestLossStreak": 8,
+            "averageBarsHeld": 23.29787234042553,
+            "averageHoldingMs": 6993617.021276596,
+            "buyTrades": 69,
+            "sellTrades": 72,
+            "buyExpectancyR": 0.0831,
+            "sellExpectancyR": -0.0526,
+            "buyWinRate": 0.5652,
+            "sellWinRate": 0.4861,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 141,
+                "winRate": 0.5248,
+                "expectancyR": 0.0138
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          }
+        },
+        "costSweep": [
+          {
+            "spreadBps": 4,
+            "slippageBps": 1,
+            "trades": 141,
+            "expectancyR": -0.1974,
+            "profitFactor": 0.4189,
+            "netR": -27.8383
+          },
+          {
+            "spreadBps": 6,
+            "slippageBps": 2,
+            "trades": 140,
+            "expectancyR": -0.3117,
+            "profitFactor": 0.1815,
+            "netR": -43.6376
+          },
+          {
+            "spreadBps": 8,
+            "slippageBps": 3,
+            "trades": 135,
+            "expectancyR": -0.4043,
+            "profitFactor": 0.0867,
+            "netR": -54.5822
+          },
+          {
+            "spreadBps": 10,
+            "slippageBps": 4,
+            "trades": 129,
+            "expectancyR": -0.5171,
+            "profitFactor": 0.0393,
+            "netR": -66.7065
+          }
+        ],
+        "breakEven": {
+          "maximumCostForPositiveExpectancy": null,
+          "crossedBetween": null,
+          "note": "No tested cost level produced positive expectancy"
+        },
+        "winLossMedians": {
+          "wins": {
+            "atr": 4.821395034085274,
+            "adx": 27.998024095854046,
+            "donchianWidthAtr": 4.713066592067848,
+            "stopDistanceAtr": 6.578134976251251,
+            "targetDistanceAtr": 13.156269952502901,
+            "netR": 0.15560000000000002,
+            "grossR": 0.36845,
+            "barsHeld": 24,
+            "candleBodySizeAtr": 0.9075363674887105,
+            "distanceFromLongEmaAtr": 5.104999617622585
+          },
+          "losses": {
+            "atr": 4.777948119064438,
+            "adx": 28.146595891155865,
+            "donchianWidthAtr": 4.789217854134443,
+            "stopDistanceAtr": 6.7603417819479406,
+            "targetDistanceAtr": 13.52068356389513,
+            "netR": -0.4909,
+            "grossR": -0.2711,
+            "barsHeld": 24,
+            "candleBodySizeAtr": 0.8639093616861881,
+            "distanceFromLongEmaAtr": 4.861928406654335
+          },
+          "winN": 72,
+          "lossN": 321
+        }
+      },
+      {
+        "strategyId": "squeeze-breakout-v1",
+        "timeframe": "1m",
+        "candleCount": 182708,
+        "developmentCount": 127895,
+        "holdoutCount": 54813,
+        "classification": "RAW_EDGE_COST_KILLED",
+        "realistic": {
+          "development": {
+            "trades": 398,
+            "wins": 39,
+            "losses": 359,
+            "winRate": 0.098,
+            "profitFactor": 0.0266,
+            "expectancyR": -0.7465,
+            "averageWinR": 0.2241,
+            "averageLossR": -0.852,
+            "netR": -297.1202,
+            "netPnl": -6919.34,
+            "maxDrawdown": 6919.34,
+            "maxDrawdownPercent": 0.691934,
+            "longestLossStreak": 37,
+            "averageBarsHeld": 53.163316582914575,
+            "averageHoldingMs": 3189798.9949748744,
+            "buyTrades": 197,
+            "sellTrades": 201,
+            "buyExpectancyR": -0.7855,
+            "sellExpectancyR": -0.7083,
+            "buyWinRate": 0.066,
+            "sellWinRate": 0.1294,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 398,
+                "winRate": 0.098,
+                "expectancyR": -0.7465
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 344,
+            "wins": 42,
+            "losses": 302,
+            "winRate": 0.1221,
+            "profitFactor": 0.0415,
+            "expectancyR": -0.6926,
+            "averageWinR": 0.2534,
+            "averageLossR": -0.8241,
+            "netR": -238.2458,
+            "netPnl": -5876.09,
+            "maxDrawdown": 5876.09,
+            "maxDrawdownPercent": 0.587609,
+            "longestLossStreak": 31,
+            "averageBarsHeld": 53.27906976744186,
+            "averageHoldingMs": 3196744.1860465114,
+            "buyTrades": 174,
+            "sellTrades": 170,
+            "buyExpectancyR": -0.6392,
+            "sellExpectancyR": -0.7473,
+            "buyWinRate": 0.1437,
+            "sellWinRate": 0.1,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 344,
+                "winRate": 0.1221,
+                "expectancyR": -0.6926
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "walkForward": {
+            "windows": 300,
+            "percentPositiveExpectancy": 0.03,
+            "percentProfitFactorAboveOne": 0.0067,
+            "medianExpectancyR": -0.7253,
+            "worstExpectancyR": -1.4239,
+            "bestExpectancyR": 0.7098,
+            "totalOosTrades": 636,
+            "singleWindowDominated": false
+          },
+          "costToMoveDevelopment": {
+            "trades": 398,
+            "withAtr": 398,
+            "medianCostAtr": 3.49141,
+            "medianRoundTripCostAtr": 6.98282,
+            "medianStopAtr": 9.240252,
+            "medianTargetAtr": 18.480503499999998,
+            "medianCostDragR": 0.37735,
+            "medianCostAsPctOfStop": 0.754757
+          },
+          "costToMoveHoldout": {
+            "trades": 344,
+            "withAtr": 344,
+            "medianCostAtr": 3.4799515000000003,
+            "medianRoundTripCostAtr": 6.959903000000001,
+            "medianStopAtr": 9.393499,
+            "medianTargetAtr": 18.786998500000003,
+            "medianCostDragR": 0.3701,
+            "medianCostAsPctOfStop": 0.7405875
+          }
+        },
+        "zeroCost": {
+          "development": {
+            "trades": 791,
+            "wins": 390,
+            "losses": 401,
+            "winRate": 0.493,
+            "profitFactor": 1.0944,
+            "expectancyR": 0.0325,
+            "averageWinR": 0.7373,
+            "averageLossR": -0.6529,
+            "netR": 25.7374,
+            "netPnl": 1172.62,
+            "maxDrawdown": 863.77,
+            "maxDrawdownPercent": 0.07726477836367945,
+            "longestLossStreak": 8,
+            "averageBarsHeld": 53.308470290771176,
+            "averageHoldingMs": 3198584.0707964604,
+            "buyTrades": 396,
+            "sellTrades": 395,
+            "buyExpectancyR": -0.0404,
+            "sellExpectancyR": 0.1057,
+            "buyWinRate": 0.4495,
+            "sellWinRate": 0.5367,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 791,
+                "winRate": 0.493,
+                "expectancyR": 0.0325
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 351,
+            "wins": 181,
+            "losses": 170,
+            "winRate": 0.5157,
+            "profitFactor": 1.2149,
+            "expectancyR": 0.0641,
+            "averageWinR": 0.7694,
+            "averageLossR": -0.6869,
+            "netR": 22.4924,
+            "netPnl": 1153.36,
+            "maxDrawdown": 536.77,
+            "maxDrawdownPercent": 0.04844718810425649,
+            "longestLossStreak": 8,
+            "averageBarsHeld": 52.98860398860399,
+            "averageHoldingMs": 3179316.2393162395,
+            "buyTrades": 179,
+            "sellTrades": 172,
+            "buyExpectancyR": 0.1494,
+            "sellExpectancyR": -0.0247,
+            "buyWinRate": 0.5419,
+            "sellWinRate": 0.4884,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 351,
+                "winRate": 0.5157,
+                "expectancyR": 0.0641
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          }
+        },
+        "costSweep": [
+          {
+            "spreadBps": 4,
+            "slippageBps": 1,
+            "trades": 349,
+            "expectancyR": -0.3514,
+            "profitFactor": 0.2957,
+            "netR": -122.6313
+          },
+          {
+            "spreadBps": 6,
+            "slippageBps": 2,
+            "trades": 349,
+            "expectancyR": -0.5451,
+            "profitFactor": 0.1053,
+            "netR": -190.2245
+          },
+          {
+            "spreadBps": 8,
+            "slippageBps": 3,
+            "trades": 344,
+            "expectancyR": -0.6926,
+            "profitFactor": 0.0415,
+            "netR": -238.2458
+          },
+          {
+            "spreadBps": 10,
+            "slippageBps": 4,
+            "trades": 315,
+            "expectancyR": -0.8268,
+            "profitFactor": 0.0111,
+            "netR": -260.4369
+          }
+        ],
+        "breakEven": {
+          "maximumCostForPositiveExpectancy": null,
+          "crossedBetween": null,
+          "note": "No tested cost level produced positive expectancy"
+        },
+        "winLossMedians": {
+          "wins": {
+            "atr": 1.9956119183041368,
+            "adx": 24.28999434049348,
+            "donchianWidthAtr": 5.164913791433786,
+            "stopDistanceAtr": 9.454545447733553,
+            "targetDistanceAtr": 18.909090890365544,
+            "netR": 0.196,
+            "grossR": 0.5569,
+            "barsHeld": 60,
+            "candleBodySizeAtr": 0.9692189601478619,
+            "distanceFromLongEmaAtr": 6.940967992594238
+          },
+          "losses": {
+            "atr": 1.9795493739527643,
+            "adx": 23.681106462975073,
+            "donchianWidthAtr": 4.897636665232665,
+            "stopDistanceAtr": 9.324639194121012,
+            "targetDistanceAtr": 18.649278393616658,
+            "netR": -0.8246,
+            "grossR": -0.4582,
+            "barsHeld": 60,
+            "candleBodySizeAtr": 0.8937168089368217,
+            "distanceFromLongEmaAtr": 7.006756175819909
+          },
+          "winN": 81,
+          "lossN": 661
+        }
+      },
+      {
+        "strategyId": "squeeze-breakout-v1",
+        "timeframe": "5m",
+        "candleCount": 36477,
+        "developmentCount": 25566,
+        "holdoutCount": 10911,
+        "classification": "RAW_EDGE_COST_KILLED",
+        "realistic": {
+          "development": {
+            "trades": 359,
+            "wins": 60,
+            "losses": 299,
+            "winRate": 0.1671,
+            "profitFactor": 0.0782,
+            "expectancyR": -0.5476,
+            "averageWinR": 0.2959,
+            "averageLossR": -0.7169,
+            "netR": -196.5886,
+            "netPnl": -5370,
+            "maxDrawdown": 5376.95,
+            "maxDrawdownPercent": 0.5373215615147472,
+            "longestLossStreak": 33,
+            "averageBarsHeld": 21.963788300835656,
+            "averageHoldingMs": 6589136.490250696,
+            "buyTrades": 171,
+            "sellTrades": 188,
+            "buyExpectancyR": -0.6048,
+            "sellExpectancyR": -0.4956,
+            "buyWinRate": 0.1462,
+            "sellWinRate": 0.1862,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 359,
+                "winRate": 0.1671,
+                "expectancyR": -0.5476
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 200,
+            "wins": 37,
+            "losses": 163,
+            "winRate": 0.185,
+            "profitFactor": 0.112,
+            "expectancyR": -0.4871,
+            "averageWinR": 0.3311,
+            "averageLossR": -0.6729,
+            "netR": -97.429,
+            "netPnl": -2910.9,
+            "maxDrawdown": 2924.78,
+            "maxDrawdownPercent": 0.29207260322672135,
+            "longestLossStreak": 19,
+            "averageBarsHeld": 22.08,
+            "averageHoldingMs": 6624000,
+            "buyTrades": 105,
+            "sellTrades": 95,
+            "buyExpectancyR": -0.4598,
+            "sellExpectancyR": -0.5174,
+            "buyWinRate": 0.2095,
+            "sellWinRate": 0.1579,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 200,
+                "winRate": 0.185,
+                "expectancyR": -0.4871
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "walkForward": {
+            "windows": 30,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": -0.4612,
+            "worstExpectancyR": -0.5937,
+            "bestExpectancyR": -0.3045,
+            "totalOosTrades": 30,
+            "singleWindowDominated": false
+          },
+          "costToMoveDevelopment": {
+            "trades": 359,
+            "withAtr": 359,
+            "medianCostAtr": 1.507231,
+            "medianRoundTripCostAtr": 3.014462,
+            "medianStopAtr": 5.68811,
+            "medianTargetAtr": 11.376221,
+            "medianCostDragR": 0.2659,
+            "medianCostAsPctOfStop": 0.531584
+          },
+          "costToMoveHoldout": {
+            "trades": 200,
+            "withAtr": 200,
+            "medianCostAtr": 1.503165,
+            "medianRoundTripCostAtr": 3.0063295,
+            "medianStopAtr": 5.8826125000000005,
+            "medianTargetAtr": 11.7652245,
+            "medianCostDragR": 0.24969999999999998,
+            "medianCostAsPctOfStop": 0.499392
+          }
+        },
+        "zeroCost": {
+          "development": {
+            "trades": 470,
+            "wins": 232,
+            "losses": 238,
+            "winRate": 0.4936,
+            "profitFactor": 1.009,
+            "expectancyR": -0.0072,
+            "averageWinR": 0.5752,
+            "averageLossR": -0.575,
+            "netR": -3.3844,
+            "netPnl": 50.17,
+            "maxDrawdown": 661.75,
+            "maxDrawdownPercent": 0.06212425037833128,
+            "longestLossStreak": 8,
+            "averageBarsHeld": 22.248936170212765,
+            "averageHoldingMs": 6674680.85106383,
+            "buyTrades": 224,
+            "sellTrades": 246,
+            "buyExpectancyR": -0.0768,
+            "sellExpectancyR": 0.0562,
+            "buyWinRate": 0.4375,
+            "sellWinRate": 0.5447,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 470,
+                "winRate": 0.4936,
+                "expectancyR": -0.0072
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          },
+          "holdout": {
+            "trades": 202,
+            "wins": 102,
+            "losses": 99,
+            "winRate": 0.505,
+            "profitFactor": 1.091,
+            "expectancyR": 0.0223,
+            "averageWinR": 0.6069,
+            "averageLossR": -0.5797,
+            "netR": 4.5144,
+            "netPnl": 219.22,
+            "maxDrawdown": 551.95,
+            "maxDrawdownPercent": 0.05217604203198719,
+            "longestLossStreak": 6,
+            "averageBarsHeld": 22.074257425742573,
+            "averageHoldingMs": 6622277.227722772,
+            "buyTrades": 106,
+            "sellTrades": 96,
+            "buyExpectancyR": 0.0608,
+            "sellExpectancyR": -0.0201,
+            "buyWinRate": 0.5283,
+            "sellWinRate": 0.4792,
+            "byRegime": {
+              "BREAKOUT_EXPANSION": {
+                "trades": 202,
+                "winRate": 0.505,
+                "expectancyR": 0.0223
+              }
+            },
+            "sampleSize": "INFORMATIVE"
+          }
+        },
+        "costSweep": [
+          {
+            "spreadBps": 4,
+            "slippageBps": 1,
+            "trades": 202,
+            "expectancyR": -0.2347,
+            "profitFactor": 0.4194,
+            "netR": -47.4091
+          },
+          {
+            "spreadBps": 6,
+            "slippageBps": 2,
+            "trades": 201,
+            "expectancyR": -0.3705,
+            "profitFactor": 0.2247,
+            "netR": -74.4766
+          },
+          {
+            "spreadBps": 8,
+            "slippageBps": 3,
+            "trades": 200,
+            "expectancyR": -0.4871,
+            "profitFactor": 0.112,
+            "netR": -97.429
+          },
+          {
+            "spreadBps": 10,
+            "slippageBps": 4,
+            "trades": 190,
+            "expectancyR": -0.5931,
+            "profitFactor": 0.0554,
+            "netR": -112.6975
+          }
+        ],
+        "breakEven": {
+          "maximumCostForPositiveExpectancy": null,
+          "crossedBetween": null,
+          "note": "No tested cost level produced positive expectancy"
+        },
+        "winLossMedians": {
+          "wins": {
+            "atr": 4.526269323180349,
+            "adx": 19.35053059959677,
+            "donchianWidthAtr": 3.4029059139947937,
+            "stopDistanceAtr": 5.661176437894814,
+            "targetDistanceAtr": 11.322352875789628,
+            "netR": 0.3036,
+            "grossR": 0.5346,
+            "barsHeld": 24,
+            "candleBodySizeAtr": 0.8700997814304974,
+            "distanceFromLongEmaAtr": 3.732959043385209
+          },
+          "losses": {
+            "atr": 4.5749320301742165,
+            "adx": 19.60405357651628,
+            "donchianWidthAtr": 3.537704496681455,
+            "stopDistanceAtr": 5.775888621212432,
+            "targetDistanceAtr": 11.551777242424663,
+            "netR": -0.6428499999999999,
+            "grossR": -0.38965,
+            "barsHeld": 24,
+            "candleBodySizeAtr": 0.8423580309633483,
+            "distanceFromLongEmaAtr": 3.6905419311435184
+          },
+          "winN": 97,
+          "lossN": 462
+        }
+      }
+    ],
+    "notes": {
+      "deployed": false,
+      "demoEnabled": false,
+      "emaPullbackRemainsSuspended": true,
+      "productionUnchanged": true
+    }
+  }
+}

@@ -24,7 +24,7 @@ interface Deps {
 
 const GRANULARITY: Record<CandleInterval, number> = { "1m": 60, "5m": 300 };
 /** Deriv returns at most ~5000 candles per request. */
-const BATCH_CANDLES = 4500;
+const BATCH_CANDLES = 1000; // Deriv candles history hard-caps at 1000 (trailing window)
 
 /**
  * Downloads historical candles from Deriv in batches and upserts them.

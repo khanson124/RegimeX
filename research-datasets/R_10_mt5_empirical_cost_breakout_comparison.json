@@ -1,0 +1,355 @@
+{
+  "calibration": {
+    "profileId": "R10_MT5_DEMO_EMPIRICAL_COST_PROFILE",
+    "symbol": "R_10",
+    "venue": "MT5_DEMO",
+    "createdAt": "2026-09-07T23:44:23.808Z",
+    "spread": {
+      "sampleCount": 0,
+      "okCount": 0,
+      "price": {
+        "n": 0,
+        "min": null,
+        "p10": null,
+        "p25": null,
+        "median": null,
+        "p75": null,
+        "p90": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "mean": null,
+        "stdev": null
+      },
+      "bps": {
+        "n": 0,
+        "min": null,
+        "p10": null,
+        "p25": null,
+        "median": null,
+        "p75": null,
+        "p90": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "mean": null,
+        "stdev": null
+      },
+      "points": {
+        "n": 0,
+        "min": null,
+        "p10": null,
+        "p25": null,
+        "median": null,
+        "p75": null,
+        "p90": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "mean": null,
+        "stdev": null
+      },
+      "byHourUtc": [],
+      "effectivelyFixed": null,
+      "fixedNote": "Insufficient spread samples to judge fixed vs variable."
+    },
+    "entrySlippage": {
+      "all": {
+        "n": 0,
+        "reliableN": 0,
+        "priceAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        },
+        "bpsAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        }
+      },
+      "buy": {
+        "n": 0,
+        "reliableN": 0,
+        "priceAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        },
+        "bpsAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        }
+      },
+      "sell": {
+        "n": 0,
+        "reliableN": 0,
+        "priceAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        },
+        "bpsAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        }
+      },
+      "favorableCount": 0,
+      "zeroCount": 0,
+      "adverseCount": 0,
+      "researchModelingNote": "Measurement retains favorable fills. Research cost profiles floor adverse slippage at 0 and do not credit favorable execution."
+    },
+    "exitSlippage": {
+      "available": false,
+      "sampleCount": 0,
+      "note": "Exit slippage unavailable unless exitCostTelemetry.preCloseQuote was persisted."
+    },
+    "quoteAge": {
+      "buckets": {},
+      "note": "Correlate only when quality=OK with finite quoteAgeMs; UNKNOWN ages are common."
+    },
+    "otherCosts": {
+      "commissionObservations": 0,
+      "swapObservations": 0,
+      "feeObservations": 0
+    },
+    "profiles": [
+      {
+        "profileId": "R10_MT5_DEMO_EMPIRICAL_COST_PROFILE:ZERO",
+        "label": "ZERO",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "definition": "Zero transaction costs diagnostic.",
+        "dataSufficient": true,
+        "spreadSampleN": 0,
+        "slippageSampleN": 0
+      },
+      {
+        "profileId": "R10_MT5_DEMO_EMPIRICAL_COST_PROFILE:LEGACY_8_3",
+        "label": "LEGACY_8_3",
+        "spreadBps": 8,
+        "slippageBps": 3,
+        "definition": "Legacy research assumption (full spread 8 bps + 3 bps adverse slip/side).",
+        "dataSufficient": true,
+        "spreadSampleN": 0,
+        "slippageSampleN": 0
+      }
+    ],
+    "sufficiency": {
+      "spread": "NONE",
+      "entrySlippage": "NONE",
+      "exitSlippage": "NONE"
+    },
+    "notes": [
+      "No Position.metadata.finalExecution bid/ask samples found.",
+      "No entry fills with bid/ask context found; entry slippage is INCONCLUSIVE.",
+      "Exit slippage is measured only when exitCostTelemetry.preCloseQuote exists (worker-initiated closes).",
+      "Quote timestamp may be broker or local; quality flags distinguish the two.",
+      "No commission/swap/fee fields observed on inspected positions.",
+      "Spread sufficiency=NONE (need ≥30 OK samples for SUFFICIENT).",
+      "Entry slippage sufficiency=NONE (need ≥20 OK timed samples for SUFFICIENT)."
+    ]
+  },
+  "holdoutStartIso": "2026-07-29T00:04:00.000Z",
+  "profilesUsed": [
+    {
+      "label": "ZERO",
+      "spreadBps": 0,
+      "slippageBps": 0
+    },
+    {
+      "label": "LEGACY_8_3",
+      "spreadBps": 8,
+      "slippageBps": 3
+    }
+  ],
+  "comparison": {
+    "holdoutStartOpenTime": 1785283440000,
+    "rows": [
+      {
+        "strategyId": "breakout-momentum-v1",
+        "timeframe": "1m",
+        "profileLabel": "LEGACY_8_3",
+        "spreadBps": 8,
+        "slippageBps": 3,
+        "trades": 391,
+        "winRate": 0.0946,
+        "profitFactor": 0.028,
+        "expectancyR": -0.7702,
+        "netR": -301.1666,
+        "maxDrawdownPercent": 0.6926672699366566,
+        "costDragR": 0.3784
+      },
+      {
+        "strategyId": "breakout-momentum-v1",
+        "timeframe": "1m",
+        "profileLabel": "ZERO",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "trades": 493,
+        "winRate": 0.503,
+        "profitFactor": 1.1044,
+        "expectancyR": 0.0368,
+        "netR": 18.1348,
+        "maxDrawdownPercent": 0.058277094596023635,
+        "costDragR": 0
+      },
+      {
+        "strategyId": "breakout-momentum-v1",
+        "timeframe": "5m",
+        "profileLabel": "LEGACY_8_3",
+        "spreadBps": 8,
+        "slippageBps": 3,
+        "trades": 135,
+        "winRate": 0.1704,
+        "profitFactor": 0.0867,
+        "expectancyR": -0.4043,
+        "netR": -54.5822,
+        "maxDrawdownPercent": 0.18089293730323214,
+        "costDragR": 0.209
+      },
+      {
+        "strategyId": "breakout-momentum-v1",
+        "timeframe": "5m",
+        "profileLabel": "ZERO",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "trades": 141,
+        "winRate": 0.5248,
+        "profitFactor": 1.045,
+        "expectancyR": 0.0138,
+        "netR": 1.9407,
+        "maxDrawdownPercent": 0.0385314153047057,
+        "costDragR": 0
+      },
+      {
+        "strategyId": "squeeze-breakout-v1",
+        "timeframe": "1m",
+        "profileLabel": "LEGACY_8_3",
+        "spreadBps": 8,
+        "slippageBps": 3,
+        "trades": 344,
+        "winRate": 0.1221,
+        "profitFactor": 0.0415,
+        "expectancyR": -0.6926,
+        "netR": -238.2458,
+        "maxDrawdownPercent": 0.587609,
+        "costDragR": 0.3701
+      },
+      {
+        "strategyId": "squeeze-breakout-v1",
+        "timeframe": "1m",
+        "profileLabel": "ZERO",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "trades": 351,
+        "winRate": 0.5157,
+        "profitFactor": 1.2149,
+        "expectancyR": 0.0641,
+        "netR": 22.4924,
+        "maxDrawdownPercent": 0.04844718810425649,
+        "costDragR": 0
+      },
+      {
+        "strategyId": "squeeze-breakout-v1",
+        "timeframe": "5m",
+        "profileLabel": "LEGACY_8_3",
+        "spreadBps": 8,
+        "slippageBps": 3,
+        "trades": 200,
+        "winRate": 0.185,
+        "profitFactor": 0.112,
+        "expectancyR": -0.4871,
+        "netR": -97.429,
+        "maxDrawdownPercent": 0.29207260322672135,
+        "costDragR": 0.24969999999999998
+      },
+      {
+        "strategyId": "squeeze-breakout-v1",
+        "timeframe": "5m",
+        "profileLabel": "ZERO",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "trades": 202,
+        "winRate": 0.505,
+        "profitFactor": 1.091,
+        "expectancyR": 0.0223,
+        "netR": 4.5144,
+        "maxDrawdownPercent": 0.05217604203198719,
+        "costDragR": 0
+      }
+    ],
+    "notes": {
+      "deployed": false,
+      "demoEnabled": false,
+      "emaPullbackRemainsSuspended": true,
+      "productionUnchanged": true,
+      "holdoutRedefined": false
+    }
+  },
+  "decision": "COST_CALIBRATION_BLOCKED_INSUFFICIENT_MT5_TELEMETRY",
+  "confirmations": {
+    "deployed": false,
+    "strategyEnabled": false,
+    "emaPullbackRemainsSuspended": true,
+    "mt5ExecutionUnchanged": true,
+    "riskLifecycleAllowlistsUnchanged": true,
+    "historicalResearchResultsNotAltered": true
+  }
+}

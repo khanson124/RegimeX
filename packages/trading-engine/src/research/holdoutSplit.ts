@@ -65,3 +65,41 @@ export function assertWindowWithinDevelopment(
     throw new Error(`Walk-forward window overlaps holdout at index ${holdoutStartIndex}`);
   }
 }
+
+/**
+ * Reserve holdout by absolute timestamp so multi-timeframe series share the
+ * same chronological cutoff (no candle with openTime >= cutoff in development).
+ */
+export function splitHoldoutByTimestamp(
+  candles: ReadonlyArray<Candle>,
+  holdoutStartOpenTime: number
+): HoldoutSplit {
+  const development: Candle[] = [];
+  const holdout: Candle[] = [];
+  for (const c of candles) {
+    if (c.openTime < holdoutStartOpenTime) development.push(c);
+    else holdout.push(c);
+  }
+  const holdoutStartIndex = development.length;
+  return {
+    development,
+    holdout,
+    developmentStartIndex: 0,
+    holdoutStartIndex,
+    holdoutPercent: candles.length > 0 ? holdout.length / candles.length : 0
+  };
+}
+
+/** Assert no development candle is at/after holdout start timestamp. */
+export function assertNoHoldoutLeakage(
+  development: ReadonlyArray<Candle>,
+  holdoutStartOpenTime: number
+): void {
+  for (const c of development) {
+    if (c.openTime >= holdoutStartOpenTime) {
+      throw new Error(
+        `Holdout leakage: development candle openTime ${c.openTime} >= holdout start ${holdoutStartOpenTime}`
+      );
+    }
+  }
+}

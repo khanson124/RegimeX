@@ -1,0 +1,266 @@
+{
+  "action": "measure-r10-mt5-costs",
+  "positionsLoaded": 0,
+  "passiveSpreadPath": null,
+  "quality": {
+    "reliableEntrySamples": 0,
+    "staleQuoteSamples": 0,
+    "missingTimestampSamples": 0,
+    "ambiguousOrInvalid": 0,
+    "spreadOk": 0
+  },
+  "timing": {
+    "quoteAgeMs": [],
+    "quoteAgeBuckets": {}
+  },
+  "unlockGates": {
+    "spreadReliableMin": 30,
+    "entryFillReliableMin": 20,
+    "spreadOk": 0,
+    "entryReliable": 0,
+    "profilesUnlocked": false
+  },
+  "calibration": {
+    "profileId": "R10_MT5_DEMO_EMPIRICAL_COST_PROFILE",
+    "symbol": "R_10",
+    "venue": "MT5_DEMO",
+    "createdAt": "2026-09-07T23:44:21.960Z",
+    "spread": {
+      "sampleCount": 0,
+      "okCount": 0,
+      "price": {
+        "n": 0,
+        "min": null,
+        "p10": null,
+        "p25": null,
+        "median": null,
+        "p75": null,
+        "p90": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "mean": null,
+        "stdev": null
+      },
+      "bps": {
+        "n": 0,
+        "min": null,
+        "p10": null,
+        "p25": null,
+        "median": null,
+        "p75": null,
+        "p90": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "mean": null,
+        "stdev": null
+      },
+      "points": {
+        "n": 0,
+        "min": null,
+        "p10": null,
+        "p25": null,
+        "median": null,
+        "p75": null,
+        "p90": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "mean": null,
+        "stdev": null
+      },
+      "byHourUtc": [],
+      "effectivelyFixed": null,
+      "fixedNote": "Insufficient spread samples to judge fixed vs variable."
+    },
+    "entrySlippage": {
+      "all": {
+        "n": 0,
+        "reliableN": 0,
+        "priceAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        },
+        "bpsAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        }
+      },
+      "buy": {
+        "n": 0,
+        "reliableN": 0,
+        "priceAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        },
+        "bpsAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        }
+      },
+      "sell": {
+        "n": 0,
+        "reliableN": 0,
+        "priceAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        },
+        "bpsAdverse": {
+          "n": 0,
+          "min": null,
+          "p10": null,
+          "p25": null,
+          "median": null,
+          "p75": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "mean": null,
+          "stdev": null
+        }
+      },
+      "favorableCount": 0,
+      "zeroCount": 0,
+      "adverseCount": 0,
+      "researchModelingNote": "Measurement retains favorable fills. Research cost profiles floor adverse slippage at 0 and do not credit favorable execution."
+    },
+    "exitSlippage": {
+      "available": false,
+      "sampleCount": 0,
+      "note": "Exit slippage unavailable unless exitCostTelemetry.preCloseQuote was persisted."
+    },
+    "quoteAge": {
+      "buckets": {},
+      "note": "Correlate only when quality=OK with finite quoteAgeMs; UNKNOWN ages are common."
+    },
+    "otherCosts": {
+      "commissionObservations": 0,
+      "swapObservations": 0,
+      "feeObservations": 0
+    },
+    "profiles": [
+      {
+        "profileId": "R10_MT5_DEMO_EMPIRICAL_COST_PROFILE:ZERO",
+        "label": "ZERO",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "definition": "Zero transaction costs diagnostic.",
+        "dataSufficient": true,
+        "spreadSampleN": 0,
+        "slippageSampleN": 0
+      },
+      {
+        "profileId": "R10_MT5_DEMO_EMPIRICAL_COST_PROFILE:LEGACY_8_3",
+        "label": "LEGACY_8_3",
+        "spreadBps": 8,
+        "slippageBps": 3,
+        "definition": "Legacy research assumption (full spread 8 bps + 3 bps adverse slip/side).",
+        "dataSufficient": true,
+        "spreadSampleN": 0,
+        "slippageSampleN": 0
+      }
+    ],
+    "sufficiency": {
+      "spread": "NONE",
+      "entrySlippage": "NONE",
+      "exitSlippage": "NONE"
+    },
+    "notes": [
+      "No Position.metadata.finalExecution bid/ask samples found.",
+      "No entry fills with bid/ask context found; entry slippage is INCONCLUSIVE.",
+      "Exit slippage is measured only when exitCostTelemetry.preCloseQuote exists (worker-initiated closes).",
+      "Quote timestamp may be broker or local; quality flags distinguish the two.",
+      "No commission/swap/fee fields observed on inspected positions.",
+      "Spread sufficiency=NONE (need ≥30 OK samples for SUFFICIENT).",
+      "Entry slippage sufficiency=NONE (need ≥20 OK timed samples for SUFFICIENT)."
+    ]
+  },
+  "backtesterSemantics": {
+    "convention": "spreadBps = FULL bid-ask width; half-spread + slippageBps applied per side via fill prices only",
+    "example6300_8_3": {
+      "mid": 6300,
+      "halfSpread": 2.52,
+      "slip": 1.89,
+      "bid": 6297.48,
+      "ask": 6302.52,
+      "entryFill": 6304.410000000001,
+      "exitFillAtSameMid": 6295.589999999999,
+      "stop": 6294.410000000001,
+      "target": 6324.410000000001,
+      "roundTripCostPrice": 8.820000000001528,
+      "roundTripCostBpsApprox": 14.000000000002427,
+      "notes": [
+        "spreadBps is FULL bid–ask (not half).",
+        "Entry and exit each pay half-spread + full slippageBps (adverse).",
+        "Round-trip ≈ spreadBps + 2×slippageBps in bps of mid (when mid unchanged).",
+        "Costs are embedded only in fill prices — no separate P&L fee deduction."
+      ]
+    },
+    "doubleCountAudit": {
+      "spreadDoubleCounted": false,
+      "slippageDoubleCounted": false,
+      "separatePnlFee": false,
+      "roundTripBpsApprox": "spreadBps + 2*slippageBps when mid unchanged"
+    }
+  },
+  "classification": "COST_CALIBRATION_BLOCKED_INSUFFICIENT_MT5_TELEMETRY",
+  "notes": {
+    "deployed": false,
+    "strategyEnabled": false,
+    "emaPullbackRemainsSuspended": true,
+    "mt5ExecutionUnchanged": true,
+    "arbitraryTradesGenerated": false
+  }
+}

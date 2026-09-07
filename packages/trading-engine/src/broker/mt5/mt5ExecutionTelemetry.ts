@@ -1,5 +1,10 @@
 import { roundMoney, type InstrumentMetadata, type PositionDirection } from "@regimex/shared";
 import { lossAtStopPerUnitVolume } from "../../execution/cfdMath.js";
+import {
+  buildEntryCostTelemetry,
+  parsePreSubmitFromFinalExecution,
+  type Mt5EntryCostTelemetry
+} from "../../research/mt5CostTelemetry.js";
 
 export const MT5_EXECUTION_TELEMETRY_VERSION = 1;
 
@@ -33,6 +38,8 @@ export interface Mt5ExecutionTelemetry {
   finalStopDistance?: number | null;
   finalTargetDistance?: number | null;
   brokerAdjustedAgain?: boolean | null;
+  /** Empirical DEMO cost measurement (additive; does not affect execution). */
+  costMeasurement?: Mt5EntryCostTelemetry | null;
 }
 
 const LEGACY_RR_NOTE =
@@ -226,8 +233,51 @@ export function mergeOpenMt5ExecutionTelemetry(input: {
     executedRiskAmount,
     entrySlippageFromPreflight,
     openedAt: input.openedAt ?? null,
-    initialRiskRewardLegacyNote: LEGACY_RR_NOTE
+    initialRiskRewardLegacyNote: LEGACY_RR_NOTE,
+    costMeasurement: pending.costMeasurement ?? null
   };
+}
+
+/** Attach empirical entry cost measurement onto open telemetry using persisted finalExecution. */
+export function withEntryCostMeasurement(input: {
+  telemetry: Mt5ExecutionTelemetry;
+  direction: PositionDirection;
+  symbol: string;
+  actualFillPrice: number | null | undefined;
+  finalExecution?: Record<string, unknown> | null;
+  brokerMeta?: Record<string, unknown> | null;
+  localSubmittedAtMs?: number | null;
+  localFillReceivedAtMs?: number;
+}): Mt5ExecutionTelemetry {
+  if (input.actualFillPrice == null || !Number.isFinite(input.actualFillPrice)) {
+    return input.telemetry;
+  }
+  const pre = parsePreSubmitFromFinalExecution(input.finalExecution, {
+    side: input.direction,
+    symbol: input.symbol,
+    tickSize: input.telemetry.tickSize
+  });
+  if (!pre) return input.telemetry;
+
+  const localSubmittedAtMs =
+    input.localSubmittedAtMs ??
+    (input.finalExecution?.localSubmittedAtMs != null
+      ? Number(input.finalExecution.localSubmittedAtMs)
+      : pre.localReceivedAtMs);
+
+  const costMeasurement = buildEntryCostTelemetry({
+    preSubmitQuote: pre,
+    localSubmittedAtMs,
+    actualFillPrice: input.actualFillPrice,
+    brokerRetcode:
+      input.brokerMeta?.brokerStatus != null ? String(input.brokerMeta.brokerStatus) : null,
+    ticket: input.brokerMeta?.orderTicket != null ? String(input.brokerMeta.orderTicket) : null,
+    deal: input.brokerMeta?.dealTicket != null ? String(input.brokerMeta.dealTicket) : null,
+    brokerFillTimestampMs: null,
+    localFillReceivedAtMs: input.localFillReceivedAtMs
+  });
+
+  return { ...input.telemetry, costMeasurement };
 }
 
 /** Shallow-merge executionTelemetry into existing position metadata without dropping keys. */

@@ -19,6 +19,7 @@ import {
   MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED,
   mergeOpenMt5ExecutionTelemetry,
   mergePositionMetadataForOpen,
+  withEntryCostMeasurement,
   mt5CapacityAdvisoryLockKey,
   type Mt5ExecutionTelemetry,
   regimeXOrderComment,
@@ -928,7 +929,7 @@ export async function persistPositionOpenFromBrokerResult(input: {
   const actualFillVolume = Number(result.position.volume);
   const openedAt = new Date().toISOString();
 
-  const executionTelemetry = mergeOpenMt5ExecutionTelemetry({
+  const executionTelemetryBase = mergeOpenMt5ExecutionTelemetry({
     pending: pendingTelemetry,
     direction,
     actualFillPrice,
@@ -940,13 +941,35 @@ export async function persistPositionOpenFromBrokerResult(input: {
     openedAt
   });
 
+  const brokerPositionMetadata = (result.position.metadata ?? {}) as Record<string, unknown>;
+  const finalExecution = (existingMeta.finalExecution ??
+    brokerPositionMetadata.finalExecution ??
+    null) as Record<string, unknown> | null;
+
+  const executionTelemetry = withEntryCostMeasurement({
+    telemetry: executionTelemetryBase,
+    direction,
+    symbol: input.symbolAudit.internalSymbol,
+    actualFillPrice,
+    finalExecution,
+    brokerMeta: brokerPositionMetadata,
+    localSubmittedAtMs:
+      finalExecution?.localSubmittedAtMs != null ? Number(finalExecution.localSubmittedAtMs) : null,
+    localFillReceivedAtMs: Date.now()
+  });
+
   const metadata = mergePositionMetadataForOpen({
     existingMetadata: existingMeta,
     symbolAudit: input.symbolAudit,
     preflight: input.preflight,
-    brokerPositionMetadata: (result.position.metadata ?? {}) as Record<string, unknown>,
+    brokerPositionMetadata,
     executionTelemetry
   });
+
+  // Ensure finalExecution + exitCost placeholders survive broker metadata merge.
+  if (finalExecution && metadata.finalExecution == null) {
+    metadata.finalExecution = finalExecution;
+  }
 
   const updated = await prisma.position.updateMany({
     where: {
