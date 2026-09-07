@@ -253,11 +253,30 @@ export class CfdBacktester {
         continue;
       }
 
+      /**
+       * Research fill / stop order of operations (cfd_v1 backtester):
+       * 1. Strategy emits structural intent at bar close (mid/reference).
+       * 2. Simulated entry fill = mid ± half-spread ± slippage (adverse).
+       * 3. Stop/target geometry is proposed from the simulated fill so intended
+       *    R multiples are measured from executable entry, not mid.
+       * 4. StopTargetValidator checks R:R / direction from that same fill.
+       * 5. Position sizing uses fill + stop; bar simulator applies exit fills.
+       *
+       * Does not modify live MT5 execution. Zero-cost (spread=0, slip=0)
+       * keeps fill === mid for parity checks.
+       */
       const quoteMid = candle.close;
+      const entryFill = applyExecutableFill(
+        decision.action,
+        quoteMid,
+        costs.spreadBps,
+        costs.slippageBps
+      );
+
       const proposal = proposeCfdStopTarget({
         strategyId: chosen.strategy.id,
         direction: decision.action,
-        entryPrice: quoteMid,
+        entryPrice: entryFill.fillPrice,
         features: feature,
         candles: windowCandles,
         metadata: decision.metadata,
@@ -269,13 +288,6 @@ export class CfdBacktester {
         rejectedSignalCount++;
         continue;
       }
-
-      const entryFill = applyExecutableFill(
-        decision.action,
-        quoteMid,
-        costs.spreadBps,
-        costs.slippageBps
-      );
 
       const limits = {
         ...DEFAULT_CFD_RISK_LIMITS,

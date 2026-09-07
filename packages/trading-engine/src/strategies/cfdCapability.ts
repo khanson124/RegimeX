@@ -8,6 +8,7 @@ import { proposeBreakoutMomentumStopTarget } from "./breakoutMomentumCfd.js";
 import { proposeEmaPullbackStopTarget } from "./emaPullbackCfd.js";
 import { proposeBollingerReversionStopTarget } from "./bollingerReversionCfd.js";
 import { proposeSqueezeBreakoutStopTarget } from "./squeezeBreakoutCfd.js";
+import { proposeTrendStructurePullbackStopTarget } from "./trendStructurePullbackCfd.js";
 
 /**
  * Strategies with a complete CFD stop/target implementation.
@@ -17,7 +18,9 @@ export const CFD_CAPABLE_STRATEGY_IDS = [
   "breakout-momentum-v1",
   "ema-pullback-v1",
   "bollinger-reversion-v1",
-  "squeeze-breakout-v1"
+  "squeeze-breakout-v1",
+  "trend-structure-pullback-v1",
+  "trend-structure-pullback-v2"
 ] as const;
 
 export type CfdCapableStrategyId = (typeof CFD_CAPABLE_STRATEGY_IDS)[number];
@@ -97,6 +100,21 @@ export function proposeCfdStopTarget(input: ProposeCfdStopTargetInput): StopTarg
       });
     case "squeeze-breakout-v1":
       return proposeSqueezeBreakoutStopTarget({
+        direction: input.direction,
+        entryPrice: input.entryPrice,
+        features: input.features,
+        candles: input.candles,
+        metadata: input.metadata,
+        params: {
+          tickSize: input.tickSize,
+          targetRMultiple: input.targetRMultiple,
+          stopAtrMultiple: input.stopAtrMultiple,
+          structureBufferAtr: input.structureBufferAtr
+        }
+      });
+    case "trend-structure-pullback-v1":
+    case "trend-structure-pullback-v2":
+      return proposeTrendStructurePullbackStopTarget({
         direction: input.direction,
         entryPrice: input.entryPrice,
         features: input.features,

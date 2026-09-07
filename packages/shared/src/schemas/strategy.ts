@@ -15,7 +15,8 @@ export const STRATEGY_KINDS = [
   "breakout-momentum",
   "ema-pullback",
   "bollinger-reversion",
-  "squeeze-breakout"
+  "squeeze-breakout",
+  "trend-structure-pullback"
 ] as const;
 
 export const strategyKindSchema = z.enum(STRATEGY_KINDS);

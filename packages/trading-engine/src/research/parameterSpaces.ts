@@ -22,6 +22,13 @@ export const DEFAULT_RESEARCH_PARAMETER_SPACES: Record<StrategyKind, ParameterSp
     squeezeLookback: [8, 10, 12],
     minBreakoutReturn: [0.0006, 0.0008, 0.001],
     cooldownCandles: [5, 8, 10]
+  },
+  /** Compact economically meaningful ranges — avoid fitting the 50-trade forward sample. */
+  "trend-structure-pullback": {
+    softExtensionAtr: [2.0, 2.5, 3.0],
+    minPullbackDepthAtr: [0.25, 0.3, 0.4],
+    minEntryQualityScore: [0.38, 0.42, 0.48],
+    cooldownCandles: [3, 4, 6]
   }
 };
 

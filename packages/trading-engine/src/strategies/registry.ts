@@ -3,6 +3,10 @@ import { BreakoutMomentumStrategy, BREAKOUT_MOMENTUM_DEFAULTS } from "./breakout
 import { EmaPullbackStrategy, EMA_PULLBACK_DEFAULTS } from "./emaPullback.js";
 import { BollingerReversionStrategy, BOLLINGER_REVERSION_DEFAULTS } from "./bollingerReversion.js";
 import { SqueezeBreakoutStrategy, SQUEEZE_BREAKOUT_DEFAULTS } from "./squeezeBreakout.js";
+import {
+  TrendStructurePullbackStrategy,
+  TREND_STRUCTURE_PULLBACK_DEFAULTS
+} from "./trendStructurePullback.js";
 import { type StrategyCatalogueEntry, type TradingStrategy } from "./types.js";
 
 /** Instantiate a strategy implementation by kind. Strategies are stateless. */
@@ -16,6 +20,8 @@ export function createStrategy(kind: StrategyKind): TradingStrategy {
       return new BollingerReversionStrategy();
     case "squeeze-breakout":
       return new SqueezeBreakoutStrategy();
+    case "trend-structure-pullback":
+      return new TrendStructurePullbackStrategy();
   }
 }
 
@@ -23,7 +29,8 @@ export const DEFAULT_STRATEGY_PARAMETERS: Record<StrategyKind, Record<string, nu
   "breakout-momentum": BREAKOUT_MOMENTUM_DEFAULTS,
   "ema-pullback": EMA_PULLBACK_DEFAULTS,
   "bollinger-reversion": BOLLINGER_REVERSION_DEFAULTS,
-  "squeeze-breakout": SQUEEZE_BREAKOUT_DEFAULTS
+  "squeeze-breakout": SQUEEZE_BREAKOUT_DEFAULTS,
+  "trend-structure-pullback": TREND_STRUCTURE_PULLBACK_DEFAULTS
 };
 
 export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
@@ -61,6 +68,15 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
     description:
       "Trades range expansions out of Bollinger-width squeezes with momentum and volatility confirmation.",
     supportedRegimes: ["VOLATILITY_COMPRESSION", "BREAKOUT_EXPANSION"],
+    cfdCapable: true
+  },
+  {
+    kind: "trend-structure-pullback",
+    name: "Trend Structure Pullback",
+    version: "1",
+    description:
+      "Research candidates (v1 hard gates; v2 contextual extension + entryQualityScore). IDs: trend-structure-pullback-v1 / v2. Does not replace ema-pullback-v1.",
+    supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "STRONG_DOWNTREND", "WEAK_DOWNTREND"],
     cfdCapable: true
   }
 ];

@@ -77,6 +77,25 @@ export interface EntryFeatureTelemetry {
   distanceFromDonchianLowAtr: number | null;
   higherHighCount: number | null;
   lowerLowCount: number | null;
+
+  /** Entry-quality diagnostics (trend-structure-pullback and similar). */
+  extensionAtr: number | null;
+  extensionLimitAtr: number | null;
+  minimumPullbackDepthAtr: number | null;
+  impulseDistanceAtr: number | null;
+  barsSinceImpulse: number | null;
+  structureState: string | null;
+  distanceToNearestStructureAtr: number | null;
+  entryQualityScore: number | null;
+  entryQualityReasonCodes: string[] | null;
+  extensionPenalty: number | null;
+  pullbackQualityScore: number | null;
+  structureQualityScore: number | null;
+  continuationQualityScore: number | null;
+  targetRoomScore: number | null;
+  allEntryQualityReasonCodes: string[] | null;
+  finalEntryQualityDecision: string | null;
+  entryQualityIntersection: string | null;
 }
 
 function atrDistance(priceDelta: number | null, atr: number | null): number | null {
@@ -133,11 +152,35 @@ export function buildEntryFeatureTelemetry(input: {
       ? metadata.targetEma
       : feature.emaFast;
 
+  const metaPullbackDepthAtr =
+    typeof metadata.pullbackDepthAtr === "number" ? metadata.pullbackDepthAtr : null;
+  const metaExtensionAtr = typeof metadata.extensionAtr === "number" ? metadata.extensionAtr : null;
+  const metaExtensionLimitAtr =
+    typeof metadata.extensionLimitAtr === "number" ? metadata.extensionLimitAtr : null;
+  const metaMinPullback =
+    typeof metadata.minimumPullbackDepthAtr === "number" ? metadata.minimumPullbackDepthAtr : null;
+  const metaImpulse =
+    typeof metadata.impulseDistanceAtr === "number" ? metadata.impulseDistanceAtr : null;
+  const metaBarsSince =
+    typeof metadata.barsSinceImpulse === "number" ? metadata.barsSinceImpulse : null;
+  const metaStructureState =
+    typeof metadata.structureState === "string" ? metadata.structureState : null;
+  const metaDistStructure =
+    typeof metadata.distanceToNearestStructureAtr === "number"
+      ? metadata.distanceToNearestStructureAtr
+      : null;
+  const metaQualityScore =
+    typeof metadata.entryQualityScore === "number" ? metadata.entryQualityScore : null;
+  const metaReasonCodes = Array.isArray(metadata.entryQualityReasonCodes)
+    ? (metadata.entryQualityReasonCodes as unknown[]).filter((x): x is string => typeof x === "string")
+    : null;
+
   // pullbackDepth is fraction of target EMA; convert to price then ATR units.
   const pullbackDepthAtr =
-    snap.pullbackDepth != null && targetEma != null && atr != null && atr > 0
+    metaPullbackDepthAtr ??
+    (snap.pullbackDepth != null && targetEma != null && atr != null && atr > 0
       ? Number(((Math.abs(snap.pullbackDepth) * Math.abs(targetEma)) / atr).toFixed(6))
-      : null;
+      : null);
 
   const donchianHighDelta =
     feature.donchianHigh != null ? feature.donchianHigh - close : null;
@@ -207,7 +250,41 @@ export function buildEntryFeatureTelemetry(input: {
     distanceFromDonchianHighAtr: atrDistance(donchianHighDelta, atr),
     distanceFromDonchianLowAtr: atrDistance(donchianLowDelta, atr),
     higherHighCount: feature.higherHighCount,
-    lowerLowCount: feature.lowerLowCount
+    lowerLowCount: feature.lowerLowCount,
+
+    extensionAtr: metaExtensionAtr,
+    extensionLimitAtr: metaExtensionLimitAtr,
+    minimumPullbackDepthAtr: metaMinPullback,
+    impulseDistanceAtr: metaImpulse,
+    barsSinceImpulse: metaBarsSince,
+    structureState: metaStructureState,
+    distanceToNearestStructureAtr: metaDistStructure,
+    entryQualityScore: metaQualityScore,
+    entryQualityReasonCodes: metaReasonCodes,
+    extensionPenalty:
+      typeof metadata.extensionPenalty === "number" ? metadata.extensionPenalty : null,
+    pullbackQualityScore:
+      typeof metadata.pullbackQualityScore === "number" ? metadata.pullbackQualityScore : null,
+    structureQualityScore:
+      typeof metadata.structureQualityScore === "number" ? metadata.structureQualityScore : null,
+    continuationQualityScore:
+      typeof metadata.continuationQualityScore === "number"
+        ? metadata.continuationQualityScore
+        : null,
+    targetRoomScore: typeof metadata.targetRoomScore === "number" ? metadata.targetRoomScore : null,
+    allEntryQualityReasonCodes: Array.isArray(metadata.allEntryQualityReasonCodes)
+      ? (metadata.allEntryQualityReasonCodes as unknown[]).filter(
+          (x): x is string => typeof x === "string"
+        )
+      : null,
+    finalEntryQualityDecision:
+      typeof metadata.finalEntryQualityDecision === "string"
+        ? metadata.finalEntryQualityDecision
+        : null,
+    entryQualityIntersection:
+      typeof metadata.entryQualityIntersection === "string"
+        ? metadata.entryQualityIntersection
+        : null
   };
 }
 

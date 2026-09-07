@@ -110,6 +110,7 @@ export interface CfdResearchExperimentResult {
 
 function inferKindFromId(id: string): StrategyKind {
   const kinds: StrategyKind[] = [
+    "trend-structure-pullback",
     "breakout-momentum",
     "ema-pullback",
     "bollinger-reversion",

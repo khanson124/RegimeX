@@ -34,7 +34,8 @@ export const optimizationCreateSchema = z.object({
     "breakout-momentum",
     "ema-pullback",
     "bollinger-reversion",
-    "squeeze-breakout"
+    "squeeze-breakout",
+    "trend-structure-pullback"
   ]),
   symbol: z.string().min(1).max(30),
   interval: candleIntervalSchema,
