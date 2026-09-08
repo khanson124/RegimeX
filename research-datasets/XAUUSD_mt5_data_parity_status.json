@@ -1,0 +1,100 @@
+{
+  "generatedAt": "2026-09-08T15:53:28.849Z",
+  "brokerSymbol": "XAUUSD",
+  "historicalApiSymbol": "frxXAUUSD",
+  "timestampSemantics": "openTimeMs UTC = (brokerServerOpen - (TimeCurrent-TimeGMT at fetch)) * 1000",
+  "mt5DirectOhlcSupported": true,
+  "architecture": "EA CopyRates getBars → bridge → DerivMT5Broker.getBars → JSONL research-datasets; forward collector appends completed bars",
+  "firstMt5CandleIso": null,
+  "lastMt5CandleIso": null,
+  "counts": {
+    "1m": 0,
+    "5m": 0,
+    "15m": 0
+  },
+  "ohlcParity": {
+    "1m": {
+      "timeframe": "1m",
+      "overlapCount": 0,
+      "overlapDurationMs": 0,
+      "firstOverlapIso": null,
+      "lastOverlapIso": null,
+      "medianAbsCloseDiffBps": null,
+      "medianAbsOpenDiffBps": null,
+      "meanAbsHighDiffBps": null,
+      "meanAbsLowDiffBps": null,
+      "returnCorrelation": null,
+      "directionAgreement": null,
+      "atrRatio": null,
+      "realizedVolRatio": null,
+      "rangeCorrelation": null,
+      "sessionMismatchNote": "Insufficient aligned bars to evaluate session timing differences.",
+      "verdict": "INSUFFICIENT_OVERLAP",
+      "reasons": [
+        "overlapCount=0 < predefined min 500 for 1m"
+      ],
+      "thresholds": {
+        "insufficientOverlap1m": 500,
+        "insufficientOverlap5m": 100,
+        "insufficientOverlap15m": 50,
+        "good": {
+          "minReturnCorrelation": 0.95,
+          "minDirectionAgreement": 0.9,
+          "maxMedianAbsCloseDiffBps": 5,
+          "atrRatioMin": 0.85,
+          "atrRatioMax": 1.15,
+          "minRangeCorrelation": 0.9
+        },
+        "approximate": {
+          "minReturnCorrelation": 0.8,
+          "minDirectionAgreement": 0.7,
+          "maxMedianAbsCloseDiffBps": 50,
+          "atrRatioMin": 0.6,
+          "atrRatioMax": 1.5,
+          "minRangeCorrelation": 0.7
+        }
+      }
+    }
+  },
+  "signalParity": null,
+  "overallOhlcVerdict": "INSUFFICIENT_OVERLAP",
+  "spread": {
+    "symbol": "XAUUSD",
+    "sampleCount": 0,
+    "status": "UNAVAILABLE",
+    "label": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+    "medianBps": null,
+    "p75Bps": null,
+    "p90Bps": null,
+    "p95Bps": null,
+    "p99Bps": null,
+    "medianSpreadPrice": null,
+    "sourcePath": null,
+    "note": "No OK samples",
+    "minBps": null,
+    "maxBps": null,
+    "sessionDistribution": {}
+  },
+  "sufficientForIndependentResearch": false,
+  "frxResultsLikelyTransferable": null,
+  "safety": {
+    "noStrategyCreated": true,
+    "noStrategyTuned": true,
+    "nothingDeployedToTrading": true,
+    "xauusdNotEnabled": true,
+    "noXauusdTrades": true,
+    "r10Unchanged": true,
+    "r10EmaRemainsSuspended": true,
+    "riskLifecycleUnchanged": true,
+    "realMoneyDisabled": true,
+    "noCfdCapableXauFeatureDiscoveryStrategy": true
+  },
+  "notes": [
+    "MT5 bars from read-only getBars (CopyRates). Not deal history.",
+    "Persistent store is JSONL with source=MT5 — not mixed into HISTORY_API candle unique key.",
+    "Do not retune strategies on this dataset until sufficiency + parity allow.",
+    "Requires RegimeXExec.mq5 v1.02+ compiled/deployed on the DEMO terminal before live collection.",
+    "1m MT5 bars 0 < 10000 — keep collecting.",
+    "Overlap insufficient for transfer decision — do not force a parity conclusion."
+  ]
+}

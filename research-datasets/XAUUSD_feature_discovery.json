@@ -1,0 +1,2117 @@
+{
+  "generatedAt": "2026-09-08T15:37:02.740Z",
+  "parityCaveat": "Historical candles from Deriv frxXAUUSD mapped to internal XAUUSD; live execution would be MT5 XAUUSD. Parity previously MATCH_APPROXIMATE with insufficient MT5 candle overlap — do not overstate precision.",
+  "splits": {
+    "discoveryWeeks": [
+      "W01_2026-06-01",
+      "W02_2026-06-08",
+      "W03_2026-06-15",
+      "W04_2026-06-22",
+      "W05_2026-06-29",
+      "W06_2026-07-06",
+      "W07_2026-07-13",
+      "W08_2026-07-20",
+      "W10_2026-08-03"
+    ],
+    "validationWeeks": [
+      "W11_2026-08-10",
+      "W12_2026-08-17",
+      "W13_2026-08-24"
+    ],
+    "holdoutWeeks": [
+      "W14_2026-08-31",
+      "W15_2026-09-07",
+      "W16_2026-09-07"
+    ]
+  },
+  "observationCounts": {
+    "5m_DISCOVERY": 11379,
+    "5m_VALIDATION": 3824,
+    "5m_HOLDOUT": 1493,
+    "15m_DISCOVERY": 3307,
+    "15m_VALIDATION": 1112,
+    "15m_HOLDOUT": 371,
+    "1m_DISCOVERY": 5984,
+    "1m_VALIDATION": 2010,
+    "1m_HOLDOUT": 845
+  },
+  "featureInventory": [
+    "adx",
+    "atrPercentile",
+    "rsi",
+    "emaExtensionAtr",
+    "emaStackAligned",
+    "emaFastSlope",
+    "recentReturn",
+    "bollingerWidth",
+    "donchianWidthAtr",
+    "bodyAtr",
+    "rangeAtr",
+    "closeLocation",
+    "directionalEfficiency",
+    "structureState",
+    "distToSwingHighAtr",
+    "distToSwingLowAtr",
+    "impulseDistanceAtr",
+    "pullbackDepthAtr",
+    "barsSinceImpulse",
+    "hourUtc",
+    "sessionBucket",
+    "htf15Structure",
+    "htf15Aligned"
+  ],
+  "horizons": {
+    "1m": [
+      {
+        "id": "+5m",
+        "bars": 5
+      },
+      {
+        "id": "+15m",
+        "bars": 15
+      },
+      {
+        "id": "+30m",
+        "bars": 30
+      },
+      {
+        "id": "+60m",
+        "bars": 60
+      }
+    ],
+    "5m": [
+      {
+        "id": "+15m",
+        "bars": 3
+      },
+      {
+        "id": "+30m",
+        "bars": 6
+      },
+      {
+        "id": "+60m",
+        "bars": 12
+      },
+      {
+        "id": "+120m",
+        "bars": 24
+      }
+    ],
+    "15m": [
+      {
+        "id": "+30m",
+        "bars": 2
+      },
+      {
+        "id": "+60m",
+        "bars": 4
+      },
+      {
+        "id": "+120m",
+        "bars": 8
+      },
+      {
+        "id": "+240m",
+        "bars": 16
+      }
+    ]
+  },
+  "costAssumptions": {
+    "observedSpreadBps": 0.61,
+    "spreadStatus": "PRELIMINARY",
+    "assumedSlippageBps": [
+      0.1,
+      0.25,
+      0.5
+    ]
+  },
+  "univariateTop": [
+    {
+      "feature": "hourUtc",
+      "bucket": "H5",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": 0.0011520892022751845,
+      "medianReturn": 0.0003899682046559134,
+      "meanReturnAtr": 1.2087388631413791,
+      "winRate": 0.5439814814814815,
+      "meanMfe": 2.7798733331265173,
+      "meanMae": -1.5454817155115361,
+      "meanNetLong": 0.0011520892022751845,
+      "meanNetShort": -0.0013740892022751838,
+      "positiveWeekPct": 1,
+      "medianWeeklyEffect": 0.0007465900713252401,
+      "bestWeek": {
+        "weekId": "W05_2026-06-29",
+        "effect": 0.002871537050333124
+      },
+      "worstWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.0002101658997979009
+      },
+      "leaveOneOutMinEffect": 0.000937158221267943,
+      "bootstrapCi95": [
+        0.0007675737553804248,
+        0.0015116434548701544
+      ],
+      "effectSizeVsUnconditional": 0.001368128798192953
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H5",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": 0.001263089202275185,
+      "medianReturn": 0.0005009682046559134,
+      "meanReturnAtr": 1.2087388631413791,
+      "winRate": 0.5509259259259259,
+      "meanMfe": 2.7798733331265173,
+      "meanMae": -1.5454817155115361,
+      "meanNetLong": 0.0011520892022751845,
+      "meanNetShort": -0.0013740892022751838,
+      "positiveWeekPct": 1,
+      "medianWeeklyEffect": 0.0008575900713252401,
+      "bestWeek": {
+        "weekId": "W05_2026-06-29",
+        "effect": 0.002982537050333124
+      },
+      "worstWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.00032116589979790095
+      },
+      "leaveOneOutMinEffect": 0.001048158221267943,
+      "bootstrapCi95": [
+        0.0008785737553804266,
+        0.001622643454870155
+      ],
+      "effectSizeVsUnconditional": 0.0013681287981929528
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H5",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": -0.0013740892022751838,
+      "medianReturn": -0.0006119682046559134,
+      "meanReturnAtr": 1.2087388631413791,
+      "winRate": 0.4351851851851852,
+      "meanMfe": 2.7798733331265173,
+      "meanMae": -1.5454817155115361,
+      "meanNetLong": 0.0011520892022751845,
+      "meanNetShort": -0.0013740892022751838,
+      "positiveWeekPct": 0,
+      "medianWeeklyEffect": -0.0009685900713252401,
+      "bestWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": -0.00043216589979790094
+      },
+      "worstWeek": {
+        "weekId": "W05_2026-06-29",
+        "effect": -0.0030935370503331235
+      },
+      "leaveOneOutMinEffect": -0.0014918296150848458,
+      "bootstrapCi95": [
+        -0.0017308246127410104,
+        -0.0009874847833980084
+      ],
+      "effectSizeVsUnconditional": -0.0013681287981929522
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H4",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": 0.0009664043507161345,
+      "medianReturn": 0.0001116051152121572,
+      "meanReturnAtr": 0.9797724067687555,
+      "winRate": 0.5092592592592593,
+      "meanMfe": 2.222337527605444,
+      "meanMae": -1.4541384230432755,
+      "meanNetLong": 0.0009664043507161345,
+      "meanNetShort": -0.0011884043507161342,
+      "positiveWeekPct": 0.8888888888888888,
+      "medianWeeklyEffect": 0.0007894379102463444,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.003188746729092143
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.0013946294469622197
+      },
+      "leaveOneOutMinEffect": 0.0006886115534191334,
+      "bootstrapCi95": [
+        0.0005716858718873586,
+        0.001343785210014117
+      ],
+      "effectSizeVsUnconditional": 0.0011824439466339032
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H4",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": 0.0010774043507161349,
+      "medianReturn": 0.0002226051152121572,
+      "meanReturnAtr": 0.9797724067687555,
+      "winRate": 0.5208333333333334,
+      "meanMfe": 2.222337527605444,
+      "meanMae": -1.4541384230432755,
+      "meanNetLong": 0.0009664043507161345,
+      "meanNetShort": -0.0011884043507161342,
+      "positiveWeekPct": 0.8888888888888888,
+      "medianWeeklyEffect": 0.0009004379102463444,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.003299746729092143
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.0012836294469622202
+      },
+      "leaveOneOutMinEffect": 0.0007996115534191334,
+      "bootstrapCi95": [
+        0.0006826858718873577,
+        0.0014547852100141158
+      ],
+      "effectSizeVsUnconditional": 0.0011824439466339028
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H4",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": -0.0011884043507161342,
+      "medianReturn": -0.0003336051152121572,
+      "meanReturnAtr": 0.9797724067687555,
+      "winRate": 0.46064814814814814,
+      "meanMfe": 2.222337527605444,
+      "meanMae": -1.4541384230432755,
+      "meanNetLong": 0.0009664043507161345,
+      "meanNetShort": -0.0011884043507161342,
+      "positiveWeekPct": 0.1111111111111111,
+      "medianWeeklyEffect": -0.0010114379102463447,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.0011726294469622202
+      },
+      "worstWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": -0.003410746729092143
+      },
+      "leaveOneOutMinEffect": -0.001483533575425929,
+      "bootstrapCi95": [
+        -0.0015371909622129596,
+        -0.0007830982380321436
+      ],
+      "effectSizeVsUnconditional": -0.0011824439466339026
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H5",
+      "horizon": "+60m",
+      "direction": "EITHER",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": 0.0009548542519099436,
+      "medianReturn": 0.00034659072578995757,
+      "meanReturnAtr": 0.9344900687071553,
+      "winRate": 0.5648148148148148,
+      "meanMfe": 2.257008396895146,
+      "meanMae": -1.2960306852907797,
+      "meanNetLong": 0.0008438542519099439,
+      "meanNetShort": -0.0010658542519099438,
+      "positiveWeekPct": 0.7777777777777778,
+      "medianWeeklyEffect": 0.001076700775231047,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.0023781340707985242
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.00045986491896486854
+      },
+      "leaveOneOutMinEffect": 0.0007769442745488714,
+      "bootstrapCi95": [
+        0.0007395058378598077,
+        0.0012373766252919277
+      ],
+      "effectSizeVsUnconditional": 0.001002154955726842
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H5",
+      "horizon": "+60m",
+      "direction": "LONG",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": 0.0008438542519099439,
+      "medianReturn": 0.0002355907257899576,
+      "meanReturnAtr": 0.9344900687071553,
+      "winRate": 0.5509259259259259,
+      "meanMfe": 2.257008396895146,
+      "meanMae": -1.2960306852907797,
+      "meanNetLong": 0.0008438542519099439,
+      "meanNetShort": -0.0010658542519099438,
+      "positiveWeekPct": 0.7777777777777778,
+      "medianWeeklyEffect": 0.0009657007752310469,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.0022671340707985242
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.0005708649189648686
+      },
+      "leaveOneOutMinEffect": 0.0006659442745488714,
+      "bootstrapCi95": [
+        0.000628505837859808,
+        0.001126376625291927
+      ],
+      "effectSizeVsUnconditional": 0.0010021549557268413
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H5",
+      "horizon": "+60m",
+      "direction": "SHORT",
+      "n": 432,
+      "weeks": 9,
+      "meanReturn": -0.0010658542519099438,
+      "medianReturn": -0.00045759072578995755,
+      "meanReturnAtr": 0.9344900687071553,
+      "winRate": 0.41435185185185186,
+      "meanMfe": 2.257008396895146,
+      "meanMae": -1.2960306852907797,
+      "meanNetLong": 0.0008438542519099439,
+      "meanNetShort": -0.0010658542519099438,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.001187700775231047,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.0003488649189648687
+      },
+      "worstWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": -0.002489134070798524
+      },
+      "leaveOneOutMinEffect": -0.0012426941482692954,
+      "bootstrapCi95": [
+        -0.0013470107539594453,
+        -0.0007812473478806764
+      ],
+      "effectSizeVsUnconditional": -0.001002154955726841
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H17",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": 0.0009281821789917309,
+      "medianReturn": 0.0007617750110451985,
+      "meanReturnAtr": -1.0650252413464534,
+      "winRate": 0.5968992248062015,
+      "meanMfe": 1.5946700126600315,
+      "meanMae": -1.8905843706786145,
+      "meanNetLong": -0.0011501821789917288,
+      "meanNetShort": 0.0009281821789917309,
+      "positiveWeekPct": 0.7777777777777778,
+      "medianWeeklyEffect": 0.0004244902423325912,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.00804408714932778
+      },
+      "worstWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": -0.0020768827314328244
+      },
+      "leaveOneOutMinEffect": 0.00022992241197769138,
+      "bootstrapCi95": [
+        0.00038386512016471027,
+        0.0014800087140517959
+      ],
+      "effectSizeVsUnconditional": 0.0009341425830739624
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H17",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": -0.0010391821789917295,
+      "medianReturn": -0.0008727750110451985,
+      "meanReturnAtr": -1.0650252413464534,
+      "winRate": 0.3856589147286822,
+      "meanMfe": 1.5946700126600315,
+      "meanMae": -1.8905843706786145,
+      "meanNetLong": -0.0011501821789917288,
+      "meanNetShort": 0.0009281821789917309,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.0005354902423325911,
+      "bestWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": 0.001965882731432825
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.00815508714932778
+      },
+      "leaveOneOutMinEffect": -0.001606043647072767,
+      "bootstrapCi95": [
+        -0.0015814662086886242,
+        -0.00048740651886580407
+      ],
+      "effectSizeVsUnconditional": -0.0009341425830739615
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H17",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": -0.0011501821789917288,
+      "medianReturn": -0.0009837750110451987,
+      "meanReturnAtr": -1.0650252413464534,
+      "winRate": 0.3643410852713178,
+      "meanMfe": 1.5946700126600315,
+      "meanMae": -1.8905843706786145,
+      "meanNetLong": -0.0011501821789917288,
+      "meanNetShort": 0.0009281821789917309,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.0006464902423325912,
+      "bestWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": 0.001854882731432825
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.008266087149327781
+      },
+      "leaveOneOutMinEffect": -0.001717043647072767,
+      "bootstrapCi95": [
+        -0.0016924662086886247,
+        -0.0005984065188658037
+      ],
+      "effectSizeVsUnconditional": -0.0009341425830739601
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H18",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": 0.0008930844335635071,
+      "medianReturn": 0.0007474290812806188,
+      "meanReturnAtr": -1.0065893587675838,
+      "winRate": 0.6356589147286822,
+      "meanMfe": 1.4466946725297138,
+      "meanMae": -1.491838280346985,
+      "meanNetLong": -0.001115084433563507,
+      "meanNetShort": 0.0008930844335635071,
+      "positiveWeekPct": 0.6666666666666666,
+      "medianWeeklyEffect": 0.00033195910720681384,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.004521740603320367
+      },
+      "worstWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": -0.00028430148717977264
+      },
+      "leaveOneOutMinEffect": 0.0005829798707054694,
+      "bootstrapCi95": [
+        0.0005469711180207781,
+        0.0012450621215871294
+      ],
+      "effectSizeVsUnconditional": 0.0008990448376457386
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H18",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": -0.001115084433563507,
+      "medianReturn": -0.0009694290812806188,
+      "meanReturnAtr": -1.0065893587675838,
+      "winRate": 0.3333333333333333,
+      "meanMfe": 1.4466946725297138,
+      "meanMae": -1.491838280346985,
+      "meanNetLong": -0.001115084433563507,
+      "meanNetShort": 0.0008930844335635071,
+      "positiveWeekPct": 0.1111111111111111,
+      "medianWeeklyEffect": -0.000553959107206814,
+      "bestWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.00006230148717977257
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.004743740603320367
+      },
+      "leaveOneOutMinEffect": -0.001405735132017987,
+      "bootstrapCi95": [
+        -0.0014584699773018388,
+        -0.0007579626992796953
+      ],
+      "effectSizeVsUnconditional": -0.0008990448376457384
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H18",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": -0.001004084433563506,
+      "medianReturn": -0.0008584290812806188,
+      "meanReturnAtr": -1.0065893587675838,
+      "winRate": 0.3449612403100775,
+      "meanMfe": 1.4466946725297138,
+      "meanMae": -1.491838280346985,
+      "meanNetLong": -0.001115084433563507,
+      "meanNetShort": 0.0008930844335635071,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.0004429591072068143,
+      "bestWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.0001733014871797726
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.004632740603320367
+      },
+      "leaveOneOutMinEffect": -0.001294735132017987,
+      "bootstrapCi95": [
+        -0.001347469977301837,
+        -0.0006469626992796949
+      ],
+      "effectSizeVsUnconditional": -0.000899044837645738
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H10",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 540,
+      "weeks": 9,
+      "meanReturn": -0.0008962027468151848,
+      "medianReturn": 0.000187383915479808,
+      "meanReturnAtr": 0.8576579478107227,
+      "winRate": 0.512962962962963,
+      "meanMfe": 2.7592651496092966,
+      "meanMae": -1.7178152051881002,
+      "meanNetLong": 0.0006742027468151844,
+      "meanNetShort": -0.0008962027468151848,
+      "positiveWeekPct": 0.4444444444444444,
+      "medianWeeklyEffect": -0.0011204244354421275,
+      "bestWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": 0.0020907206394399458
+      },
+      "worstWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": -0.0037688902110865927
+      },
+      "leaveOneOutMinEffect": -0.0012695681700970757,
+      "bootstrapCi95": [
+        -0.0012783507947237002,
+        -0.0004467565081053689
+      ],
+      "effectSizeVsUnconditional": -0.0008902423427329533
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H10",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 540,
+      "weeks": 9,
+      "meanReturn": 0.0006742027468151844,
+      "medianReturn": -0.000409383915479808,
+      "meanReturnAtr": 0.8576579478107227,
+      "winRate": 0.46111111111111114,
+      "meanMfe": 2.7592651496092966,
+      "meanMae": -1.7178152051881002,
+      "meanNetLong": 0.0006742027468151844,
+      "meanNetShort": -0.0008962027468151848,
+      "positiveWeekPct": 0.5555555555555556,
+      "medianWeeklyEffect": 0.0008984244354421274,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.0035468902110865927
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.0023127206394399466
+      },
+      "leaveOneOutMinEffect": 0.00031511681378125836,
+      "bootstrapCi95": [
+        0.0002524865425870447,
+        0.0010883338626466047
+      ],
+      "effectSizeVsUnconditional": 0.0008902423427329531
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H10",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 540,
+      "weeks": 9,
+      "meanReturn": 0.0007852027468151843,
+      "medianReturn": -0.000298383915479808,
+      "meanReturnAtr": 0.8576579478107227,
+      "winRate": 0.4722222222222222,
+      "meanMfe": 2.7592651496092966,
+      "meanMae": -1.7178152051881002,
+      "meanNetLong": 0.0006742027468151844,
+      "meanNetShort": -0.0008962027468151848,
+      "positiveWeekPct": 0.5555555555555556,
+      "medianWeeklyEffect": 0.0010094244354421275,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.0036578902110865935
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.0022017206394399466
+      },
+      "leaveOneOutMinEffect": 0.00042611681378125835,
+      "bootstrapCi95": [
+        0.00036348654258704484,
+        0.0011993338626466042
+      ],
+      "effectSizeVsUnconditional": 0.0008902423427329522
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H18",
+      "horizon": "+60m",
+      "direction": "SHORT",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": 0.0007321724662389712,
+      "medianReturn": 0.0005605171941480615,
+      "meanReturnAtr": -0.7265907202769896,
+      "winRate": 0.622093023255814,
+      "meanMfe": 1.2911884549460382,
+      "meanMae": -1.2449054965630797,
+      "meanNetLong": -0.0009541724662389699,
+      "meanNetShort": 0.0007321724662389712,
+      "positiveWeekPct": 0.6666666666666666,
+      "medianWeeklyEffect": 0.0004822600664912602,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.0045960386559590755
+      },
+      "worstWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": -0.0006838309292857153
+      },
+      "leaveOneOutMinEffect": 0.00036714558158841754,
+      "bootstrapCi95": [
+        0.00044457845018431365,
+        0.0010771738273029274
+      ],
+      "effectSizeVsUnconditional": 0.0007958717624220738
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H18",
+      "horizon": "+60m",
+      "direction": "LONG",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": -0.0009541724662389699,
+      "medianReturn": -0.0007825171941480615,
+      "meanReturnAtr": -0.7265907202769896,
+      "winRate": 0.32751937984496127,
+      "meanMfe": 1.2911884549460382,
+      "meanMae": -1.2449054965630797,
+      "meanNetLong": -0.0009541724662389699,
+      "meanNetShort": 0.0007321724662389712,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.00070426006649126,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.00046183092928571515
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.004818038655959075
+      },
+      "leaveOneOutMinEffect": -0.0012491292797440162,
+      "bootstrapCi95": [
+        -0.0012967958010925151,
+        -0.0006331608203368642
+      ],
+      "effectSizeVsUnconditional": -0.0007958717624220725
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H18",
+      "horizon": "+60m",
+      "direction": "EITHER",
+      "n": 516,
+      "weeks": 9,
+      "meanReturn": -0.0008431724662389705,
+      "medianReturn": -0.0006715171941480615,
+      "meanReturnAtr": -0.7265907202769896,
+      "winRate": 0.35852713178294576,
+      "meanMfe": 1.2911884549460382,
+      "meanMae": -1.2449054965630797,
+      "meanNetLong": -0.0009541724662389699,
+      "meanNetShort": 0.0007321724662389712,
+      "positiveWeekPct": 0.3333333333333333,
+      "medianWeeklyEffect": -0.0005932600664912601,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.0005728309292857153
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.0047070386559590754
+      },
+      "leaveOneOutMinEffect": -0.0011381292797440165,
+      "bootstrapCi95": [
+        -0.0011857958010925136,
+        -0.0005221608203368639
+      ],
+      "effectSizeVsUnconditional": -0.0007958717624220722
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H14",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 540,
+      "weeks": 9,
+      "meanReturn": -0.0007166278039749436,
+      "medianReturn": -0.00011045656583016377,
+      "meanReturnAtr": -0.2843114437813665,
+      "winRate": 0.49074074074074076,
+      "meanMfe": 1.5612703642131462,
+      "meanMae": -1.4023782624444463,
+      "meanNetLong": -0.0008276278039749432,
+      "meanNetShort": 0.0006056278039749433,
+      "positiveWeekPct": 0.3333333333333333,
+      "medianWeeklyEffect": -0.0010130189501872994,
+      "bestWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.0012324472549567075
+      },
+      "worstWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": -0.0019039257856722325
+      },
+      "leaveOneOutMinEffect": -0.0009602621863413995,
+      "bootstrapCi95": [
+        -0.0011268696424187067,
+        -0.0003367229574666867
+      ],
+      "effectSizeVsUnconditional": -0.0006115882080571757
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H14",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 540,
+      "weeks": 9,
+      "meanReturn": 0.0006056278039749433,
+      "medianReturn": -5.434341698362235e-7,
+      "meanReturnAtr": -0.2843114437813665,
+      "winRate": 0.5,
+      "meanMfe": 1.5612703642131462,
+      "meanMae": -1.4023782624444463,
+      "meanNetLong": -0.0008276278039749432,
+      "meanNetShort": 0.0006056278039749433,
+      "positiveWeekPct": 0.6666666666666666,
+      "medianWeeklyEffect": 0.0009020189501872995,
+      "bestWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": 0.0017929257856722327
+      },
+      "worstWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": -0.0013434472549567072
+      },
+      "leaveOneOutMinEffect": 0.000457215556262782,
+      "bootstrapCi95": [
+        0.00027498902911090114,
+        0.0010208340664788474
+      ],
+      "effectSizeVsUnconditional": 0.0006115882080571748
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H14",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 540,
+      "weeks": 9,
+      "meanReturn": -0.0008276278039749432,
+      "medianReturn": -0.00022145656583016379,
+      "meanReturnAtr": -0.2843114437813665,
+      "winRate": 0.4759259259259259,
+      "meanMfe": 1.5612703642131462,
+      "meanMae": -1.4023782624444463,
+      "meanNetLong": -0.0008276278039749432,
+      "meanNetShort": 0.0006056278039749433,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.0011240189501872994,
+      "bestWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.0011214472549567075
+      },
+      "worstWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": -0.002014925785672233
+      },
+      "leaveOneOutMinEffect": -0.0010712621863413995,
+      "bootstrapCi95": [
+        -0.001237869642418708,
+        -0.0004477229574666864
+      ],
+      "effectSizeVsUnconditional": -0.0006115882080571745
+    },
+    {
+      "feature": "hourUtc",
+      "bucket": "H15",
+      "horizon": "+120m",
+      "direction": "EITHER",
+      "n": 518,
+      "weeks": 9,
+      "meanReturn": -0.0006946576362491572,
+      "medianReturn": -0.0007510998080233566,
+      "meanReturnAtr": -0.4054646846937184,
+      "winRate": 0.4092664092664093,
+      "meanMfe": 1.3777127777279312,
+      "meanMae": -1.2186003968481354,
+      "meanNetLong": -0.0008056576362491573,
+      "meanNetShort": 0.0005836576362491571,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.0007757564713897592,
+      "bestWeek": {
+        "weekId": "W06_2026-07-06",
+        "effect": 0.0023796566389899547
+      },
+      "worstWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": -0.0028758646864131114
+      },
+      "leaveOneOutMinEffect": -0.001106441181748889,
+      "bootstrapCi95": [
+        -0.001006150681059378,
+        -0.000458332446603009
+      ],
+      "effectSizeVsUnconditional": -0.0005896180403313892
+    }
+  ],
+  "interactionsTop": [
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "OFF_HOURS|Q4",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 56,
+      "weeks": 5,
+      "meanReturn": 0.0034873698309267663,
+      "medianReturn": 0.0023882012649782515,
+      "meanReturnAtr": 2.1353440071407888,
+      "winRate": 0.8035714285714286,
+      "meanMfe": 3.0966725428082964,
+      "meanMae": -1.2795853741852465,
+      "meanNetLong": 0.0034873698309267663,
+      "meanNetShort": -0.0037093698309267663,
+      "positiveWeekPct": 0.8,
+      "medianWeeklyEffect": 0.0022329430280469613,
+      "bestWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": 0.01388196129447915
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.00023684595882104433
+      },
+      "leaveOneOutMinEffect": 0.0021983635273632794,
+      "bootstrapCi95": [
+        0.002221298910544597,
+        0.0050000507258875235
+      ],
+      "effectSizeVsUnconditional": 0.003703409426844535,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "OFF_HOURS",
+      "bucketB": "Q4"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "OFF_HOURS|Q4",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 56,
+      "weeks": 5,
+      "meanReturn": -0.0037093698309267663,
+      "medianReturn": -0.0026102012649782515,
+      "meanReturnAtr": 2.1353440071407888,
+      "winRate": 0.14285714285714285,
+      "meanMfe": 3.0966725428082964,
+      "meanMae": -1.2795853741852465,
+      "meanNetLong": 0.0034873698309267663,
+      "meanNetShort": -0.0037093698309267663,
+      "positiveWeekPct": 0.2,
+      "medianWeeklyEffect": -0.0024549430280469613,
+      "bestWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": 0.000014845958821044355
+      },
+      "worstWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": -0.01410396129447915
+      },
+      "leaveOneOutMinEffect": -0.005950065340688328,
+      "bootstrapCi95": [
+        -0.005065638702597823,
+        -0.0024206492668243243
+      ],
+      "effectSizeVsUnconditional": -0.003703409426844535,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "OFF_HOURS",
+      "bucketB": "Q4"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "NEW_YORK|Q5",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 76,
+      "weeks": 4,
+      "meanReturn": 0.0026937872334056854,
+      "medianReturn": 0.001956454627767498,
+      "meanReturnAtr": 1.0678456323271484,
+      "winRate": 0.6447368421052632,
+      "meanMfe": 2.018419707235724,
+      "meanMae": -1.2941647880301497,
+      "meanNetLong": 0.0026937872334056854,
+      "meanNetShort": -0.0029157872334056854,
+      "positiveWeekPct": 0.75,
+      "medianWeeklyEffect": 0.002616041638953972,
+      "bestWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": 0.006236386688302337
+      },
+      "worstWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": -0.002014129587566173
+      },
+      "leaveOneOutMinEffect": 0.0010726512301139238,
+      "bootstrapCi95": [
+        0.0007560078135475683,
+        0.004522307181172708
+      ],
+      "effectSizeVsUnconditional": 0.002909826829323454,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "NEW_YORK",
+      "bucketB": "Q5"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "NEW_YORK|Q5",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 76,
+      "weeks": 4,
+      "meanReturn": -0.0029157872334056854,
+      "medianReturn": -0.0021784546277674984,
+      "meanReturnAtr": 1.0678456323271484,
+      "winRate": 0.32894736842105265,
+      "meanMfe": 2.018419707235724,
+      "meanMae": -1.2941647880301497,
+      "meanNetLong": 0.0026937872334056854,
+      "meanNetShort": -0.0029157872334056854,
+      "positiveWeekPct": 0.25,
+      "medianWeeklyEffect": -0.002838041638953972,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.001792129587566173
+      },
+      "worstWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": -0.006458386688302337
+      },
+      "leaveOneOutMinEffect": -0.004044823322070093,
+      "bootstrapCi95": [
+        -0.004738411741619251,
+        -0.0009628970954021184
+      ],
+      "effectSizeVsUnconditional": -0.002909826829323454,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "NEW_YORK",
+      "bucketB": "Q5"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "OFF_HOURS|Q4",
+      "horizon": "+60m",
+      "direction": "LONG",
+      "n": 56,
+      "weeks": 5,
+      "meanReturn": 0.0015516598775349151,
+      "medianReturn": 0.0017921375041459408,
+      "meanReturnAtr": 1.2284862281733602,
+      "winRate": 0.7142857142857143,
+      "meanMfe": 2.0463403414880017,
+      "meanMae": -0.9095015402168295,
+      "meanNetLong": 0.0015516598775349151,
+      "meanNetShort": -0.001773659877534915,
+      "positiveWeekPct": 1,
+      "medianWeeklyEffect": 0.0013635058780821455,
+      "bestWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": 0.003948595451639416
+      },
+      "worstWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": 0.0009219084238297753
+      },
+      "leaveOneOutMinEffect": 0.0014282391910219335,
+      "bootstrapCi95": [
+        0.0010165368254966578,
+        0.0021174928564015936
+      ],
+      "effectSizeVsUnconditional": 0.0017099605813518126,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "OFF_HOURS",
+      "bucketB": "Q4"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "OFF_HOURS|Q4",
+      "horizon": "+60m",
+      "direction": "SHORT",
+      "n": 56,
+      "weeks": 5,
+      "meanReturn": -0.001773659877534915,
+      "medianReturn": -0.002014137504145941,
+      "meanReturnAtr": 1.2284862281733602,
+      "winRate": 0.23214285714285715,
+      "meanMfe": 2.0463403414880017,
+      "meanMae": -0.9095015402168295,
+      "meanNetLong": 0.0015516598775349151,
+      "meanNetShort": -0.001773659877534915,
+      "positiveWeekPct": 0,
+      "medianWeeklyEffect": -0.0015855058780821455,
+      "bestWeek": {
+        "weekId": "W08_2026-07-20",
+        "effect": -0.0011439084238297752
+      },
+      "worstWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": -0.004170595451639416
+      },
+      "leaveOneOutMinEffect": -0.002406910947974344,
+      "bootstrapCi95": [
+        -0.0023249843021953915,
+        -0.0012021582014651918
+      ],
+      "effectSizeVsUnconditional": -0.0017099605813518123,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "OFF_HOURS",
+      "bucketB": "Q4"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "ASIA|Q1",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 108,
+      "weeks": 7,
+      "meanReturn": 0.0016314157633896295,
+      "medianReturn": 0.0019778544407547368,
+      "meanReturnAtr": -1.506120256530372,
+      "winRate": 0.7314814814814815,
+      "meanMfe": 1.5395770547085261,
+      "meanMae": -2.1149112039350104,
+      "meanNetLong": -0.0018534157633896295,
+      "meanNetShort": 0.0016314157633896295,
+      "positiveWeekPct": 0.5714285714285714,
+      "medianWeeklyEffect": 0.00014896166286687063,
+      "bestWeek": {
+        "weekId": "W06_2026-07-06",
+        "effect": 0.004512867282650949
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.0037233506394808357
+      },
+      "leaveOneOutMinEffect": -0.0009523861724209706,
+      "bootstrapCi95": [
+        0.0009395498856125247,
+        0.0023588210536169526
+      ],
+      "effectSizeVsUnconditional": 0.001637376167471861,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "ASIA",
+      "bucketB": "Q1"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "ASIA|Q1",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 108,
+      "weeks": 7,
+      "meanReturn": -0.0018534157633896295,
+      "medianReturn": -0.0021998544407547367,
+      "meanReturnAtr": -1.506120256530372,
+      "winRate": 0.26851851851851855,
+      "meanMfe": 1.5395770547085261,
+      "meanMae": -2.1149112039350104,
+      "meanNetLong": -0.0018534157633896295,
+      "meanNetShort": 0.0016314157633896295,
+      "positiveWeekPct": 0.42857142857142855,
+      "medianWeeklyEffect": -0.0003709616628668706,
+      "bestWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": 0.0035013506394808358
+      },
+      "worstWeek": {
+        "weekId": "W06_2026-07-06",
+        "effect": -0.004734867282650949
+      },
+      "leaveOneOutMinEffect": -0.0006423168146009935,
+      "bootstrapCi95": [
+        -0.0025643326356098194,
+        -0.0011559410643625558
+      ],
+      "effectSizeVsUnconditional": -0.0016373761674718609,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "ASIA",
+      "bucketB": "Q1"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "LONDON|Q5",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 167,
+      "weeks": 9,
+      "meanReturn": 0.001163113040487357,
+      "medianReturn": 0.0015708597755204196,
+      "meanReturnAtr": 1.3148888844470734,
+      "winRate": 0.592814371257485,
+      "meanMfe": 2.7713585611704894,
+      "meanMae": -1.4897838467350446,
+      "meanNetLong": 0.001163113040487357,
+      "meanNetShort": -0.001385113040487357,
+      "positiveWeekPct": 0.5555555555555556,
+      "medianWeeklyEffect": 0.0013202753111333022,
+      "bestWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": 0.005160949723610578
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.0027781512181085
+      },
+      "leaveOneOutMinEffect": 0.0003709741437668955,
+      "bootstrapCi95": [
+        0.0003866325342155935,
+        0.0019398785911461836
+      ],
+      "effectSizeVsUnconditional": 0.0013791526364051257,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "LONDON",
+      "bucketB": "Q5"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "LONDON|Q5",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 167,
+      "weeks": 9,
+      "meanReturn": -0.001385113040487357,
+      "medianReturn": -0.0017928597755204195,
+      "meanReturnAtr": 1.3148888844470734,
+      "winRate": 0.39520958083832336,
+      "meanMfe": 2.7713585611704894,
+      "meanMae": -1.4897838467350446,
+      "meanNetLong": 0.001163113040487357,
+      "meanNetShort": -0.001385113040487357,
+      "positiveWeekPct": 0.4444444444444444,
+      "medianWeeklyEffect": -0.0015422753111333021,
+      "bestWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": 0.0025561512181085
+      },
+      "worstWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": -0.005382949723610579
+      },
+      "leaveOneOutMinEffect": -0.0015853617614817808,
+      "bootstrapCi95": [
+        -0.0021338910307873355,
+        -0.0005731622659609257
+      ],
+      "effectSizeVsUnconditional": -0.0013791526364051255,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "LONDON",
+      "bucketB": "Q5"
+    },
+    {
+      "feature": "bollingerWidth×recentReturn",
+      "bucket": "Q1|Q2",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 230,
+      "weeks": 9,
+      "meanReturn": 0.0010765990941837124,
+      "medianReturn": 0.0002807835366698763,
+      "meanReturnAtr": -1.8301204121718857,
+      "winRate": 0.5521739130434783,
+      "meanMfe": 2.16711004493845,
+      "meanMae": -3.0017865137975135,
+      "meanNetLong": -0.0012985990941837122,
+      "meanNetShort": 0.0010765990941837124,
+      "positiveWeekPct": 0.7777777777777778,
+      "medianWeeklyEffect": 0.0018670672819953214,
+      "bestWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": 0.002704629078328721
+      },
+      "worstWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": -0.002674535502279786
+      },
+      "leaveOneOutMinEffect": 0.0006659313884688736,
+      "bootstrapCi95": [
+        0.0006425321443667138,
+        0.001598490956224214
+      ],
+      "effectSizeVsUnconditional": 0.001082559498265944,
+      "featureA": "bollingerWidth",
+      "featureB": "recentReturn",
+      "bucketA": "Q1",
+      "bucketB": "Q2"
+    },
+    {
+      "feature": "bollingerWidth×recentReturn",
+      "bucket": "Q1|Q2",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 230,
+      "weeks": 9,
+      "meanReturn": -0.0012985990941837122,
+      "medianReturn": -0.0005027835366698763,
+      "meanReturnAtr": -1.8301204121718857,
+      "winRate": 0.4260869565217391,
+      "meanMfe": 2.16711004493845,
+      "meanMae": -3.0017865137975135,
+      "meanNetLong": -0.0012985990941837122,
+      "meanNetShort": 0.0010765990941837124,
+      "positiveWeekPct": 0.2222222222222222,
+      "medianWeeklyEffect": -0.0020890672819953216,
+      "bestWeek": {
+        "weekId": "W10_2026-08-03",
+        "effect": 0.002452535502279786
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.002926629078328721
+      },
+      "leaveOneOutMinEffect": -0.001560326961044937,
+      "bootstrapCi95": [
+        -0.0018113037609556028,
+        -0.000863249351029814
+      ],
+      "effectSizeVsUnconditional": -0.0010825594982659436,
+      "featureA": "bollingerWidth",
+      "featureB": "recentReturn",
+      "bucketA": "Q1",
+      "bucketB": "Q2"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "LONDON_NY_OVERLAP|Q4",
+      "horizon": "+120m",
+      "direction": "SHORT",
+      "n": 543,
+      "weeks": 9,
+      "meanReturn": 0.0009802847793081838,
+      "medianReturn": 0.0008652679394989678,
+      "meanReturnAtr": -0.7445480231496012,
+      "winRate": 0.58195211786372,
+      "meanMfe": 1.6617738118672953,
+      "meanMae": -1.831285000312581,
+      "meanNetLong": -0.001202284779308183,
+      "meanNetShort": 0.0009802847793081838,
+      "positiveWeekPct": 0.7777777777777778,
+      "medianWeeklyEffect": 0.0008749564376208394,
+      "bestWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": 0.004038447956218583
+      },
+      "worstWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": -0.003199020985800475
+      },
+      "leaveOneOutMinEffect": 0.00036198410495748355,
+      "bootstrapCi95": [
+        0.0006183248678560168,
+        0.0014217353691650394
+      ],
+      "effectSizeVsUnconditional": 0.0009862451833904154,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "LONDON_NY_OVERLAP",
+      "bucketB": "Q4"
+    },
+    {
+      "feature": "sessionBucket×atrPercentile",
+      "bucket": "LONDON_NY_OVERLAP|Q4",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 543,
+      "weeks": 9,
+      "meanReturn": -0.001202284779308183,
+      "medianReturn": -0.0010872679394989678,
+      "meanReturnAtr": -0.7445480231496012,
+      "winRate": 0.3885819521178637,
+      "meanMfe": 1.6617738118672953,
+      "meanMae": -1.831285000312581,
+      "meanNetLong": -0.001202284779308183,
+      "meanNetShort": 0.0009802847793081838,
+      "positiveWeekPct": 0.1111111111111111,
+      "medianWeeklyEffect": -0.0010969564376208391,
+      "bestWeek": {
+        "weekId": "W02_2026-06-08",
+        "effect": 0.002977020985800475
+      },
+      "worstWeek": {
+        "weekId": "W07_2026-07-13",
+        "effect": -0.004260447956218583
+      },
+      "leaveOneOutMinEffect": -0.0014886677227098656,
+      "bootstrapCi95": [
+        -0.0015997888602298693,
+        -0.0008304712502396436
+      ],
+      "effectSizeVsUnconditional": -0.0009862451833904144,
+      "featureA": "sessionBucket",
+      "featureB": "atrPercentile",
+      "bucketA": "LONDON_NY_OVERLAP",
+      "bucketB": "Q4"
+    },
+    {
+      "feature": "impulseDistanceAtr×pullbackDepthAtr",
+      "bucket": "Q4|Q5",
+      "horizon": "+120m",
+      "direction": "LONG",
+      "n": 270,
+      "weeks": 9,
+      "meanReturn": -0.001116227031627982,
+      "medianReturn": -0.0007177802732117457,
+      "meanReturnAtr": -0.9587128513975876,
+      "winRate": 0.40370370370370373,
+      "meanMfe": 1.882764939316795,
+      "meanMae": -2.098770303295724,
+      "meanNetLong": -0.001116227031627982,
+      "meanNetShort": 0.0008942270316279811,
+      "positiveWeekPct": 0.1111111111111111,
+      "medianWeeklyEffect": -0.0007654763442215013,
+      "bestWeek": {
+        "weekId": "W03_2026-06-15",
+        "effect": 0.0010308029703730971
+      },
+      "worstWeek": {
+        "weekId": "W04_2026-06-22",
+        "effect": -0.0019436929384984538
+      },
+      "leaveOneOutMinEffect": -0.0010363105786136667,
+      "bootstrapCi95": [
+        -0.0018266298550109654,
+        -0.0005168237292165405
+      ],
+      "effectSizeVsUnconditional": -0.0009001874357102132,
+      "featureA": "impulseDistanceAtr",
+      "featureB": "pullbackDepthAtr",
+      "bucketA": "Q4",
+      "bucketB": "Q5"
+    }
+  ],
+  "negativeFindings": [
+    "adx: max |effect| vs unconditional ≈ 1.28e-4; no stable weekly signal ≥3bps",
+    "rsi: classic signal remains weak (max |effect| ≈ 4.33e-4); do not recycle alone",
+    "bodyAtr: max |effect| vs unconditional ≈ 1.19e-4; no stable weekly signal ≥3bps",
+    "rangeAtr: max |effect| vs unconditional ≈ 5.03e-5; no stable weekly signal ≥3bps",
+    "closeLocation: max |effect| vs unconditional ≈ 1.48e-4; no stable weekly signal ≥3bps",
+    "directionalEfficiency: max |effect| vs unconditional ≈ 1.61e-4; no stable weekly signal ≥3bps",
+    "distToSwingLowAtr: max |effect| vs unconditional ≈ 2.59e-4; no stable weekly signal ≥3bps",
+    "barsSinceImpulse: max |effect| vs unconditional ≈ 2.91e-4; no stable weekly signal ≥3bps",
+    "emaStackAligned: max |effect| vs unconditional ≈ 1.37e-4; no stable weekly signal ≥3bps",
+    "structureState: max |effect| vs unconditional ≈ 1.32e-4; no stable weekly signal ≥3bps",
+    "htf15Structure: max |effect| vs unconditional ≈ 7.17e-5; no stable weekly signal ≥3bps",
+    "htf15Aligned: max |effect| vs unconditional ≈ 1.12e-4; no stable weekly signal ≥3bps"
+  ],
+  "candidates": [
+    {
+      "rank": 2,
+      "description": "hourUtc in bucket H5 (EITHER) on 5m @ +120m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.0013681287981929528,
+      "validationEffect": 0.0003578452656442429,
+      "holdoutEffect": 0.00006275125750194855,
+      "positiveWeekPct": 1,
+      "costAdjustedEffect": 0.001263089202275185,
+      "warnings": [
+        "holdout |effect| 6.28e-5 < practical min 5.00e-4",
+        "holdout collapsed vs discovery (<25% retention)",
+        "calendar/session-only condition"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 10,
+      "description": "hourUtc in bucket H10 (LONG) on 5m @ +120m",
+      "direction": "long",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 540,
+      "discoveryEffect": 0.0008902423427329531,
+      "validationEffect": 0.0004344378351163802,
+      "holdoutEffect": 0.0003898385629320357,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.0006742027468151844,
+      "warnings": [
+        "holdout |effect| 3.90e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 11,
+      "description": "hourUtc in bucket H10 (EITHER) on 5m @ +120m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 540,
+      "discoveryEffect": 0.0008902423427329522,
+      "validationEffect": 0.0004344378351163803,
+      "holdoutEffect": 0.00038983856293203496,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.0007852027468151843,
+      "warnings": [
+        "holdout |effect| 3.90e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 12,
+      "description": "hourUtc in bucket H15 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 518,
+      "discoveryEffect": 0.0005896180403313886,
+      "validationEffect": 0.0016557921792767466,
+      "holdoutEffect": 0.0014119470017073163,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.0005836576362491571,
+      "warnings": [
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 14,
+      "description": "hourUtc in bucket H15 (SHORT) on 5m @ +60m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+60m",
+      "sampleSize": 540,
+      "discoveryEffect": 0.0005468907658928512,
+      "validationEffect": 0.0008046258711228179,
+      "holdoutEffect": 0.00045391853836806566,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.0004831914697097485,
+      "warnings": [
+        "holdout |effect| 4.54e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 24,
+      "description": "hourUtc in bucket H9 (LONG) on 5m @ +120m",
+      "direction": "long",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 540,
+      "discoveryEffect": 0.0005416966214760492,
+      "validationEffect": 0.0006563795535540327,
+      "holdoutEffect": 0.0004998020201217921,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.00032565702555828046,
+      "warnings": [
+        "holdout |effect| 5.00e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 25,
+      "description": "hourUtc in bucket H9 (EITHER) on 5m @ +120m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 540,
+      "discoveryEffect": 0.0005416966214760489,
+      "validationEffect": 0.0006563795535540323,
+      "holdoutEffect": 0.0004998020201217916,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.00043665702555828093,
+      "warnings": [
+        "holdout |effect| 5.00e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 22,
+      "description": "emaFastSlope in bucket Q5 (LONG) on 5m @ +120m",
+      "direction": "long",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 2544,
+      "discoveryEffect": 0.00046322736093316224,
+      "validationEffect": 0.00029339595666986914,
+      "holdoutEffect": 0.0006312967760386618,
+      "positiveWeekPct": 0.6666666666666666,
+      "costAdjustedEffect": 0.00024718776501539354,
+      "warnings": [
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 23,
+      "description": "emaFastSlope in bucket Q5 (EITHER) on 5m @ +120m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 2544,
+      "discoveryEffect": 0.00046322736093316175,
+      "validationEffect": 0.00029339595666986784,
+      "holdoutEffect": 0.0006312967760386612,
+      "positiveWeekPct": 0.6666666666666666,
+      "costAdjustedEffect": 0.00035818776501539374,
+      "warnings": [
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 39,
+      "description": "distToSwingHighAtr in bucket Q1 (EITHER) on 5m @ +120m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 2154,
+      "discoveryEffect": 0.00046126740106302384,
+      "validationEffect": 0.000028874645709848,
+      "holdoutEffect": 0.0001784268384416178,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.00035622780514525584,
+      "warnings": [
+        "holdout |effect| 1.78e-4 < practical min 5.00e-4",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 31,
+      "description": "donchianWidthAtr in bucket Q1 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 2491,
+      "discoveryEffect": 0.0004275196617272456,
+      "validationEffect": 0.0005577166105247097,
+      "holdoutEffect": 0.0008059757087010293,
+      "positiveWeekPct": 0.6666666666666666,
+      "costAdjustedEffect": 0.0004215592576450141,
+      "warnings": [
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 37,
+      "description": "hourUtc in bucket H10 (EITHER) on 5m @ +60m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+60m",
+      "sampleSize": 540,
+      "discoveryEffect": 0.00039671643517728914,
+      "validationEffect": 0.0003368814245059468,
+      "holdoutEffect": 0.0007033417297588286,
+      "positiveWeekPct": 0.6666666666666666,
+      "costAdjustedEffect": 0.00034941573136039076,
+      "warnings": [
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 1,
+      "description": "hourUtc in bucket H5 (LONG) on 5m @ +120m",
+      "direction": "long",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.001368128798192953,
+      "validationEffect": 0.00035784526564424334,
+      "holdoutEffect": 0.0000627512575019492,
+      "positiveWeekPct": 1,
+      "costAdjustedEffect": 0.0011520892022751845,
+      "warnings": [
+        "Holdout sign flip",
+        "holdout |effect| 6.28e-5 < practical min 5.00e-4",
+        "holdout collapsed vs discovery (<25% retention)",
+        "calendar/session-only condition"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 17,
+      "description": "hourUtc in bucket H1 (SHORT) on 5m @ +60m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+60m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.0005057990234158792,
+      "validationEffect": 0.0002916163369630328,
+      "holdoutEffect": 0.00006441960627223701,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.0004420997272327765,
+      "warnings": [
+        "Holdout sign flip",
+        "holdout |effect| 6.44e-5 < practical min 5.00e-4",
+        "holdout collapsed vs discovery (<25% retention)",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 29,
+      "description": "rsi in bucket Q5 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 2194,
+      "discoveryEffect": -0.0004327608886559638,
+      "validationEffect": -0.0004562168303102398,
+      "holdoutEffect": -0.000509603261597443,
+      "positiveWeekPct": 0.6666666666666666,
+      "costAdjustedEffect": -0.0004387212927381953,
+      "warnings": [
+        "Leave-one-week-out mean effect ≤ 0",
+        "cost-adjusted effect does not clear round-trip spread+slip",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 40,
+      "description": "hourUtc in bucket H0 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.000382481060324375,
+      "validationEffect": 0.0009197404114083516,
+      "holdoutEffect": 0.0009206360222496107,
+      "positiveWeekPct": 0.6666666666666666,
+      "costAdjustedEffect": 0.0003765206562421435,
+      "warnings": [
+        "Leave-one-week-out mean effect ≤ 0",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 16,
+      "description": "hourUtc in bucket H10 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 540,
+      "discoveryEffect": -0.0008902423427329533,
+      "validationEffect": -0.00043443783511638065,
+      "holdoutEffect": -0.00038983856293203556,
+      "positiveWeekPct": 0.4444444444444444,
+      "costAdjustedEffect": -0.0008962027468151848,
+      "warnings": [
+        "Discovery positive-week % < 50",
+        "Leave-one-week-out mean effect ≤ 0",
+        "holdout |effect| 3.90e-4 < practical min 5.00e-4",
+        "cost-adjusted effect does not clear round-trip spread+slip",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 3,
+      "description": "hourUtc in bucket H4 (LONG) on 5m @ +120m",
+      "direction": "long",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.0011824439466339032,
+      "validationEffect": -0.00117686251547493,
+      "holdoutEffect": 0.0004475034561997144,
+      "positiveWeekPct": 0.8888888888888888,
+      "costAdjustedEffect": 0.0009664043507161345,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 4.48e-4 < practical min 5.00e-4",
+        "calendar/session-only condition"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 4,
+      "description": "hourUtc in bucket H4 (EITHER) on 5m @ +120m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.0011824439466339028,
+      "validationEffect": -0.0011768625154749306,
+      "holdoutEffect": 0.00044750345619971367,
+      "positiveWeekPct": 0.8888888888888888,
+      "costAdjustedEffect": 0.0010774043507161349,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 4.48e-4 < practical min 5.00e-4",
+        "calendar/session-only condition"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 7,
+      "description": "hourUtc in bucket H17 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 516,
+      "discoveryEffect": 0.0009341425830739624,
+      "validationEffect": -0.00017894095327226675,
+      "holdoutEffect": 0.0004453310790176889,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.0009281821789917309,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 4.45e-4 < practical min 5.00e-4",
+        "calendar/session-only condition"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 13,
+      "description": "sessionBucket in bucket NEW_YORK (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 2412,
+      "discoveryEffect": 0.0005868981883669768,
+      "validationEffect": -0.00009163118024447481,
+      "holdoutEffect": 0.00024968401283349416,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.0005809377842847453,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 2.50e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 27,
+      "description": "hourUtc in bucket H5 (LONG) on 5m @ +30m",
+      "direction": "long",
+      "timeframe": "5m",
+      "horizon": "+30m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.000522087416074772,
+      "validationEffect": -0.00044900360034641593,
+      "holdoutEffect": 0.00048752498899492467,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.00039024134020031637,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 4.88e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 28,
+      "description": "hourUtc in bucket H5 (EITHER) on 5m @ +30m",
+      "direction": "continuation",
+      "timeframe": "5m",
+      "horizon": "+30m",
+      "sampleSize": 432,
+      "discoveryEffect": 0.0005220874160747717,
+      "validationEffect": -0.00044900360034641604,
+      "holdoutEffect": 0.0004875249889949246,
+      "positiveWeekPct": 0.5555555555555556,
+      "costAdjustedEffect": 0.0005012413402003165,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 4.88e-4 < practical min 5.00e-4",
+        "calendar/session-only condition",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 20,
+      "description": "pullbackDepthAtr in bucket Q5 (SHORT) on 5m @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 1316,
+      "discoveryEffect": 0.0004281399201993393,
+      "validationEffect": -0.00013429583559081932,
+      "holdoutEffect": 0.0001699682118497689,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.00042217951611710783,
+      "warnings": [
+        "Validation sign flip",
+        "holdout |effect| 1.70e-4 < practical min 5.00e-4",
+        "cost-adjusted effect below strategy-design floor"
+      ],
+      "source": "univariate"
+    },
+    {
+      "rank": 53,
+      "description": "sessionBucket=LONDON_NY_OVERLAP AND atrPercentile=Q4 (SHORT) @ +120m",
+      "direction": "short",
+      "timeframe": "5m",
+      "horizon": "+120m",
+      "sampleSize": 543,
+      "discoveryEffect": 0.0009862451833904154,
+      "validationEffect": 0.0010721556480014233,
+      "holdoutEffect": -0.000719349557905844,
+      "positiveWeekPct": 0.7777777777777778,
+      "costAdjustedEffect": 0.0009802847793081838,
+      "warnings": [
+        "Holdout weak/flip"
+      ],
+      "source": "interaction"
+    }
+  ],
+  "baselines": {
+    "+15m": {
+      "discovery": {
+        "unconditionalUpRate": 0.4860817477096547,
+        "meanReturn": -0.000009557791975755639,
+        "momentumBaselineMean": -0.00010536441572702197,
+        "meanReversionBaselineMean": -0.00011663558427297796
+      },
+      "validation": {
+        "unconditionalUpRate": 0.5051114023591088,
+        "meanReturn": 0.000007428230414212159,
+        "momentumBaselineMean": -0.000056285455046588213,
+        "meanReversionBaselineMean": -0.0001657145449534116
+      },
+      "holdout": {
+        "unconditionalUpRate": 0.4973045822102426,
+        "meanReturn": 4.160635653362685e-7,
+        "momentumBaselineMean": -0.00010410829604954965,
+        "meanReversionBaselineMean": -0.00011789170395045016
+      }
+    },
+    "+30m": {
+      "discovery": {
+        "unconditionalUpRate": 0.4867108167770419,
+        "meanReturn": -0.00002084607587445515,
+        "momentumBaselineMean": -0.0000935398423307487,
+        "meanReversionBaselineMean": -0.00012846015766925135
+      },
+      "validation": {
+        "unconditionalUpRate": 0.49894902785076195,
+        "meanReturn": 0.000015071382434909795,
+        "momentumBaselineMean": -0.00006158115001183879,
+        "meanReversionBaselineMean": -0.0001604188499881618
+      },
+      "holdout": {
+        "unconditionalUpRate": 0.49559322033898306,
+        "meanReturn": -7.764739941268559e-7,
+        "momentumBaselineMean": -0.000029613516707897886,
+        "meanReversionBaselineMean": -0.00019238648329210204
+      }
+    },
+    "+60m": {
+      "discovery": {
+        "unconditionalUpRate": 0.4794605625055452,
+        "meanReturn": -0.000047300703816898375,
+        "momentumBaselineMean": -0.000011493043511216202,
+        "meanReversionBaselineMean": -0.00021050695648878328
+      },
+      "validation": {
+        "unconditionalUpRate": 0.4989440337909187,
+        "meanReturn": 0.000033973775544482816,
+        "momentumBaselineMean": -0.00008983844156291417,
+        "meanReversionBaselineMean": -0.00013216155843708544
+      },
+      "holdout": {
+        "unconditionalUpRate": 0.5044612216884008,
+        "meanReturn": 0.000001530169490339129,
+        "momentumBaselineMean": 0.00015517004487499323,
+        "meanReversionBaselineMean": -0.00037717004487499377
+      }
+    },
+    "+120m": {
+      "discovery": {
+        "unconditionalUpRate": 0.4641225477022306,
+        "meanReturn": -0.000105039595917768,
+        "momentumBaselineMean": 8.862598629590565e-7,
+        "meanReversionBaselineMean": -0.00022288625986295913
+      },
+      "validation": {
+        "unconditionalUpRate": 0.5034648187633263,
+        "meanReturn": 0.00008568415005944202,
+        "momentumBaselineMean": -0.00006502939964925861,
+        "meanReversionBaselineMean": -0.0001569706003507412
+      },
+      "holdout": {
+        "unconditionalUpRate": 0.48909218859957776,
+        "meanReturn": 0.0000037748148913333326,
+        "momentumBaselineMean": 0.0001255373697374434,
+        "meanReversionBaselineMean": -0.00034753736973744284
+      }
+    }
+  },
+  "modelSummary": {
+    "horizon": "+60m",
+    "featureKeys": [
+      "adx",
+      "atrPercentile",
+      "rsi",
+      "emaExtensionAtr",
+      "recentReturn",
+      "bodyAtr",
+      "directionalEfficiency",
+      "distToSwingHighAtr",
+      "distToSwingLowAtr"
+    ],
+    "trainRmse": 0.003167021541955019,
+    "validationRmse": 0.002814904875928096,
+    "holdoutRmse": 0.003114476985795784,
+    "importance": [
+      {
+        "feature": "emaExtensionAtr",
+        "weight": 0.00006749231143819514
+      },
+      {
+        "feature": "atrPercentile",
+        "weight": 0.00005614675977902211
+      },
+      {
+        "feature": "bodyAtr",
+        "weight": -0.00004816925896257553
+      },
+      {
+        "feature": "distToSwingHighAtr",
+        "weight": -0.00003353656624579465
+      },
+      {
+        "feature": "rsi",
+        "weight": 0.000021175245371891513
+      },
+      {
+        "feature": "directionalEfficiency",
+        "weight": 0.000020275275275919462
+      },
+      {
+        "feature": "adx",
+        "weight": -0.000013670580256691391
+      },
+      {
+        "feature": "recentReturn",
+        "weight": 0.000011841236737058009
+      },
+      {
+        "feature": "distToSwingLowAtr",
+        "weight": 0.000004645866759339196
+      }
+    ],
+    "beatsUnconditionalHoldout": false,
+    "note": "Ridge regression trained on DISCOVERY only; holdout never used for fitting."
+  },
+  "multipleTesting": {
+    "univariateTests": 1476,
+    "interactionTests": 1352,
+    "note": "Many correlated tests; treat discovery rankings as hypothesis generation. Require validation + holdout sign agreement, weekly stability, and practical effect vs spread+slip before claiming edge. Approximate test counts recorded; no claim of family-wise error control beyond holdout separation."
+  },
+  "anyMeaningfulRepeatableEdge": true,
+  "recommendNewStrategy": false,
+  "safety": {
+    "noStrategyCreated": true,
+    "nothingDeployed": true,
+    "xauusdNotEnabled": true,
+    "noXauusdTrades": true,
+    "r10Unchanged": true,
+    "r10EmaRemainsSuspended": true,
+    "riskLifecycleUnchanged": true,
+    "realMoneyDisabled": true
+  }
+}

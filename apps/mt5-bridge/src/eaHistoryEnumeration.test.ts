@@ -64,6 +64,18 @@ describe("RegimeXExec.mq5 history enumeration", () => {
     expect(body).toMatch(/HistoryDealSelect must NOT be called|Never call HistoryDealSelect/i);
   });
 
+  it("HandleGetBars uses CopyRates read-only with no OrderSend", () => {
+    const body = extractFunction("HandleGetBars");
+    expect(body).toContain("CopyRates");
+    expect(body).toContain("completedOnly");
+    expect(body).toContain("TimeGMT");
+    expect(body).toContain("openTimeMs");
+    expect(body).toContain('\\"source\\":\\"MT5\\"');
+    expect(body).not.toContain("OrderSend");
+    expect(body).not.toContain("HistorySelect");
+    expect(src).toContain('command == "getBars"');
+  });
+
   it("preserves single-deal HistoryDealSelect only outside history iteration", () => {
     const openBody = extractFunction("HandleOpen");
     const closeBody = extractFunction("HandleClose");

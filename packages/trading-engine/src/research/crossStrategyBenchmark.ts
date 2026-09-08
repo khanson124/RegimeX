@@ -15,6 +15,14 @@ import {
   TrendStructurePullbackV2Strategy,
   TREND_STRUCTURE_PULLBACK_V2_DEFAULTS
 } from "../strategies/trendStructurePullbackV2.js";
+import {
+  XauMtfStructureMomentumStrategy,
+  XAU_MTF_STRUCTURE_MOMENTUM_DEFAULTS
+} from "../strategies/xauMtfStructureMomentum.js";
+import {
+  XauVolatilityExpansionRetestStrategy,
+  XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS
+} from "../strategies/xauVolatilityExpansionRetest.js";
 import { CFD_CAPABLE_STRATEGY_IDS } from "../strategies/cfdCapability.js";
 import { type TradingStrategy } from "../strategies/types.js";
 import {
@@ -84,6 +92,18 @@ export function listBenchmarkStrategies(
       strategy: new TrendStructurePullbackV2Strategy(),
       parameters: { ...TREND_STRUCTURE_PULLBACK_V2_DEFAULTS },
       family: classifyStrategyFamily("trend-structure-pullback-v2")
+    },
+    {
+      strategyId: "xau-mtf-structure-momentum-v1",
+      strategy: new XauMtfStructureMomentumStrategy(),
+      parameters: { ...XAU_MTF_STRUCTURE_MOMENTUM_DEFAULTS },
+      family: classifyStrategyFamily("xau-mtf-structure-momentum-v1")
+    },
+    {
+      strategyId: "xau-volatility-expansion-retest-v1",
+      strategy: new XauVolatilityExpansionRetestStrategy(),
+      parameters: { ...XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS },
+      family: classifyStrategyFamily("xau-volatility-expansion-retest-v1")
     }
   ];
 
@@ -116,6 +136,9 @@ export interface CrossStrategyBenchmarkConfig {
   tickSize: number;
   tickValue: number;
   maxVolume: number;
+  /** Defaults to 1 (R_10-style). Gold MT5 CFD uses 100. */
+  contractSize?: number;
+  pricePrecision?: number;
   strategyIds?: string[];
 }
 
@@ -149,7 +172,7 @@ function instrumentFromConfig(
     symbol: cfg.symbol,
     enabled: true,
     verified: true,
-    contractSize: 1,
+    contractSize: cfg.contractSize ?? 1,
     volumeStep: 0.01,
     minVolume: 0.01,
     maxVolume: cfg.maxVolume,
@@ -158,10 +181,34 @@ function instrumentFromConfig(
     marginRate: 0.01,
     spreadBps,
     slippageBps,
-    pricePrecision: 3,
+    pricePrecision: cfg.pricePrecision ?? 3,
     currency: "USD"
   };
 }
+
+/** MT5-DEMO-aligned XAUUSD research instrument (not an enablement). */
+export const XAUUSD_CROSS_STRATEGY_BENCHMARK_CONFIG: CrossStrategyBenchmarkConfig = {
+  symbol: "XAUUSD",
+  interval: "1m",
+  holdoutPercent: 0.3,
+  spreadBps: 0.61,
+  slippageBps: 0,
+  startingBalance: 10_000,
+  riskPerTradePercent: 0.5,
+  minRiskRewardRatio: 1.5,
+  maxHoldBars: 60,
+  walkForward: {
+    trainWindow: 2000,
+    testWindow: 400,
+    stepSize: 400,
+    windowMode: "rolling"
+  },
+  tickSize: 0.01,
+  tickValue: 1,
+  maxVolume: 10,
+  contractSize: 100,
+  pricePrecision: 2
+};
 
 export interface WindowResult {
   window: number;

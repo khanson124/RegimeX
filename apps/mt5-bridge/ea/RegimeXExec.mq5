@@ -15,7 +15,7 @@
 //| Native ACCOUNT_TRADE_MODE is authoritative for DEMO/REAL.        |
 //+------------------------------------------------------------------+
 #property copyright "RegimeX"
-#property version   "1.01"
+#property version   "1.02"
 #property strict
 
 input string InpMailboxRoot = "regimex";
@@ -490,6 +490,165 @@ void HandleHistory(string json, string requestId, string idempotencyKey, string 
    WriteReply(requestId, idempotencyKey, command, true, "", "", result, false);
   }
 
+// Map RegimeX timeframe strings to PERIOD_*.
+ENUM_TIMEFRAMES ParseBarTimeframe(string tf)
+  {
+   if(tf == "1m" || tf == "M1")
+      return PERIOD_M1;
+   if(tf == "5m" || tf == "M5")
+      return PERIOD_M5;
+   if(tf == "15m" || tf == "M15")
+      return PERIOD_M15;
+   return PERIOD_CURRENT;
+  }
+
+int TimeframeSeconds(ENUM_TIMEFRAMES period)
+  {
+   if(period == PERIOD_M1)
+      return 60;
+   if(period == PERIOD_M5)
+      return 300;
+   if(period == PERIOD_M15)
+      return 900;
+   return PeriodSeconds(period);
+  }
+
+// READ-ONLY: CopyRates OHLC. No OrderSend / no history-deal mutation.
+// Timestamps: MqlRates.time is trade-server datetime. Convert to UTC via
+// offset = TimeCurrent() - TimeGMT() measured at fetch (documented; DST mid-history
+// bars may be off by 1h if offset changed since the bar formed).
+void HandleGetBars(string json, string requestId, string idempotencyKey, string command)
+  {
+   string symbol = JsonGetString(json, "symbol");
+   string timeframe = JsonGetString(json, "timeframe");
+   if(symbol == "" || timeframe == "")
+     {
+      WriteReply(requestId, idempotencyKey, command, false, "MT5_BARS_BAD_REQUEST", "symbol and timeframe required", "", false);
+      return;
+     }
+   ENUM_TIMEFRAMES period = ParseBarTimeframe(timeframe);
+   if(period == PERIOD_CURRENT)
+     {
+      WriteReply(requestId, idempotencyKey, command, false, "MT5_BARS_UNSUPPORTED_TIMEFRAME", timeframe, "", false);
+      return;
+     }
+   if(!SymbolSelect(symbol, true))
+     {
+      WriteReply(requestId, idempotencyKey, command, false, "MT5_SYMBOL_NOT_FOUND", symbol, "", false);
+      return;
+     }
+
+   // Default completedBarsOnly=true unless explicitly false.
+   bool completedOnly = true;
+   string cob = JsonGetString(json, "completedBarsOnly");
+   if(cob == "false" || cob == "0")
+      completedOnly = false;
+
+   // Hard cap keeps mailbox JSON under bridge body limits (~64KB).
+   int maxBars = 250;
+   double countReq = JsonGetNumber(json, "count", 0);
+   if(countReq > 0)
+      maxBars = (int)MathMin(250.0, countReq);
+
+   long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
+   double fromMs = JsonGetNumber(json, "fromMs", 0);
+   double toMs = JsonGetNumber(json, "toMs", 0);
+
+   MqlRates rates[];
+   int copied = 0;
+   bool newestFirst = false;
+   if(fromMs > 0 && toMs > 0)
+     {
+      ArraySetAsSeries(rates, false);
+      datetime fromServer = (datetime)((long)(fromMs / 1000.0) + offsetSec);
+      datetime toServer = (datetime)((long)(toMs / 1000.0) + offsetSec);
+      copied = CopyRates(symbol, period, fromServer, toServer, rates);
+      newestFirst = false;
+     }
+   else if(fromMs > 0)
+     {
+      ArraySetAsSeries(rates, false);
+      datetime fromServer = (datetime)((long)(fromMs / 1000.0) + offsetSec);
+      copied = CopyRates(symbol, period, fromServer, TimeCurrent() + 60, rates);
+      newestFirst = false;
+     }
+   else
+     {
+      // start_pos=0 is the forming bar when ArraySetAsSeries(true).
+      ArraySetAsSeries(rates, true);
+      copied = CopyRates(symbol, period, 0, maxBars + (completedOnly ? 1 : 0), rates);
+      newestFirst = true;
+     }
+
+   if(copied <= 0)
+     {
+      WriteReply(requestId, idempotencyKey, command, false, "MT5_BARS_UNAVAILABLE", "CopyRates returned 0", "", true);
+      return;
+     }
+
+   datetime formingOpen = iTime(symbol, period, 0);
+   int tfSec = TimeframeSeconds(period);
+
+   string barsJson = "[";
+   int written = 0;
+   int start = newestFirst ? copied - 1 : 0;
+   int end = newestFirst ? 0 : copied - 1;
+   int step = newestFirst ? -1 : 1;
+   for(int i = start; newestFirst ? (i >= end) : (i <= end); i += step)
+     {
+      datetime serverOpen = rates[i].time;
+      if(completedOnly && serverOpen >= formingOpen)
+         continue;
+      if(written >= maxBars)
+         break;
+
+      long brokerServerOpenMs = (long)serverOpen * 1000;
+      long openTimeMs = ((long)serverOpen - offsetSec) * 1000;
+      long closeTimeMs = openTimeMs + (long)tfSec * 1000;
+
+      if(written > 0)
+         barsJson += ",";
+      barsJson += "{";
+      barsJson += "\"symbol\":\"" + symbol + "\",";
+      barsJson += "\"timeframe\":\"" + timeframe + "\",";
+      barsJson += "\"openTimeMs\":" + IntegerToString(openTimeMs) + ",";
+      barsJson += "\"closeTimeMs\":" + IntegerToString(closeTimeMs) + ",";
+      barsJson += "\"brokerServerOpenTimeMs\":" + IntegerToString(brokerServerOpenMs) + ",";
+      barsJson += "\"open\":" + DoubleToString(rates[i].open, 8) + ",";
+      barsJson += "\"high\":" + DoubleToString(rates[i].high, 8) + ",";
+      barsJson += "\"low\":" + DoubleToString(rates[i].low, 8) + ",";
+      barsJson += "\"close\":" + DoubleToString(rates[i].close, 8) + ",";
+      barsJson += "\"tickVolume\":" + IntegerToString((long)rates[i].tick_volume) + ",";
+      barsJson += "\"realVolume\":" + DoubleToString(rates[i].real_volume, 2) + ",";
+      barsJson += "\"spreadPoints\":" + IntegerToString((long)rates[i].spread) + ",";
+      barsJson += "\"source\":\"MT5\",";
+      barsJson += "\"isComplete\":true";
+      barsJson += "}";
+      written++;
+     }
+   barsJson += "]";
+
+   string result = "{";
+   result += "\"symbol\":\"" + symbol + "\",";
+   result += "\"timeframe\":\"" + timeframe + "\",";
+   result += "\"brokerServerUtcOffsetSeconds\":" + IntegerToString(offsetSec) + ",";
+   result += "\"timestampSemantics\":\"MqlRates.time is trade-server bar open; openTimeMs = (serverOpen - (TimeCurrent-TimeGMT))*1000 UTC; closeTimeMs = openTimeMs + timeframe. Offset measured at fetch — historical DST shifts may skew older bars by 1h.\",";
+   result += "\"completedBarsOnly\":" + (completedOnly ? "true" : "false") + ",";
+   if(fromMs > 0)
+      result += "\"requestedFromMs\":" + DoubleToString(fromMs, 0) + ",";
+   else
+      result += "\"requestedFromMs\":null,";
+   if(toMs > 0)
+      result += "\"requestedToMs\":" + DoubleToString(toMs, 0) + ",";
+   else
+      result += "\"requestedToMs\":null,";
+   result += "\"returnedCount\":" + IntegerToString(written) + ",";
+   result += "\"bars\":" + barsJson;
+   result += "}";
+
+   WriteReply(requestId, idempotencyKey, command, true, "", "", result, false);
+  }
+
 bool EnsureSymbol(string symbol)
   {
    if(!SymbolSelect(symbol, true))
@@ -796,6 +955,8 @@ void ProcessCommandFile(string filename)
       WriteReply(requestId, idempotencyKey, command, true, "", "", AllPositionsJson(), false);
    else if(command == "getHistory")
       HandleHistory(json, requestId, idempotencyKey, command);
+   else if(command == "getBars")
+      HandleGetBars(json, requestId, idempotencyKey, command);
    else if(command == "openMarket")
       HandleOpen(json, requestId, idempotencyKey, command);
    else if(command == "modifyPosition")

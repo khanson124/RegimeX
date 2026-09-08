@@ -1,10 +1,16 @@
 import {
   candleCloseTime,
   candleOpenTime,
-  intervalMs,
   type Candle,
   type CandleInterval
 } from "@regimex/shared";
+import {
+  researchCandleCloseTime,
+  researchCandleOpenTime,
+  researchIntervalMs,
+  toBacktestCandle,
+  type ResearchCandleInterval
+} from "./researchCandleInterval.js";
 
 /**
  * Legacy aggregation (may bridge incomplete buckets). Prefer
@@ -69,7 +75,8 @@ export type ContiguousBucketExcludeReason =
   | "EMPTY_BUCKET";
 
 export interface ContiguousAggregationResult {
-  targetInterval: CandleInterval;
+  /** Research target; may be `15m` (not a production CandleInterval). */
+  targetInterval: ResearchCandleInterval;
   sourceIntervalMs: number;
   expectedSourceBarsPerBucket: number;
   rawBucketCount: number;
@@ -102,25 +109,27 @@ function isInvalidOhlc(c: Candle): boolean {
 }
 
 /**
- * Gap-aware research aggregation: emit a HTF bar only when the bucket contains a
- * complete contiguous set of source bars (no missing interior minutes, no gap bridging).
+ * Gap-aware research aggregation (incl. research-only `15m`): emit a HTF bar only when
+ * the bucket contains a complete contiguous set of source bars (no missing interior
+ * minutes, no gap bridging). Session/maintenance gaps simply leave incomplete buckets
+ * that are rejected — never bridged.
  *
  * Lookahead-safe: uses only completed source candles; OHLC from chronological members.
- * Does not modify live tick ingestion.
+ * Does not modify live tick ingestion or production CandleInterval contracts.
  */
-export function aggregateContiguousCompletedCandles(
+export function aggregateContiguousResearchCandles(
   candles: ReadonlyArray<Candle>,
-  targetInterval: CandleInterval,
+  targetInterval: ResearchCandleInterval,
   opts?: { sourceIntervalMs?: number }
 ): ContiguousAggregationResult {
   const sourceIntervalMs = opts?.sourceIntervalMs ?? 60_000;
-  const targetMs = intervalMs(targetInterval);
+  const targetMs = researchIntervalMs(targetInterval);
   const expectedSourceBarsPerBucket = Math.round(targetMs / sourceIntervalMs);
 
   const buckets = new Map<number, Candle[]>();
   for (const c of candles) {
     if (!c.isComplete) continue;
-    const open = candleOpenTime(c.openTime, targetInterval);
+    const open = researchCandleOpenTime(c.openTime, targetInterval);
     const list = buckets.get(open) ?? [];
     list.push(c);
     buckets.set(open, list);
@@ -217,19 +226,21 @@ export function aggregateContiguousCompletedCandles(
       ticks += g.tickCount;
     }
 
-    validBars.push({
-      symbol: first.symbol,
-      interval: targetInterval,
-      openTime: open,
-      closeTime: candleCloseTime(open, targetInterval),
-      open: first.open,
-      high,
-      low,
-      close: last.close,
-      tickCount: ticks,
-      isComplete: true,
-      source: first.source
-    });
+    validBars.push(
+      toBacktestCandle({
+        symbol: first.symbol,
+        interval: targetInterval,
+        openTime: open,
+        closeTime: researchCandleCloseTime(open, targetInterval),
+        open: first.open,
+        high,
+        low,
+        close: last.close,
+        tickCount: ticks,
+        isComplete: true,
+        source: first.source
+      })
+    );
   }
 
   return {
@@ -242,4 +253,16 @@ export function aggregateContiguousCompletedCandles(
     validCount: validBars.length,
     excludedCount: excluded.length
   };
+}
+
+/**
+ * Production-interval wrapper (`1m`|`5m`). Prefer
+ * {@link aggregateContiguousResearchCandles} when targeting research-only `15m`.
+ */
+export function aggregateContiguousCompletedCandles(
+  candles: ReadonlyArray<Candle>,
+  targetInterval: CandleInterval,
+  opts?: { sourceIntervalMs?: number }
+): ContiguousAggregationResult {
+  return aggregateContiguousResearchCandles(candles, targetInterval, opts);
 }

@@ -1,0 +1,903 @@
+{
+  "generatedAt": "2026-09-08T15:19:30.738Z",
+  "strategyId": "xau-volatility-expansion-retest-v1",
+  "defaults": {
+    "executionTimeframe": "5m",
+    "compressionLookback": 12,
+    "maxNormalizedRange": 0.65,
+    "minCompressionBars": 6,
+    "minExpansionRangeAtr": 1.2,
+    "minBreakoutBodyAtr": 0.25,
+    "minCloseLocation": 0.6,
+    "retestZoneWidthAtr": 0.35,
+    "maxRetestDelayBars": 12,
+    "maxChaseExtensionAtr": 2.5,
+    "minAcceptanceCloseBeyondAtr": 0.1,
+    "exhaustionExtensionAtr": 3.5,
+    "minStructureRoomR": 1.5,
+    "structureBufferAtr": 0.15,
+    "intendedTargetR": 2,
+    "cooldownCandles": 20,
+    "minimumConfidence": 0.55,
+    "expiryCandles": 24
+  },
+  "productionIntervals": [
+    "1m",
+    "5m"
+  ],
+  "usableWeeks": 15,
+  "spread": {
+    "symbol": "XAUUSD",
+    "sampleCount": 17,
+    "status": "PRELIMINARY",
+    "label": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+    "medianBps": 0.61,
+    "p75Bps": null,
+    "p90Bps": null,
+    "p95Bps": null,
+    "p99Bps": null,
+    "medianSpreadPrice": 0.27,
+    "sourcePath": null,
+    "note": "Sample file missing locally; using operator-reported production passive-sample summary (<30 → PRELIMINARY)."
+  },
+  "funnel": {
+    "compressionDetected": 320,
+    "expansionDetected": 6,
+    "retestObserved": 1,
+    "accepted": 8,
+    "failed": 1,
+    "exhausted": 0,
+    "expired": 0
+  },
+  "sensitivity": [
+    {
+      "dimension": "executionTimeframe",
+      "value": "5m",
+      "trades": 4,
+      "expectancyR": 0.7863,
+      "profitFactor": 3.7597
+    },
+    {
+      "dimension": "executionTimeframe",
+      "value": "1m",
+      "trades": 2,
+      "expectancyR": 0.8027,
+      "profitFactor": 6.7146
+    },
+    {
+      "dimension": "minExpansionRangeAtr",
+      "value": 1,
+      "trades": 6,
+      "expectancyR": 0.3095,
+      "profitFactor": 1.7563
+    },
+    {
+      "dimension": "minExpansionRangeAtr",
+      "value": 1.2,
+      "trades": 4,
+      "expectancyR": 0.7863,
+      "profitFactor": 3.7597
+    },
+    {
+      "dimension": "minExpansionRangeAtr",
+      "value": 1.5,
+      "trades": 1,
+      "expectancyR": 1.9185,
+      "profitFactor": null
+    },
+    {
+      "dimension": "retestZoneWidthAtr",
+      "value": 0.25,
+      "trades": 4,
+      "expectancyR": 0.7863,
+      "profitFactor": 3.7597
+    },
+    {
+      "dimension": "retestZoneWidthAtr",
+      "value": 0.35,
+      "trades": 4,
+      "expectancyR": 0.7863,
+      "profitFactor": 3.7597
+    },
+    {
+      "dimension": "retestZoneWidthAtr",
+      "value": 0.5,
+      "trades": 4,
+      "expectancyR": 0.7863,
+      "profitFactor": 3.7597
+    }
+  ],
+  "sensitivityCollapse": false,
+  "development": {
+    "execution5m": {
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "winRate": 0.75,
+      "profitFactor": 3.7597,
+      "expectancyR": 0.7863,
+      "averageWinR": 1.4137,
+      "averageLossR": -1.0958,
+      "netR": 3.1453,
+      "netPnl": 151.81,
+      "maxDrawdown": null,
+      "maxDrawdownPercent": null,
+      "longestLossStreak": null,
+      "averageBarsHeld": null,
+      "averageHoldingMs": null,
+      "buyTrades": 0,
+      "sellTrades": 4,
+      "buyExpectancyR": null,
+      "sellExpectancyR": 0.7863,
+      "buyWinRate": null,
+      "sellWinRate": 0.75,
+      "byRegime": {
+        "STRONG_DOWNTREND": {
+          "trades": 1,
+          "winRate": 1,
+          "expectancyR": 0.3978
+        },
+        "WEAK_UPTREND": {
+          "trades": 1,
+          "winRate": 1,
+          "expectancyR": 1.9248
+        },
+        "BREAKOUT_EXPANSION": {
+          "trades": 1,
+          "winRate": 0,
+          "expectancyR": -1.0958
+        },
+        "RANGE_LOW_VOLATILITY": {
+          "trades": 1,
+          "winRate": 1,
+          "expectancyR": 1.9185
+        }
+      },
+      "sampleSize": "VERY_LOW_SAMPLE"
+    },
+    "wfPositivePct": 0.18181818181818182
+  },
+  "weekly5mEntry": {
+    "pooledObserved": {
+      "weeks": 15,
+      "positiveWeekCount": 2,
+      "positiveWeekPct": 0.13333333333333333,
+      "medianWeeklyExpectancyR": 0,
+      "bestWeek": {
+        "segmentId": "W10_2026-08-03",
+        "expectancyR": 0.9158,
+        "netR": 2.7475
+      },
+      "worstWeek": {
+        "segmentId": "W01_2026-06-01",
+        "expectancyR": 0,
+        "netR": 0
+      },
+      "longestLosingWeekStreak": 0,
+      "totalTrades": 4,
+      "winRate": 0.75,
+      "profitFactor": 3.870414309180507,
+      "expectancyR": 0.786325,
+      "netR": 3.1453,
+      "buyTrades": 0,
+      "sellTrades": 4,
+      "buyExpectancyR": null,
+      "sellExpectancyR": 0.7863,
+      "byRegime": {
+        "STRONG_DOWNTREND": {
+          "trades": 1,
+          "expectancyR": 0.3978
+        },
+        "WEAK_UPTREND": {
+          "trades": 1,
+          "expectancyR": 1.9248
+        },
+        "BREAKOUT_EXPANSION": {
+          "trades": 1,
+          "expectancyR": -1.0958
+        },
+        "RANGE_LOW_VOLATILITY": {
+          "trades": 1,
+          "expectancyR": 1.9185
+        }
+      },
+      "sampleSize": "VERY_LOW_SAMPLE"
+    },
+    "pooledZero": {
+      "weeks": 15,
+      "positiveWeekCount": 2,
+      "positiveWeekPct": 0.13333333333333333,
+      "medianWeeklyExpectancyR": 0,
+      "bestWeek": {
+        "segmentId": "W10_2026-08-03",
+        "expectancyR": 1,
+        "netR": 3
+      },
+      "worstWeek": {
+        "segmentId": "W01_2026-06-01",
+        "expectancyR": 0,
+        "netR": 0
+      },
+      "longestLosingWeekStreak": 0,
+      "totalTrades": 4,
+      "winRate": 0.75,
+      "profitFactor": 4.4331,
+      "expectancyR": 0.858275,
+      "netR": 3.4331,
+      "buyTrades": 0,
+      "sellTrades": 4,
+      "buyExpectancyR": null,
+      "sellExpectancyR": 0.858275,
+      "byRegime": {
+        "STRONG_DOWNTREND": {
+          "trades": 1,
+          "expectancyR": 0.4331
+        },
+        "WEAK_UPTREND": {
+          "trades": 1,
+          "expectancyR": 2
+        },
+        "BREAKOUT_EXPANSION": {
+          "trades": 1,
+          "expectancyR": -1
+        },
+        "RANGE_LOW_VOLATILITY": {
+          "trades": 1,
+          "expectancyR": 2
+        }
+      },
+      "sampleSize": "VERY_LOW_SAMPLE"
+    },
+    "weeks": [
+      {
+        "segmentId": "W01_2026-06-01",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W02_2026-06-08",
+        "trades": 1,
+        "expectancyR": 0.3978,
+        "profitFactor": null,
+        "netR": 0.3978
+      },
+      {
+        "segmentId": "W03_2026-06-15",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W04_2026-06-22",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W05_2026-06-29",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W06_2026-07-06",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W07_2026-07-13",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W08_2026-07-20",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W10_2026-08-03",
+        "trades": 3,
+        "expectancyR": 0.9158,
+        "profitFactor": 3.4394,
+        "netR": 2.7475
+      },
+      {
+        "segmentId": "W11_2026-08-10",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W12_2026-08-17",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W13_2026-08-24",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W14_2026-08-31",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W15_2026-09-07",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W16_2026-09-07",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      }
+    ]
+  },
+  "weekly1mEntry": {
+    "pooledObserved": {
+      "weeks": 15,
+      "positiveWeekCount": 1,
+      "positiveWeekPct": 0.06666666666666667,
+      "medianWeeklyExpectancyR": 0,
+      "bestWeek": {
+        "segmentId": "W10_2026-08-03",
+        "expectancyR": 1.9185,
+        "netR": 1.9185
+      },
+      "worstWeek": {
+        "segmentId": "W02_2026-06-08",
+        "expectancyR": -0.3132,
+        "netR": -0.3132
+      },
+      "longestLosingWeekStreak": 1,
+      "totalTrades": 2,
+      "winRate": 0.5,
+      "profitFactor": 6.125478927203066,
+      "expectancyR": 0.8026500000000001,
+      "netR": 1.6053000000000002,
+      "buyTrades": 0,
+      "sellTrades": 2,
+      "buyExpectancyR": null,
+      "sellExpectancyR": 0.8026500000000001,
+      "byRegime": {
+        "BREAKOUT_EXPANSION": {
+          "trades": 1,
+          "expectancyR": -0.3132
+        },
+        "RANGE_LOW_VOLATILITY": {
+          "trades": 1,
+          "expectancyR": 1.9185
+        }
+      },
+      "sampleSize": "VERY_LOW_SAMPLE"
+    },
+    "weeks": [
+      {
+        "segmentId": "W01_2026-06-01",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W02_2026-06-08",
+        "trades": 1,
+        "expectancyR": -0.3132,
+        "profitFactor": 0,
+        "netR": -0.3132
+      },
+      {
+        "segmentId": "W03_2026-06-15",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W04_2026-06-22",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W05_2026-06-29",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W06_2026-07-06",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W07_2026-07-13",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W08_2026-07-20",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W10_2026-08-03",
+        "trades": 1,
+        "expectancyR": 1.9185,
+        "profitFactor": null,
+        "netR": 1.9185
+      },
+      {
+        "segmentId": "W11_2026-08-10",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W12_2026-08-17",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W13_2026-08-24",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W14_2026-08-31",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W15_2026-09-07",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      },
+      {
+        "segmentId": "W16_2026-09-07",
+        "trades": 0,
+        "expectancyR": 0,
+        "profitFactor": null,
+        "netR": 0
+      }
+    ]
+  },
+  "entryModeComparison": {
+    "5m": {
+      "pooledTrades": 4,
+      "pooledExpectancyR": 0.786325,
+      "holdout": {
+        "trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "winRate": 0,
+        "profitFactor": null,
+        "expectancyR": 0,
+        "averageWinR": null,
+        "averageLossR": null,
+        "netR": 0,
+        "netPnl": 0,
+        "maxDrawdown": null,
+        "maxDrawdownPercent": null,
+        "longestLossStreak": null,
+        "averageBarsHeld": null,
+        "averageHoldingMs": null,
+        "buyTrades": 0,
+        "sellTrades": 0,
+        "buyExpectancyR": null,
+        "sellExpectancyR": null,
+        "buyWinRate": null,
+        "sellWinRate": null,
+        "byRegime": {},
+        "sampleSize": "VERY_LOW_SAMPLE"
+      },
+      "classification": "TOO_SPARSE"
+    },
+    "1m": {
+      "pooledTrades": 2,
+      "pooledExpectancyR": 0.8026500000000001,
+      "holdout": {
+        "trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "winRate": 0,
+        "profitFactor": null,
+        "expectancyR": 0,
+        "averageWinR": null,
+        "averageLossR": null,
+        "netR": 0,
+        "netPnl": 0,
+        "maxDrawdown": null,
+        "maxDrawdownPercent": null,
+        "longestLossStreak": null,
+        "averageBarsHeld": null,
+        "averageHoldingMs": null,
+        "buyTrades": 0,
+        "sellTrades": 0,
+        "buyExpectancyR": null,
+        "sellExpectancyR": null,
+        "buyWinRate": null,
+        "sellWinRate": null,
+        "byRegime": {},
+        "sampleSize": "VERY_LOW_SAMPLE"
+      },
+      "classification": "TOO_SPARSE"
+    }
+  },
+  "finalHoldout5m": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "winRate": 0,
+    "profitFactor": null,
+    "expectancyR": 0,
+    "averageWinR": null,
+    "averageLossR": null,
+    "netR": 0,
+    "netPnl": 0,
+    "maxDrawdown": null,
+    "maxDrawdownPercent": null,
+    "longestLossStreak": null,
+    "averageBarsHeld": null,
+    "averageHoldingMs": null,
+    "buyTrades": 0,
+    "sellTrades": 0,
+    "buyExpectancyR": null,
+    "sellExpectancyR": null,
+    "buyWinRate": null,
+    "sellWinRate": null,
+    "byRegime": {},
+    "sampleSize": "VERY_LOW_SAMPLE"
+  },
+  "finalHoldout5mAssumedSlip025": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "winRate": 0,
+    "profitFactor": null,
+    "expectancyR": 0,
+    "averageWinR": null,
+    "averageLossR": null,
+    "netR": 0,
+    "netPnl": 0,
+    "maxDrawdown": null,
+    "maxDrawdownPercent": null,
+    "longestLossStreak": null,
+    "averageBarsHeld": null,
+    "averageHoldingMs": null,
+    "buyTrades": 0,
+    "sellTrades": 0,
+    "buyExpectancyR": null,
+    "sellExpectancyR": null,
+    "buyWinRate": null,
+    "sellWinRate": null,
+    "byRegime": {},
+    "sampleSize": "VERY_LOW_SAMPLE"
+  },
+  "buySell": {
+    "buyTrades": 0,
+    "sellTrades": 4,
+    "buyExpectancyR": null,
+    "sellExpectancyR": 0.7863
+  },
+  "sessions": [
+    {
+      "session": "LONDON",
+      "trades": 1,
+      "expectancyR": 0.3978,
+      "netR": 0.3978
+    },
+    {
+      "session": "NEW_YORK",
+      "trades": 2,
+      "expectancyR": 0.4145,
+      "netR": 0.829
+    },
+    {
+      "session": "ASIA",
+      "trades": 1,
+      "expectancyR": 1.9185,
+      "netR": 1.9185
+    }
+  ],
+  "hours": [
+    {
+      "hourUtc": 5,
+      "trades": 1,
+      "expectancyR": 1.9185,
+      "netR": 1.9185
+    },
+    {
+      "hourUtc": 10,
+      "trades": 1,
+      "expectancyR": 0.3978,
+      "netR": 0.3978
+    },
+    {
+      "hourUtc": 17,
+      "trades": 1,
+      "expectancyR": 1.9248,
+      "netR": 1.9248
+    },
+    {
+      "hourUtc": 18,
+      "trades": 1,
+      "expectancyR": -1.0958,
+      "netR": -1.0958
+    }
+  ],
+  "htf15Context": [
+    {
+      "context": "BREAKOUT_SELL",
+      "trades": 4,
+      "expectancyR": 0.7863249999999999
+    }
+  ],
+  "costSensitivity": [
+    {
+      "profileId": "ZERO",
+      "label": "ZERO",
+      "expectancyR": 0.858275,
+      "profitFactor": 4.4331,
+      "totalTrades": 4,
+      "positiveWeekPct": 0.13333333333333333
+    },
+    {
+      "profileId": "OBSERVED_SPREAD_ONLY",
+      "label": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+      "expectancyR": 0.786325,
+      "profitFactor": 3.870414309180507,
+      "totalTrades": 4,
+      "positiveWeekPct": 0.13333333333333333
+    },
+    {
+      "profileId": "ASSUMED_SLIP_0_10",
+      "label": "ASSUMED",
+      "expectancyR": 0.765075,
+      "profitFactor": 3.724294489450726,
+      "totalTrades": 4,
+      "positiveWeekPct": 0.13333333333333333
+    },
+    {
+      "profileId": "ASSUMED_SLIP_0_25",
+      "label": "ASSUMED",
+      "expectancyR": 0.7351000000000001,
+      "profitFactor": 3.531903900800827,
+      "totalTrades": 4,
+      "positiveWeekPct": 0.13333333333333333
+    },
+    {
+      "profileId": "ASSUMED_SLIP_0_50",
+      "label": "ASSUMED",
+      "expectancyR": 0.6893499999999999,
+      "profitFactor": 3.2632140512147076,
+      "totalTrades": 4,
+      "positiveWeekPct": 0.13333333333333333
+    },
+    {
+      "profileId": "ASSUMED_SLIP_1_00",
+      "label": "ASSUMED",
+      "expectancyR": 0.611075,
+      "profitFactor": 2.863601707837755,
+      "totalTrades": 4,
+      "positiveWeekPct": 0.13333333333333333
+    }
+  ],
+  "baselineHoldoutComparison": {
+    "squeeze-breakout-v1": {
+      "trades": 172,
+      "wins": 72,
+      "losses": 100,
+      "winRate": 0.4186,
+      "profitFactor": 0.9186,
+      "expectancyR": -0.039,
+      "averageWinR": 0.9777,
+      "averageLossR": -0.7709,
+      "netR": -6.6998,
+      "netPnl": -277.25,
+      "maxDrawdown": null,
+      "maxDrawdownPercent": null,
+      "longestLossStreak": null,
+      "averageBarsHeld": null,
+      "averageHoldingMs": null,
+      "buyTrades": 82,
+      "sellTrades": 90,
+      "buyExpectancyR": -0.1077,
+      "sellExpectancyR": 0.0237,
+      "buyWinRate": 0.378,
+      "sellWinRate": 0.4556,
+      "byRegime": {
+        "BREAKOUT_EXPANSION": {
+          "trades": 172,
+          "winRate": 0.4186,
+          "expectancyR": -0.039
+        }
+      },
+      "sampleSize": "INFORMATIVE"
+    },
+    "breakout-momentum-v1": {
+      "trades": 117,
+      "wins": 54,
+      "losses": 63,
+      "winRate": 0.4615,
+      "profitFactor": 1.1482,
+      "expectancyR": 0.0581,
+      "averageWinR": 0.8749,
+      "averageLossR": -0.6421,
+      "netR": 6.7926,
+      "netPnl": 271.01,
+      "maxDrawdown": null,
+      "maxDrawdownPercent": null,
+      "longestLossStreak": null,
+      "averageBarsHeld": null,
+      "averageHoldingMs": null,
+      "buyTrades": 55,
+      "sellTrades": 62,
+      "buyExpectancyR": 0.0862,
+      "sellExpectancyR": 0.0331,
+      "buyWinRate": 0.4182,
+      "sellWinRate": 0.5,
+      "byRegime": {
+        "BREAKOUT_EXPANSION": {
+          "trades": 117,
+          "winRate": 0.4615,
+          "expectancyR": 0.0581
+        }
+      },
+      "sampleSize": "INFORMATIVE"
+    },
+    "ema-pullback-v1": {
+      "trades": 491,
+      "wins": 153,
+      "losses": 338,
+      "winRate": 0.3116,
+      "profitFactor": 0.7927,
+      "expectancyR": -0.1655,
+      "averageWinR": 1.8981,
+      "averageLossR": -1.0996,
+      "netR": -81.2665,
+      "netPnl": -3390.29,
+      "maxDrawdown": null,
+      "maxDrawdownPercent": null,
+      "longestLossStreak": null,
+      "averageBarsHeld": null,
+      "averageHoldingMs": null,
+      "buyTrades": 220,
+      "sellTrades": 271,
+      "buyExpectancyR": -0.2302,
+      "sellExpectancyR": -0.113,
+      "buyWinRate": 0.2909,
+      "sellWinRate": 0.3284,
+      "byRegime": {
+        "WEAK_UPTREND": {
+          "trades": 15,
+          "winRate": 0.2,
+          "expectancyR": -0.503
+        },
+        "STRONG_UPTREND": {
+          "trades": 205,
+          "winRate": 0.2976,
+          "expectancyR": -0.2102
+        },
+        "STRONG_DOWNTREND": {
+          "trades": 244,
+          "winRate": 0.3279,
+          "expectancyR": -0.112
+        },
+        "WEAK_DOWNTREND": {
+          "trades": 27,
+          "winRate": 0.3333,
+          "expectancyR": -0.1223
+        }
+      },
+      "sampleSize": "INFORMATIVE"
+    },
+    "xau-mtf-structure-momentum-v1": {
+      "trades": 4,
+      "wins": 1,
+      "losses": 3,
+      "winRate": 0.25,
+      "profitFactor": 0.1744,
+      "expectancyR": -0.4615,
+      "averageWinR": 0.4342,
+      "averageLossR": -0.76,
+      "netR": -1.8458,
+      "netPnl": -89.4,
+      "maxDrawdown": null,
+      "maxDrawdownPercent": null,
+      "longestLossStreak": null,
+      "averageBarsHeld": null,
+      "averageHoldingMs": null,
+      "buyTrades": 3,
+      "sellTrades": 1,
+      "buyExpectancyR": -0.76,
+      "sellExpectancyR": 0.4342,
+      "buyWinRate": 0,
+      "sellWinRate": 1,
+      "byRegime": {
+        "STRONG_DOWNTREND": {
+          "trades": 1,
+          "winRate": 1,
+          "expectancyR": 0.4342
+        },
+        "WEAK_UPTREND": {
+          "trades": 1,
+          "winRate": 0,
+          "expectancyR": -1.0266
+        },
+        "BREAKOUT_EXPANSION": {
+          "trades": 1,
+          "winRate": 0,
+          "expectancyR": -0.2925
+        },
+        "STRONG_UPTREND": {
+          "trades": 1,
+          "winRate": 0,
+          "expectancyR": -0.9609
+        }
+      },
+      "sampleSize": "VERY_LOW_SAMPLE"
+    }
+  },
+  "classification": "TOO_SPARSE",
+  "classificationReasons": [
+    "Sparse sample pooled=4 holdout=0"
+  ],
+  "classification1mEntry": {
+    "classification": "TOO_SPARSE",
+    "reasons": [
+      "Sparse sample pooled=2 holdout=0"
+    ]
+  },
+  "forwardDemoJustified": false,
+  "safety": {
+    "nothingDeployed": true,
+    "xauusdNotEnabled": true,
+    "noXauusdTrades": true,
+    "existingStrategiesUnchanged": true,
+    "r10Unchanged": true,
+    "r10EmaRemainsSuspended": true,
+    "riskLifecycleUnchanged": true,
+    "realMoneyDisabled": true
+  }
+}

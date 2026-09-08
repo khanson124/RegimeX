@@ -11,7 +11,8 @@ export type CandleSource =
   | "LIVE_TICKS" // Deriv live ticks (legacy name retained for backward compatibility)
   | "HISTORY_API" // Deriv historical / research backfill
   | "SEED"
-  | "MT5_LIVE_TICKS"; // MT5 broker live quotes — broker_demo_mt5 session domain
+  | "MT5_LIVE_TICKS" // MT5 broker live quotes — broker_demo_mt5 session domain
+  | "MT5"; // Native MT5 OHLC bars (CopyRates) — research-only; do not mix into live restore
 
 /**
  * Engine-facing candle. Times are epoch milliseconds (UTC).

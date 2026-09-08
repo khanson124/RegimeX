@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { DerivAuthenticationError, DerivConnectionError } from "@regimex/shared";
 import { parseContractUpdate } from "./contractUpdate.js";
 import { fetchOtpWebSocketUrl, fetchOptionsAccounts, verifyOptionsPatToken } from "./derivRest.js";
-import { fromDerivApiSymbol, isOptionsAppId, toDerivApiSymbol } from "./derivSymbols.js";
+import { fromDerivApiSymbol, isOptionsAppId, toDerivApiSymbol, toDerivHistoryApiSymbol } from "./derivSymbols.js";
 import {
   type DerivAuthorizeInfo,
   type DerivBuyResult,
@@ -141,7 +141,7 @@ export class DerivClient extends EventEmitter {
     }
   }
 
-  /** Fetch historical candles (granularity in seconds). */
+  /** Fetch historical candles (granularity in seconds). Uses research history symbol map for XAUUSD?frxXAUUSD. */
   async getCandleHistory(
     symbol: string,
     granularitySeconds: number,
@@ -149,7 +149,7 @@ export class DerivClient extends EventEmitter {
     endEpochSec: number,
     count = 5000
   ): Promise<DerivHistoricalCandle[]> {
-    const apiSymbol = toDerivApiSymbol(symbol, this.options.appId);
+    const apiSymbol = toDerivHistoryApiSymbol(symbol, this.options.appId);
     const res = await this.send({
       ticks_history: apiSymbol,
       style: "candles",
@@ -225,7 +225,7 @@ export class DerivClient extends EventEmitter {
     return { balance: Number(b.balance), currency: String(b.currency ?? "USD") };
   }
 
-  // ── internals ────────────────────────────────────────────────
+  // ?? internals ????????????????????????????????????????????????
 
   private isOptionsApi(): boolean {
     return isOptionsAppId(this.options.appId);
@@ -466,7 +466,7 @@ export class DerivClient extends EventEmitter {
   }
 }
 
-/** Build a Deriv proposal request — Options API uses `underlying_symbol`, legacy uses `symbol`. */
+/** Build a Deriv proposal request � Options API uses `underlying_symbol`, legacy uses `symbol`. */
 export function buildProposalRequest(
   apiSymbol: string,
   params: {

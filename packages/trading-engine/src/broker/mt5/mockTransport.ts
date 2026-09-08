@@ -11,12 +11,24 @@ import {
   type Mt5FillingMode,
   type Mt5HistoryDeal,
   type Mt5HistoryQuery,
+  type Mt5BarsQuery,
+  type Mt5BarsResult,
+  type Mt5Bar,
+  type Mt5BarTimeframe,
   type Mt5MailboxReply,
   type Mt5OpenMarketPayload,
   type Mt5OpenMarketResult,
   type Mt5Quote,
   type Mt5SymbolInfo
 } from "./types.js";
+
+export const MOCK_MT5_MAX_BARS_PER_REQUEST = 250;
+
+function timeframeMs(tf: Mt5BarTimeframe): number {
+  if (tf === "1m") return 60_000;
+  if (tf === "5m") return 300_000;
+  return 900_000;
+}
 
 export interface MockMt5Position extends Mt5BridgePosition {
   idempotencyKey: string;
@@ -36,6 +48,8 @@ export class MockMt5BridgeTransport implements Mt5BridgeTransport {
   quotes = new Map<string, Mt5Quote>();
   positions = new Map<number, MockMt5Position>();
   deals: Mt5HistoryDeal[] = [];
+  /** Synthetic completed MT5 bars for getBars (openTimeMs UTC). */
+  bars: Mt5Bar[] = [];
   submitCount = 0;
   modifyCount = 0;
   closeCount = 0;
@@ -181,6 +195,8 @@ export class MockMt5BridgeTransport implements Mt5BridgeTransport {
       case "getHistory":
         if (this.historyUnavailable) throw new Error("MT5_HISTORY_UNAVAILABLE");
         return filterHistoryDeals(this.deals, (payload ?? {}) as Mt5HistoryQuery);
+      case "getBars":
+        return this.getBars((payload ?? {}) as Mt5BarsQuery);
       case "openMarket":
         return this.openMarket(payload as Mt5OpenMarketPayload, opts);
       case "modifyPosition":
@@ -298,6 +314,83 @@ export class MockMt5BridgeTransport implements Mt5BridgeTransport {
       brokerStatus: "FILLED",
       fillingMode: requested
     };
+  }
+
+  private getBars(query: Mt5BarsQuery): Mt5BarsResult {
+    const symbol = query.symbol;
+    const timeframe = query.timeframe;
+    const completedBarsOnly = query.completedBarsOnly !== false;
+    const maxBars = Math.min(
+      MOCK_MT5_MAX_BARS_PER_REQUEST,
+      query.count != null && query.count > 0 ? query.count : MOCK_MT5_MAX_BARS_PER_REQUEST
+    );
+    const step = timeframeMs(timeframe);
+    const now = Date.now();
+    const formingOpen = Math.floor(now / step) * step;
+
+    let rows = this.bars
+      .filter((b) => b.symbol === symbol && b.timeframe === timeframe)
+      .sort((a, b) => a.openTimeMs - b.openTimeMs);
+
+    if (query.fromMs != null) rows = rows.filter((b) => b.openTimeMs >= query.fromMs!);
+    if (query.toMs != null) rows = rows.filter((b) => b.openTimeMs <= query.toMs!);
+    if (completedBarsOnly) rows = rows.filter((b) => b.openTimeMs < formingOpen && b.isComplete);
+
+    // If count-only (no from), take most recent then chronological
+    if (query.fromMs == null && query.toMs == null) {
+      rows = rows.slice(-maxBars);
+    } else {
+      rows = rows.slice(0, maxBars);
+    }
+
+    return {
+      symbol,
+      timeframe,
+      brokerServerUtcOffsetSeconds: 0,
+      timestampSemantics:
+        "Mock transport: openTimeMs is UTC; brokerServerOpenTimeMs equals openTimeMs when offset=0.",
+      completedBarsOnly,
+      requestedFromMs: query.fromMs ?? null,
+      requestedToMs: query.toMs ?? null,
+      returnedCount: rows.length,
+      bars: rows.map((b) => ({ ...b, source: "MT5" as const }))
+    };
+  }
+
+  /** Seed deterministic completed bars for research/bridge tests. */
+  seedBars(input: {
+    symbol: string;
+    timeframe: Mt5BarTimeframe;
+    startOpenMs: number;
+    count: number;
+    startPrice?: number;
+  }): void {
+    const step = timeframeMs(input.timeframe);
+    let px = input.startPrice ?? 2000;
+    for (let i = 0; i < input.count; i++) {
+      const openTimeMs = input.startOpenMs + i * step;
+      const open = px;
+      const close = px + ((i % 3) - 1) * 0.15;
+      const high = Math.max(open, close) + 0.1;
+      const low = Math.min(open, close) - 0.1;
+      this.bars.push({
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+        openTimeMs,
+        closeTimeMs: openTimeMs + step,
+        brokerServerOpenTimeMs: openTimeMs,
+        open,
+        high,
+        low,
+        close,
+        tickVolume: 10 + (i % 5),
+        realVolume: null,
+        spreadPoints: 27,
+        source: "MT5",
+        isComplete: true
+      });
+      px = close;
+    }
   }
 
   private modify(payload: { positionTicket: number; stopLoss?: number; takeProfit?: number | null }): MockMt5Position {

@@ -1,0 +1,1056 @@
+{
+  "backfill": {
+    "symbol": "XAUUSD",
+    "interval": "1m",
+    "source": "HISTORY_API",
+    "fromMs": 1780272000000,
+    "toMs": 1788872400000,
+    "fetched": 96355,
+    "inserted": 96282,
+    "duplicatesSkipped": 0,
+    "conflicts": 73,
+    "invalid": 0,
+    "dryRun": false,
+    "conflictSamples": [
+      {
+        "openTimeMs": 1780332000000,
+        "existing": {
+          "openTimeMs": 1780332000000,
+          "open": 4469.27,
+          "high": 4469.27,
+          "low": 4469.27,
+          "close": 4469.27,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780332000000,
+          "open": 4469.27,
+          "high": 4470,
+          "low": 4469.18,
+          "close": 4469.65
+        }
+      },
+      {
+        "openTimeMs": 1780392000000,
+        "existing": {
+          "openTimeMs": 1780392000000,
+          "open": 4534.76,
+          "high": 4534.76,
+          "low": 4534.76,
+          "close": 4534.76,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780392000000,
+          "open": 4534.76,
+          "high": 4534.76,
+          "low": 4532.89,
+          "close": 4533.1
+        }
+      },
+      {
+        "openTimeMs": 1780512000000,
+        "existing": {
+          "openTimeMs": 1780512000000,
+          "open": 4438.65,
+          "high": 4438.65,
+          "low": 4438.65,
+          "close": 4438.65,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780512000000,
+          "open": 4438.65,
+          "high": 4438.73,
+          "low": 4437.8,
+          "close": 4437.99
+        }
+      },
+      {
+        "openTimeMs": 1780572000000,
+        "existing": {
+          "openTimeMs": 1780572000000,
+          "open": 4478.08,
+          "high": 4478.08,
+          "low": 4478.08,
+          "close": 4478.08,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780572000000,
+          "open": 4478.08,
+          "high": 4478.4,
+          "low": 4476.92,
+          "close": 4477.73
+        }
+      },
+      {
+        "openTimeMs": 1780692000000,
+        "existing": {
+          "openTimeMs": 1780692000000,
+          "open": 4323.03,
+          "high": 4323.03,
+          "low": 4323.03,
+          "close": 4323.03,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780692000000,
+          "open": 4323.03,
+          "high": 4323.25,
+          "low": 4322.84,
+          "close": 4323.17
+        }
+      },
+      {
+        "openTimeMs": 1780932000000,
+        "existing": {
+          "openTimeMs": 1780932000000,
+          "open": 4331.71,
+          "high": 4331.71,
+          "low": 4331.71,
+          "close": 4331.71,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780932000000,
+          "open": 4331.71,
+          "high": 4332.58,
+          "low": 4330.37,
+          "close": 4330.55
+        }
+      },
+      {
+        "openTimeMs": 1780992000000,
+        "existing": {
+          "openTimeMs": 1780992000000,
+          "open": 4326.74,
+          "high": 4326.74,
+          "low": 4326.74,
+          "close": 4326.74,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1780992000000,
+          "open": 4326.74,
+          "high": 4326.94,
+          "low": 4325.37,
+          "close": 4325.37
+        }
+      },
+      {
+        "openTimeMs": 1781112000000,
+        "existing": {
+          "openTimeMs": 1781112000000,
+          "open": 4114,
+          "high": 4114,
+          "low": 4114,
+          "close": 4114,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781112000000,
+          "open": 4114,
+          "high": 4116.07,
+          "low": 4113.93,
+          "close": 4116.07
+        }
+      },
+      {
+        "openTimeMs": 1781172000000,
+        "existing": {
+          "openTimeMs": 1781172000000,
+          "open": 4091.67,
+          "high": 4091.67,
+          "low": 4091.67,
+          "close": 4091.67,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781172000000,
+          "open": 4091.67,
+          "high": 4093.69,
+          "low": 4091.32,
+          "close": 4093.64
+        }
+      },
+      {
+        "openTimeMs": 1781292000000,
+        "existing": {
+          "openTimeMs": 1781292000000,
+          "open": 4215.11,
+          "high": 4215.11,
+          "low": 4215.11,
+          "close": 4215.11,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781292000000,
+          "open": 4215.11,
+          "high": 4215.11,
+          "low": 4213.08,
+          "close": 4213.58
+        }
+      },
+      {
+        "openTimeMs": 1781532000000,
+        "existing": {
+          "openTimeMs": 1781532000000,
+          "open": 4355.35,
+          "high": 4355.35,
+          "low": 4355.35,
+          "close": 4355.35,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781532000000,
+          "open": 4355.35,
+          "high": 4357.21,
+          "low": 4354.71,
+          "close": 4356.31
+        }
+      },
+      {
+        "openTimeMs": 1781592000000,
+        "existing": {
+          "openTimeMs": 1781592000000,
+          "open": 4317.69,
+          "high": 4317.69,
+          "low": 4317.69,
+          "close": 4317.69,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781592000000,
+          "open": 4317.69,
+          "high": 4318.25,
+          "low": 4315.84,
+          "close": 4316.33
+        }
+      },
+      {
+        "openTimeMs": 1781712000000,
+        "existing": {
+          "openTimeMs": 1781712000000,
+          "open": 4363.62,
+          "high": 4363.62,
+          "low": 4363.62,
+          "close": 4363.62,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781712000000,
+          "open": 4363.62,
+          "high": 4364.86,
+          "low": 4363.62,
+          "close": 4364.7
+        }
+      },
+      {
+        "openTimeMs": 1781772000000,
+        "existing": {
+          "openTimeMs": 1781772000000,
+          "open": 4285.45,
+          "high": 4285.45,
+          "low": 4285.45,
+          "close": 4285.45,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781772000000,
+          "open": 4285.45,
+          "high": 4285.45,
+          "low": 4282.28,
+          "close": 4283.54
+        }
+      },
+      {
+        "openTimeMs": 1781832000000,
+        "existing": {
+          "openTimeMs": 1781832000000,
+          "open": 4185.4,
+          "high": 4185.4,
+          "low": 4185.4,
+          "close": 4185.4,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1781832000000,
+          "open": 4185.4,
+          "high": 4185.48,
+          "low": 4184.31,
+          "close": 4185.01
+        }
+      },
+      {
+        "openTimeMs": 1782132000000,
+        "existing": {
+          "openTimeMs": 1782132000000,
+          "open": 4203.84,
+          "high": 4203.84,
+          "low": 4203.84,
+          "close": 4203.84,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1782132000000,
+          "open": 4203.84,
+          "high": 4204.75,
+          "low": 4203.16,
+          "close": 4203.16
+        }
+      },
+      {
+        "openTimeMs": 1782192000000,
+        "existing": {
+          "openTimeMs": 1782192000000,
+          "open": 4127.97,
+          "high": 4127.97,
+          "low": 4127.97,
+          "close": 4127.97,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1782192000000,
+          "open": 4127.97,
+          "high": 4130.84,
+          "low": 4127.82,
+          "close": 4129.62
+        }
+      },
+      {
+        "openTimeMs": 1782312000000,
+        "existing": {
+          "openTimeMs": 1782312000000,
+          "open": 4019.74,
+          "high": 4019.74,
+          "low": 4019.74,
+          "close": 4019.74,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1782312000000,
+          "open": 4019.74,
+          "high": 4021.84,
+          "low": 4018.98,
+          "close": 4020.36
+        }
+      },
+      {
+        "openTimeMs": 1782372000000,
+        "existing": {
+          "openTimeMs": 1782372000000,
+          "open": 3984.88,
+          "high": 3984.88,
+          "low": 3984.88,
+          "close": 3984.88,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1782372000000,
+          "open": 3984.88,
+          "high": 3986.78,
+          "low": 3983.35,
+          "close": 3983.35
+        }
+      },
+      {
+        "openTimeMs": 1782492000000,
+        "existing": {
+          "openTimeMs": 1782492000000,
+          "open": 4084.63,
+          "high": 4084.63,
+          "low": 4084.63,
+          "close": 4084.63,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1782492000000,
+          "open": 4084.63,
+          "high": 4084.99,
+          "low": 4082.87,
+          "close": 4083.07
+        }
+      }
+    ],
+    "invalidSamples": []
+  },
+  "historyApiSymbol": "frxXAUUSD",
+  "parity": {
+    "internalSymbol": "XAUUSD",
+    "historicalApiSymbol": "frxXAUUSD",
+    "liveBrokerSymbol": "XAUUSD",
+    "historicalSource": "DERIV_HISTORY_API:frxXAUUSD",
+    "liveSource": "MT5_DEMO:XAUUSD",
+    "verdict": "MATCH_APPROXIMATE",
+    "reasons": [
+      "Historical candles from Deriv ticks_history frxXAUUSD (forex gold).",
+      "Live DEMO instrument is MT5 broker symbol XAUUSD (CFD).",
+      "Products share gold/USD underlying but are not proven identical contracts.",
+      "Price scale within 2% (rel=0.327%) — approximate only."
+    ],
+    "historicalLastClose": 4411.54,
+    "liveMid": 4426,
+    "relativeDiffPct": 0.32670582919114405
+  },
+  "sessionAware": {
+    "symbol": "XAUUSD",
+    "treatedAs247": false,
+    "expectedSessionSemantics": "Forex-like gold sessions: gaps ≥12h treated as weekend/maintenance closures, not missing data corruption.",
+    "actualCandleCount": 96282,
+    "firstIso": "2026-06-01T00:01:00.000Z",
+    "lastIso": "2026-09-08T13:00:00.000Z",
+    "unexpectedGapCount": 58,
+    "expectedClosureGapCount": 14,
+    "longestUnexpectedGapMs": 19800000,
+    "longestExpectedClosureGapMs": 198000000,
+    "unexpectedGaps": [
+      {
+        "fromIso": "2026-06-01T20:59:00.000Z",
+        "toIso": "2026-06-01T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-02T20:59:00.000Z",
+        "toIso": "2026-06-02T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-03T20:59:00.000Z",
+        "toIso": "2026-06-03T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-04T20:59:00.000Z",
+        "toIso": "2026-06-04T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-08T20:59:00.000Z",
+        "toIso": "2026-06-08T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-09T20:59:00.000Z",
+        "toIso": "2026-06-09T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-10T20:59:00.000Z",
+        "toIso": "2026-06-10T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-11T20:59:00.000Z",
+        "toIso": "2026-06-11T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-15T20:59:00.000Z",
+        "toIso": "2026-06-15T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-16T20:59:00.000Z",
+        "toIso": "2026-06-16T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-17T20:59:00.000Z",
+        "toIso": "2026-06-17T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-18T20:59:00.000Z",
+        "toIso": "2026-06-18T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-22T20:59:00.000Z",
+        "toIso": "2026-06-22T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-23T20:59:00.000Z",
+        "toIso": "2026-06-23T22:01:00.000Z",
+        "missingMinutes": 61
+      },
+      {
+        "fromIso": "2026-06-24T20:59:00.000Z",
+        "toIso": "2026-06-24T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-25T20:59:00.000Z",
+        "toIso": "2026-06-25T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-29T20:59:00.000Z",
+        "toIso": "2026-06-29T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-06-30T20:59:00.000Z",
+        "toIso": "2026-06-30T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-01T20:59:00.000Z",
+        "toIso": "2026-07-01T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-02T20:59:00.000Z",
+        "toIso": "2026-07-02T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-06T20:59:00.000Z",
+        "toIso": "2026-07-06T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-07T20:59:00.000Z",
+        "toIso": "2026-07-07T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-08T20:59:00.000Z",
+        "toIso": "2026-07-08T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-09T20:59:00.000Z",
+        "toIso": "2026-07-09T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-13T20:59:00.000Z",
+        "toIso": "2026-07-13T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-14T20:59:00.000Z",
+        "toIso": "2026-07-14T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-15T20:59:00.000Z",
+        "toIso": "2026-07-15T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-16T20:59:00.000Z",
+        "toIso": "2026-07-16T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-20T20:59:00.000Z",
+        "toIso": "2026-07-20T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-21T20:59:00.000Z",
+        "toIso": "2026-07-21T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-22T20:59:00.000Z",
+        "toIso": "2026-07-22T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-23T20:59:00.000Z",
+        "toIso": "2026-07-23T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-27T20:59:00.000Z",
+        "toIso": "2026-07-27T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-28T08:49:00.000Z",
+        "toIso": "2026-07-28T08:51:00.000Z",
+        "missingMinutes": 1
+      },
+      {
+        "fromIso": "2026-07-28T20:59:00.000Z",
+        "toIso": "2026-07-28T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-29T20:59:00.000Z",
+        "toIso": "2026-07-29T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-07-30T20:59:00.000Z",
+        "toIso": "2026-07-30T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-03T20:59:00.000Z",
+        "toIso": "2026-08-03T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-04T20:59:00.000Z",
+        "toIso": "2026-08-04T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-05T20:59:00.000Z",
+        "toIso": "2026-08-05T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-06T20:59:00.000Z",
+        "toIso": "2026-08-06T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-10T20:59:00.000Z",
+        "toIso": "2026-08-10T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-11T20:59:00.000Z",
+        "toIso": "2026-08-11T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-12T20:59:00.000Z",
+        "toIso": "2026-08-12T22:01:00.000Z",
+        "missingMinutes": 61
+      },
+      {
+        "fromIso": "2026-08-13T20:59:00.000Z",
+        "toIso": "2026-08-13T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-17T20:59:00.000Z",
+        "toIso": "2026-08-17T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-18T20:59:00.000Z",
+        "toIso": "2026-08-18T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-19T20:59:00.000Z",
+        "toIso": "2026-08-19T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-20T20:59:00.000Z",
+        "toIso": "2026-08-20T22:00:00.000Z",
+        "missingMinutes": 60
+      },
+      {
+        "fromIso": "2026-08-24T20:59:00.000Z",
+        "toIso": "2026-08-24T22:00:00.000Z",
+        "missingMinutes": 60
+      }
+    ],
+    "coverageNote": "Do not compute 24/7 expected candle counts for XAUUSD; use gap/session-aware segmentation."
+  },
+  "auditAfterHistoryApi": {
+    "actualCandleCount": 96282,
+    "firstIso": "2026-06-01T00:01:00.000Z",
+    "lastIso": "2026-09-08T13:00:00.000Z",
+    "expectedContinuous1mCount": 143340,
+    "missingCandleCount": 47058,
+    "missingCandlePct": 0.328296,
+    "coveragePct": 0.671704,
+    "gapCount": 72,
+    "gapSizeDistribution": {
+      "missing1": 1,
+      "missing2to4": 0,
+      "missing5to14": 0,
+      "missing15to59": 0,
+      "missing60to1439": 57,
+      "missing1dayPlus": 14
+    },
+    "longestGaps": [
+      {
+        "afterIndex": 20091,
+        "fromOpenTime": 1781888400000,
+        "toOpenTime": 1782086400000,
+        "fromIso": "2026-06-19T17:00:00.000Z",
+        "toIso": "2026-06-22T00:00:00.000Z",
+        "deltaMs": 198000000,
+        "missingMinutes": 3299,
+        "priceJumpAbs": 15.56,
+        "priceJumpPct": 0.003744
+      },
+      {
+        "afterIndex": 33407,
+        "fromOpenTime": 1783098000000,
+        "toOpenTime": 1783296000000,
+        "fromIso": "2026-07-03T17:00:00.000Z",
+        "toIso": "2026-07-06T00:00:00.000Z",
+        "deltaMs": 198000000,
+        "missingMinutes": 3299,
+        "priceJumpAbs": 8.25,
+        "priceJumpPct": 0.001976
+      },
+      {
+        "afterIndex": 6774,
+        "fromOpenTime": 1780692900000,
+        "toOpenTime": 1780876800000,
+        "fromIso": "2026-06-05T20:55:00.000Z",
+        "toIso": "2026-06-08T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 16.29,
+        "priceJumpPct": 0.003764
+      },
+      {
+        "afterIndex": 13550,
+        "fromOpenTime": 1781297700000,
+        "toOpenTime": 1781481600000,
+        "fromIso": "2026-06-12T20:55:00.000Z",
+        "toIso": "2026-06-15T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 77.18,
+        "priceJumpPct": 0.018302
+      },
+      {
+        "afterIndex": 26866,
+        "fromOpenTime": 1782507300000,
+        "toOpenTime": 1782691200000,
+        "fromIso": "2026-06-26T20:55:00.000Z",
+        "toIso": "2026-06-29T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 18.54,
+        "priceJumpPct": 0.004543
+      },
+      {
+        "afterIndex": 40183,
+        "fromOpenTime": 1783716900000,
+        "toOpenTime": 1783900800000,
+        "fromIso": "2026-07-10T20:55:00.000Z",
+        "toIso": "2026-07-13T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 34.87,
+        "priceJumpPct": 0.008465
+      },
+      {
+        "afterIndex": 46959,
+        "fromOpenTime": 1784321700000,
+        "toOpenTime": 1784505600000,
+        "fromIso": "2026-07-17T20:55:00.000Z",
+        "toIso": "2026-07-20T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 20.96,
+        "priceJumpPct": 0.005218
+      },
+      {
+        "afterIndex": 53735,
+        "fromOpenTime": 1784926500000,
+        "toOpenTime": 1785110400000,
+        "fromIso": "2026-07-24T20:55:00.000Z",
+        "toIso": "2026-07-27T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 40.84,
+        "priceJumpPct": 0.010076
+      },
+      {
+        "afterIndex": 60510,
+        "fromOpenTime": 1785531300000,
+        "toOpenTime": 1785715200000,
+        "fromIso": "2026-07-31T20:55:00.000Z",
+        "toIso": "2026-08-03T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 28.11,
+        "priceJumpPct": 0.006946
+      },
+      {
+        "afterIndex": 67286,
+        "fromOpenTime": 1786136100000,
+        "toOpenTime": 1786320000000,
+        "fromIso": "2026-08-07T20:55:00.000Z",
+        "toIso": "2026-08-10T00:00:00.000Z",
+        "deltaMs": 183900000,
+        "missingMinutes": 3064,
+        "priceJumpAbs": 8.3,
+        "priceJumpPct": 0.001912
+      }
+    ],
+    "note247": "24/7 coveragePct is misleading for gold — see sessionAware"
+  },
+  "segments": {
+    "maxGapMs": 43200000,
+    "segmentCount": 15,
+    "largestSegmentCandleCount": 6776,
+    "largestSegmentSpanMs": 420900000,
+    "segments": [
+      {
+        "index": 0,
+        "startIso": "2026-06-01T00:01:00.000Z",
+        "endIso": "2026-06-05T20:55:00.000Z",
+        "candleCount": 6775
+      },
+      {
+        "index": 1,
+        "startIso": "2026-06-08T00:00:00.000Z",
+        "endIso": "2026-06-12T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 2,
+        "startIso": "2026-06-15T00:00:00.000Z",
+        "endIso": "2026-06-19T17:00:00.000Z",
+        "candleCount": 6541
+      },
+      {
+        "index": 3,
+        "startIso": "2026-06-22T00:00:00.000Z",
+        "endIso": "2026-06-26T20:55:00.000Z",
+        "candleCount": 6775
+      },
+      {
+        "index": 4,
+        "startIso": "2026-06-29T00:00:00.000Z",
+        "endIso": "2026-07-03T17:00:00.000Z",
+        "candleCount": 6541
+      },
+      {
+        "index": 5,
+        "startIso": "2026-07-06T00:00:00.000Z",
+        "endIso": "2026-07-10T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 6,
+        "startIso": "2026-07-13T00:00:00.000Z",
+        "endIso": "2026-07-17T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 7,
+        "startIso": "2026-07-20T00:00:00.000Z",
+        "endIso": "2026-07-24T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 8,
+        "startIso": "2026-07-27T00:00:00.000Z",
+        "endIso": "2026-07-31T20:55:00.000Z",
+        "candleCount": 6775
+      },
+      {
+        "index": 9,
+        "startIso": "2026-08-03T00:00:00.000Z",
+        "endIso": "2026-08-07T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 10,
+        "startIso": "2026-08-10T00:00:00.000Z",
+        "endIso": "2026-08-14T20:55:00.000Z",
+        "candleCount": 6775
+      },
+      {
+        "index": 11,
+        "startIso": "2026-08-17T00:00:00.000Z",
+        "endIso": "2026-08-21T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 12,
+        "startIso": "2026-08-24T00:00:00.000Z",
+        "endIso": "2026-08-28T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 13,
+        "startIso": "2026-08-31T00:00:00.000Z",
+        "endIso": "2026-09-04T20:55:00.000Z",
+        "candleCount": 6776
+      },
+      {
+        "index": 14,
+        "startIso": "2026-09-07T00:00:00.000Z",
+        "endIso": "2026-09-08T13:00:00.000Z",
+        "candleCount": 1892
+      }
+    ]
+  },
+  "contiguous5m": {
+    "valid": 19250,
+    "excluded": 20,
+    "excludeReasons": [
+      {
+        "bucketOpenTime": 1780272000000,
+        "bucketIso": "2026-06-01T00:00:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 4,
+        "detail": "Expected 5 source bars, got 4"
+      },
+      {
+        "bucketOpenTime": 1780692900000,
+        "bucketIso": "2026-06-05T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1781297700000,
+        "bucketIso": "2026-06-12T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1781888400000,
+        "bucketIso": "2026-06-19T17:00:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1782252000000,
+        "bucketIso": "2026-06-23T22:00:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 4,
+        "detail": "Expected 5 source bars, got 4"
+      },
+      {
+        "bucketOpenTime": 1782507300000,
+        "bucketIso": "2026-06-26T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1783098000000,
+        "bucketIso": "2026-07-03T17:00:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1783716900000,
+        "bucketIso": "2026-07-10T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1784321700000,
+        "bucketIso": "2026-07-17T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1784926500000,
+        "bucketIso": "2026-07-24T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1785228600000,
+        "bucketIso": "2026-07-28T08:50:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 4,
+        "detail": "Expected 5 source bars, got 4"
+      },
+      {
+        "bucketOpenTime": 1785531300000,
+        "bucketIso": "2026-07-31T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1786136100000,
+        "bucketIso": "2026-08-07T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1786572000000,
+        "bucketIso": "2026-08-12T22:00:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 4,
+        "detail": "Expected 5 source bars, got 4"
+      },
+      {
+        "bucketOpenTime": 1786740900000,
+        "bucketIso": "2026-08-14T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1787345700000,
+        "bucketIso": "2026-08-21T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1787950500000,
+        "bucketIso": "2026-08-28T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1788555300000,
+        "bucketIso": "2026-09-04T20:55:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1788805800000,
+        "bucketIso": "2026-09-07T18:30:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      },
+      {
+        "bucketOpenTime": 1788872400000,
+        "bucketIso": "2026-09-08T13:00:00.000Z",
+        "reason": "INCOMPLETE_COUNT",
+        "sourceBarCount": 1,
+        "detail": "Expected 5 source bars, got 1"
+      }
+    ]
+  },
+  "manifestPath": "/Users/kylehanson/Documents/GitHub/RegimeX/research-datasets/XAUUSD_1m_manifest.json",
+  "manifest": {
+    "datasetId": "XAUUSD_1m_HISTORY_API_1788873792627",
+    "symbol": "XAUUSD",
+    "interval": "1m",
+    "sources": [
+      "HISTORY_API"
+    ],
+    "startOpenTime": 1780272060000,
+    "endOpenTime": 1788872400000,
+    "startIso": "2026-06-01T00:01:00.000Z",
+    "endIso": "2026-09-08T13:00:00.000Z",
+    "rowCount": 96282,
+    "coveragePct": 0.671704,
+    "missingMinutes": 47058,
+    "gapCount": 58,
+    "contentHash": "61a4fa5a2c92ec74e1a1c0bced5edf600c50fbf55106655a17071020b1a0f390",
+    "createdAt": "2026-09-08T13:23:12.700Z",
+    "notes": "XAUUSD research history from Deriv frxXAUUSD. Live DEMO is MT5 XAUUSD. See parity verdict. Session-aware: ≥12h gaps = expected closures."
+  }
+}

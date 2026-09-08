@@ -20,7 +20,13 @@ export type StrategyFamily = "trend_pullback" | "mean_reversion" | "breakout_mom
 
 export function classifyStrategyFamily(strategyId: string): StrategyFamily {
   if (strategyId.includes("bollinger") || strategyId.includes("reversion")) return "mean_reversion";
-  if (strategyId.includes("breakout") || strategyId.includes("squeeze")) return "breakout_momentum";
+  if (
+    strategyId.includes("breakout") ||
+    strategyId.includes("squeeze") ||
+    strategyId.includes("volatility-expansion")
+  ) {
+    return "breakout_momentum";
+  }
   return "trend_pullback";
 }
 

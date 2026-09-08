@@ -29,6 +29,19 @@ export const DEFAULT_RESEARCH_PARAMETER_SPACES: Record<StrategyKind, ParameterSp
     minPullbackDepthAtr: [0.25, 0.3, 0.4],
     minEntryQualityScore: [0.38, 0.42, 0.48],
     cooldownCandles: [3, 4, 6]
+  },
+  /** Research-only XAU MTF — small one-at-a-time ranges; not a live grid. */
+  "xau-mtf-structure-momentum": {
+    minPullbackDepthAtr: [0.25, 0.35, 0.5],
+    maxImpulseDistanceAtr: [4, 5, 6.5],
+    minEntryQualityScore: [4, 4.5, 5.5],
+    cooldownCandles: [10, 15, 20]
+  },
+  "xau-volatility-expansion-retest": {
+    compressionLookback: [8, 12, 16],
+    minExpansionRangeAtr: [1.0, 1.2, 1.5],
+    retestZoneWidthAtr: [0.25, 0.35, 0.5],
+    maxRetestDelayBars: [8, 12, 18]
   }
 };
 

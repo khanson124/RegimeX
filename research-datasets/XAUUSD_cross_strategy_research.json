@@ -1,0 +1,1451 @@
+{
+  "datasetManifestRef": "research-datasets/XAUUSD_1m_manifest.json",
+  "historicalSource": "DERIV_HISTORY_API:frxXAUUSD",
+  "liveSource": "MT5_DEMO:XAUUSD",
+  "parity": {
+    "internalSymbol": "XAUUSD",
+    "historicalApiSymbol": "frxXAUUSD",
+    "liveBrokerSymbol": "XAUUSD",
+    "historicalSource": "DERIV_HISTORY_API:frxXAUUSD",
+    "liveSource": "MT5_DEMO:XAUUSD",
+    "verdict": "MATCH_APPROXIMATE",
+    "reasons": [
+      "Historical candles from Deriv ticks_history frxXAUUSD (forex gold).",
+      "Live DEMO instrument is MT5 broker symbol XAUUSD (CFD).",
+      "Products share gold/USD underlying but are not proven identical contracts.",
+      "Price scale within 2% (rel=0.327%) — approximate only."
+    ],
+    "historicalLastClose": 4411.54,
+    "liveMid": 4426,
+    "relativeDiffPct": 0.32670582919114405
+  },
+  "sessionAware": {
+    "symbol": "XAUUSD",
+    "treatedAs247": false,
+    "expectedSessionSemantics": "Forex-like gold sessions: gaps ≥45m treated as daily maintenance / weekend closures, not missing data corruption.",
+    "actualCandleCount": 96282,
+    "firstIso": "2026-06-01T00:01:00.000Z",
+    "lastIso": "2026-09-08T13:00:00.000Z",
+    "unexpectedGapCount": 1,
+    "expectedClosureGapCount": 71,
+    "longestUnexpectedGapMs": 120000,
+    "longestExpectedClosureGapMs": 198000000,
+    "unexpectedGaps": [
+      {
+        "fromIso": "2026-07-28T08:49:00.000Z",
+        "toIso": "2026-07-28T08:51:00.000Z",
+        "missingMinutes": 1
+      }
+    ],
+    "coverageNote": "Do not compute 24/7 expected candle counts for XAUUSD; use gap/session-aware segmentation."
+  },
+  "spread": {
+    "symbol": "XAUUSD",
+    "sampleCount": 17,
+    "status": "PRELIMINARY",
+    "label": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+    "medianBps": 0.61,
+    "p75Bps": null,
+    "p90Bps": null,
+    "p95Bps": null,
+    "p99Bps": null,
+    "medianSpreadPrice": 0.27,
+    "sourcePath": null,
+    "note": "Sample file missing locally; using operator-reported production passive-sample summary (<30 → PRELIMINARY)."
+  },
+  "researchSegment": {
+    "startIso": "2026-06-08T00:00:00.000Z",
+    "endIso": "2026-06-12T20:55:00.000Z",
+    "candleCount": 6776,
+    "contiguous5mValid": 1355,
+    "contiguous5mExcluded": 1
+  },
+  "enablement": {
+    "allowlist": false,
+    "trades": false,
+    "deployed": false,
+    "r10Unchanged": true
+  },
+  "oneMinute": {
+    "zeroCost": {
+      "config": {
+        "symbol": "XAUUSD",
+        "interval": "1m",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "contractSize": 100,
+        "tickSize": 0.01,
+        "tickValue": 1
+      },
+      "developmentCount": 4743,
+      "holdoutCount": 2033,
+      "walkForwardWindowCount": 6,
+      "strategies": [
+        {
+          "strategyId": "bollinger-reversion-v1",
+          "family": "mean_reversion",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 0,
+            "expectancyR": 0
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "breakout-momentum-v1",
+          "family": "breakout_momentum",
+          "classification": "NO_RAW_EDGE",
+          "verdict": "UNSTABLE",
+          "costEdgeCase": "NO_EDGE_EVEN_BEFORE_COSTS",
+          "zeroHoldout": {
+            "trades": 20,
+            "expectancyR": -0.1754,
+            "profitFactor": 0.4695,
+            "netR": -3.5074,
+            "sample": "LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 20,
+            "expectancyR": -0.1754,
+            "profitFactor": 0.4695,
+            "netR": -3.5074,
+            "sample": "LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 34,
+            "expectancyR": -0.0693
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.5,
+            "percentProfitFactorAboveOne": 0.1667,
+            "medianExpectancyR": 0.0975,
+            "worstExpectancyR": -0.6079,
+            "bestExpectancyR": 1.2099,
+            "totalOosTrades": 17,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "ema-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "UNSTABLE",
+          "verdict": "UNSTABLE",
+          "costEdgeCase": "PROMISING",
+          "zeroHoldout": {
+            "trades": 62,
+            "expectancyR": 0.1613,
+            "profitFactor": 1.2384,
+            "netR": 10.0014,
+            "sample": "INFORMATIVE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 62,
+            "expectancyR": 0.1613,
+            "profitFactor": 1.2384,
+            "netR": 10.0014,
+            "sample": "INFORMATIVE"
+          },
+          "zeroDev": {
+            "trades": 145,
+            "expectancyR": -0.0069
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.3333,
+            "percentProfitFactorAboveOne": 0.3333,
+            "medianExpectancyR": -0.2384,
+            "worstExpectancyR": -0.6667,
+            "bestExpectancyR": 0.3846,
+            "totalOosTrades": 68,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "squeeze-breakout-v1",
+          "family": "breakout_momentum",
+          "classification": "PROMISING",
+          "verdict": "PROMISING_FOR_MORE_RESEARCH",
+          "costEdgeCase": "PROMISING",
+          "zeroHoldout": {
+            "trades": 24,
+            "expectancyR": 0.056,
+            "profitFactor": 1.1181,
+            "netR": 1.3432,
+            "sample": "LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 24,
+            "expectancyR": 0.056,
+            "profitFactor": 1.1181,
+            "netR": 1.3432,
+            "sample": "LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 57,
+            "expectancyR": 0.1508
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.8333,
+            "percentProfitFactorAboveOne": 0.6667,
+            "medianExpectancyR": 0.489,
+            "worstExpectancyR": -0.4018,
+            "bestExpectancyR": 0.9921,
+            "totalOosTrades": 21,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "trend-structure-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 7,
+            "expectancyR": 0.2857,
+            "profitFactor": 1.5132,
+            "netR": 2,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 7,
+            "expectancyR": 0.2857,
+            "profitFactor": 1.5132,
+            "netR": 2,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 17,
+            "expectancyR": 0.2353
+          },
+          "wf": {
+            "windows": 5,
+            "percentPositiveExpectancy": 0.2,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": -1,
+            "worstExpectancyR": -1,
+            "bestExpectancyR": 1.9998,
+            "totalOosTrades": 5,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "trend-structure-pullback-v2",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 19,
+            "expectancyR": -0.3684,
+            "profitFactor": 0.5328,
+            "netR": -7.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 19,
+            "expectancyR": -0.3684,
+            "profitFactor": 0.5328,
+            "netR": -7.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 54,
+            "expectancyR": -0.2025
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.1667,
+            "percentProfitFactorAboveOne": 0.3333,
+            "medianExpectancyR": -0.25,
+            "worstExpectancyR": -1,
+            "bestExpectancyR": 0.4999,
+            "totalOosTrades": 19,
+            "singleWindowDominated": true
+          },
+          "costDragHoldoutExpectancyR": 0
+        }
+      ],
+      "rankings": {
+        "realisticHoldoutExpectancyR": [
+          "trend-structure-pullback-v1",
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "realisticHoldoutPf": [
+          "trend-structure-pullback-v1",
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v2",
+          "breakout-momentum-v1",
+          "bollinger-reversion-v1"
+        ],
+        "walkForwardStability": [
+          "squeeze-breakout-v1",
+          "breakout-momentum-v1",
+          "ema-pullback-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2",
+          "bollinger-reversion-v1"
+        ],
+        "costRobustness": [
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "tradeCountAdequacy": [
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v2",
+          "trend-structure-pullback-v1",
+          "bollinger-reversion-v1"
+        ],
+        "overallResearch": [
+          "squeeze-breakout-v1",
+          "ema-pullback-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v1",
+          "bollinger-reversion-v1",
+          "trend-structure-pullback-v2"
+        ]
+      },
+      "notes": {
+        "deployed": false,
+        "strategiesEnabled": false,
+        "emaPullbackRemainsSuspended": true,
+        "productionPathsUnchanged": true,
+        "fillSemantics": "mid → adverse fill → propose SL/TP from fill → validate R:R from fill (CfdBacktester)"
+      }
+    },
+    "observedSpreadOnly": {
+      "config": {
+        "symbol": "XAUUSD",
+        "interval": "1m",
+        "spreadBps": 0.61,
+        "slippageBps": 0,
+        "contractSize": 100,
+        "tickSize": 0.01,
+        "tickValue": 1
+      },
+      "developmentCount": 4743,
+      "holdoutCount": 2033,
+      "walkForwardWindowCount": 6,
+      "strategies": [
+        {
+          "strategyId": "bollinger-reversion-v1",
+          "family": "mean_reversion",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 0,
+            "expectancyR": 0
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "breakout-momentum-v1",
+          "family": "breakout_momentum",
+          "classification": "NO_RAW_EDGE",
+          "verdict": "UNSTABLE",
+          "costEdgeCase": "NO_EDGE_EVEN_BEFORE_COSTS",
+          "zeroHoldout": {
+            "trades": 20,
+            "expectancyR": -0.1754,
+            "profitFactor": 0.4695,
+            "netR": -3.5074,
+            "sample": "LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 20,
+            "expectancyR": -0.1872,
+            "profitFactor": 0.4736,
+            "netR": -3.7444,
+            "sample": "LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 34,
+            "expectancyR": -0.0693
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.5,
+            "percentProfitFactorAboveOne": 0.1667,
+            "medianExpectancyR": 0.0862,
+            "worstExpectancyR": -0.6153,
+            "bestExpectancyR": 1.1939,
+            "totalOosTrades": 17,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0118
+        },
+        {
+          "strategyId": "ema-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "UNSTABLE",
+          "verdict": "UNSTABLE",
+          "costEdgeCase": "PROMISING",
+          "zeroHoldout": {
+            "trades": 62,
+            "expectancyR": 0.1613,
+            "profitFactor": 1.2384,
+            "netR": 10.0014,
+            "sample": "INFORMATIVE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 62,
+            "expectancyR": 0.0524,
+            "profitFactor": 1.067,
+            "netR": 3.2464,
+            "sample": "INFORMATIVE"
+          },
+          "zeroDev": {
+            "trades": 145,
+            "expectancyR": -0.0069
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.3333,
+            "percentProfitFactorAboveOne": 0.3333,
+            "medianExpectancyR": -0.2963,
+            "worstExpectancyR": -0.7502,
+            "bestExpectancyR": 0.0966,
+            "totalOosTrades": 67,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.1089
+        },
+        {
+          "strategyId": "squeeze-breakout-v1",
+          "family": "breakout_momentum",
+          "classification": "PROMISING",
+          "verdict": "PROMISING_FOR_MORE_RESEARCH",
+          "costEdgeCase": "PROMISING",
+          "zeroHoldout": {
+            "trades": 24,
+            "expectancyR": 0.056,
+            "profitFactor": 1.1181,
+            "netR": 1.3432,
+            "sample": "LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 24,
+            "expectancyR": 0.0387,
+            "profitFactor": 1.0591,
+            "netR": 0.9294,
+            "sample": "LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 57,
+            "expectancyR": 0.1508
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.8333,
+            "percentProfitFactorAboveOne": 0.6667,
+            "medianExpectancyR": 0.4718,
+            "worstExpectancyR": -0.4145,
+            "bestExpectancyR": 0.9773,
+            "totalOosTrades": 21,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0173
+        },
+        {
+          "strategyId": "trend-structure-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 7,
+            "expectancyR": 0.2857,
+            "profitFactor": 1.5132,
+            "netR": 2,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 7,
+            "expectancyR": 0.2239,
+            "profitFactor": 1.379,
+            "netR": 1.5676,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 17,
+            "expectancyR": 0.2353
+          },
+          "wf": {
+            "windows": 5,
+            "percentPositiveExpectancy": 0.2,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": -1.0334,
+            "worstExpectancyR": -1.1109,
+            "bestExpectancyR": 1.9283,
+            "totalOosTrades": 5,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0618
+        },
+        {
+          "strategyId": "trend-structure-pullback-v2",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 19,
+            "expectancyR": -0.3684,
+            "profitFactor": 0.5328,
+            "netR": -7.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 19,
+            "expectancyR": -0.4492,
+            "profitFactor": 0.4763,
+            "netR": -8.5355,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 54,
+            "expectancyR": -0.2025
+          },
+          "wf": {
+            "windows": 6,
+            "percentPositiveExpectancy": 0.1667,
+            "percentProfitFactorAboveOne": 0.1667,
+            "medianExpectancyR": -0.3246,
+            "worstExpectancyR": -1.0541,
+            "bestExpectancyR": 0.4497,
+            "totalOosTrades": 19,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0808
+        }
+      ],
+      "rankings": {
+        "realisticHoldoutExpectancyR": [
+          "trend-structure-pullback-v1",
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "realisticHoldoutPf": [
+          "trend-structure-pullback-v1",
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v2",
+          "breakout-momentum-v1",
+          "bollinger-reversion-v1"
+        ],
+        "walkForwardStability": [
+          "squeeze-breakout-v1",
+          "breakout-momentum-v1",
+          "ema-pullback-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2",
+          "bollinger-reversion-v1"
+        ],
+        "costRobustness": [
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2",
+          "ema-pullback-v1"
+        ],
+        "tradeCountAdequacy": [
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v2",
+          "trend-structure-pullback-v1",
+          "bollinger-reversion-v1"
+        ],
+        "overallResearch": [
+          "squeeze-breakout-v1",
+          "ema-pullback-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v1",
+          "bollinger-reversion-v1",
+          "trend-structure-pullback-v2"
+        ]
+      },
+      "notes": {
+        "deployed": false,
+        "strategiesEnabled": false,
+        "emaPullbackRemainsSuspended": true,
+        "productionPathsUnchanged": true,
+        "fillSemantics": "mid → adverse fill → propose SL/TP from fill → validate R:R from fill (CfdBacktester)"
+      }
+    },
+    "assumedSlippageSensitivity": [
+      {
+        "label": "ASSUMED",
+        "spreadBps": 0.61,
+        "slippageBps": 0,
+        "costLabel": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+        "strategies": [
+          {
+            "strategyId": "bollinger-reversion-v1",
+            "holdoutExpectancyR": 0,
+            "holdoutTrades": 0,
+            "holdoutPf": null
+          },
+          {
+            "strategyId": "breakout-momentum-v1",
+            "holdoutExpectancyR": -0.1872,
+            "holdoutTrades": 20,
+            "holdoutPf": 0.4736
+          },
+          {
+            "strategyId": "ema-pullback-v1",
+            "holdoutExpectancyR": 0.0524,
+            "holdoutTrades": 62,
+            "holdoutPf": 1.067
+          },
+          {
+            "strategyId": "squeeze-breakout-v1",
+            "holdoutExpectancyR": 0.0387,
+            "holdoutTrades": 24,
+            "holdoutPf": 1.0591
+          },
+          {
+            "strategyId": "trend-structure-pullback-v1",
+            "holdoutExpectancyR": 0.2239,
+            "holdoutTrades": 7,
+            "holdoutPf": 1.379
+          },
+          {
+            "strategyId": "trend-structure-pullback-v2",
+            "holdoutExpectancyR": -0.4492,
+            "holdoutTrades": 19,
+            "holdoutPf": 0.4763
+          }
+        ]
+      },
+      {
+        "label": "ASSUMED",
+        "spreadBps": 0.61,
+        "slippageBps": 0.1,
+        "costLabel": "ASSUMED_SLIPPAGE_SENSITIVITY",
+        "strategies": [
+          {
+            "strategyId": "bollinger-reversion-v1",
+            "holdoutExpectancyR": 0,
+            "holdoutTrades": 0,
+            "holdoutPf": null
+          },
+          {
+            "strategyId": "breakout-momentum-v1",
+            "holdoutExpectancyR": -0.191,
+            "holdoutTrades": 20,
+            "holdoutPf": 0.4671
+          },
+          {
+            "strategyId": "ema-pullback-v1",
+            "holdoutExpectancyR": 0.0532,
+            "holdoutTrades": 61,
+            "holdoutPf": 1.0732
+          },
+          {
+            "strategyId": "squeeze-breakout-v1",
+            "holdoutExpectancyR": 0.0332,
+            "holdoutTrades": 24,
+            "holdoutPf": 1.0627
+          },
+          {
+            "strategyId": "trend-structure-pullback-v1",
+            "holdoutExpectancyR": 0.2054,
+            "holdoutTrades": 7,
+            "holdoutPf": 1.32
+          },
+          {
+            "strategyId": "trend-structure-pullback-v2",
+            "holdoutExpectancyR": -0.4724,
+            "holdoutTrades": 19,
+            "holdoutPf": 0.4622
+          }
+        ]
+      },
+      {
+        "label": "ASSUMED",
+        "spreadBps": 0.61,
+        "slippageBps": 0.25,
+        "costLabel": "ASSUMED_SLIPPAGE_SENSITIVITY",
+        "strategies": [
+          {
+            "strategyId": "bollinger-reversion-v1",
+            "holdoutExpectancyR": 0,
+            "holdoutTrades": 0,
+            "holdoutPf": null
+          },
+          {
+            "strategyId": "breakout-momentum-v1",
+            "holdoutExpectancyR": -0.1967,
+            "holdoutTrades": 20,
+            "holdoutPf": 0.4574
+          },
+          {
+            "strategyId": "ema-pullback-v1",
+            "holdoutExpectancyR": 0.0278,
+            "holdoutTrades": 61,
+            "holdoutPf": 1.0254
+          },
+          {
+            "strategyId": "squeeze-breakout-v1",
+            "holdoutExpectancyR": 0.0249,
+            "holdoutTrades": 24,
+            "holdoutPf": 1.0358
+          },
+          {
+            "strategyId": "trend-structure-pullback-v1",
+            "holdoutExpectancyR": 0.1788,
+            "holdoutTrades": 7,
+            "holdoutPf": 1.2741
+          },
+          {
+            "strategyId": "trend-structure-pullback-v2",
+            "holdoutExpectancyR": -0.5046,
+            "holdoutTrades": 19,
+            "holdoutPf": 0.4431
+          }
+        ]
+      },
+      {
+        "label": "ASSUMED",
+        "spreadBps": 0.61,
+        "slippageBps": 0.5,
+        "costLabel": "ASSUMED_SLIPPAGE_SENSITIVITY",
+        "strategies": [
+          {
+            "strategyId": "bollinger-reversion-v1",
+            "holdoutExpectancyR": 0,
+            "holdoutTrades": 0,
+            "holdoutPf": null
+          },
+          {
+            "strategyId": "breakout-momentum-v1",
+            "holdoutExpectancyR": -0.2061,
+            "holdoutTrades": 20,
+            "holdoutPf": 0.4419
+          },
+          {
+            "strategyId": "ema-pullback-v1",
+            "holdoutExpectancyR": -0.2087,
+            "holdoutTrades": 58,
+            "holdoutPf": 0.7373
+          },
+          {
+            "strategyId": "squeeze-breakout-v1",
+            "holdoutExpectancyR": 0.0923,
+            "holdoutTrades": 23,
+            "holdoutPf": 1.1877
+          },
+          {
+            "strategyId": "trend-structure-pullback-v1",
+            "holdoutExpectancyR": 0.138,
+            "holdoutTrades": 7,
+            "holdoutPf": 1.2117
+          },
+          {
+            "strategyId": "trend-structure-pullback-v2",
+            "holdoutExpectancyR": -0.5527,
+            "holdoutTrades": 19,
+            "holdoutPf": 0.4148
+          }
+        ]
+      },
+      {
+        "label": "ASSUMED",
+        "spreadBps": 0.61,
+        "slippageBps": 1,
+        "costLabel": "ASSUMED_SLIPPAGE_SENSITIVITY",
+        "strategies": [
+          {
+            "strategyId": "bollinger-reversion-v1",
+            "holdoutExpectancyR": 0,
+            "holdoutTrades": 0,
+            "holdoutPf": null
+          },
+          {
+            "strategyId": "breakout-momentum-v1",
+            "holdoutExpectancyR": -0.2245,
+            "holdoutTrades": 20,
+            "holdoutPf": 0.4127
+          },
+          {
+            "strategyId": "ema-pullback-v1",
+            "holdoutExpectancyR": -0.2589,
+            "holdoutTrades": 57,
+            "holdoutPf": 0.6781
+          },
+          {
+            "strategyId": "squeeze-breakout-v1",
+            "holdoutExpectancyR": 0.065,
+            "holdoutTrades": 23,
+            "holdoutPf": 1.1162
+          },
+          {
+            "strategyId": "trend-structure-pullback-v1",
+            "holdoutExpectancyR": 0.0667,
+            "holdoutTrades": 7,
+            "holdoutPf": 1.0906
+          },
+          {
+            "strategyId": "trend-structure-pullback-v2",
+            "holdoutExpectancyR": -0.7904,
+            "holdoutTrades": 19,
+            "holdoutPf": 0.263
+          }
+        ]
+      }
+    ]
+  },
+  "fiveMinute": {
+    "zeroCost": {
+      "config": {
+        "symbol": "XAUUSD",
+        "interval": "5m",
+        "spreadBps": 0,
+        "slippageBps": 0,
+        "contractSize": 100,
+        "tickSize": 0.01,
+        "tickValue": 1
+      },
+      "developmentCount": 948,
+      "holdoutCount": 407,
+      "walkForwardWindowCount": 6,
+      "strategies": [
+        {
+          "strategyId": "bollinger-reversion-v1",
+          "family": "mean_reversion",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 0,
+            "expectancyR": 0
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "breakout-momentum-v1",
+          "family": "breakout_momentum",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 2,
+            "expectancyR": 0.1931,
+            "profitFactor": 72.7826,
+            "netR": 0.3862,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 2,
+            "expectancyR": 0.1931,
+            "profitFactor": 72.7826,
+            "netR": 0.3862,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 7,
+            "expectancyR": -0.324
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "ema-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 17,
+            "expectancyR": -0.2942,
+            "profitFactor": 0.6279,
+            "netR": -5.0006,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 17,
+            "expectancyR": -0.2942,
+            "profitFactor": 0.6279,
+            "netR": -5.0006,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 39,
+            "expectancyR": 0.1165
+          },
+          "wf": {
+            "windows": 4,
+            "percentPositiveExpectancy": 0.5,
+            "percentProfitFactorAboveOne": 0.25,
+            "medianExpectancyR": -0.25,
+            "worstExpectancyR": -1,
+            "bestExpectancyR": 2.0002,
+            "totalOosTrades": 5,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "squeeze-breakout-v1",
+          "family": "breakout_momentum",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 7,
+            "expectancyR": -0.2426,
+            "profitFactor": 0.6442,
+            "netR": -1.6981,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 7,
+            "expectancyR": -0.2426,
+            "profitFactor": 0.6442,
+            "netR": -1.6981,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 14,
+            "expectancyR": 0.1821
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "trend-structure-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 2,
+            "expectancyR": 0.5001,
+            "profitFactor": 1.9897,
+            "netR": 1.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 2,
+            "expectancyR": 0.5001,
+            "profitFactor": 1.9897,
+            "netR": 1.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 4,
+            "expectancyR": -0.25
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "trend-structure-pullback-v2",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 3,
+            "expectancyR": 0.0001,
+            "profitFactor": 1.0012,
+            "netR": 0.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 3,
+            "expectancyR": 0.0001,
+            "profitFactor": 1.0012,
+            "netR": 0.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 13,
+            "expectancyR": -0.3077
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        }
+      ],
+      "rankings": {
+        "realisticHoldoutExpectancyR": [
+          "trend-structure-pullback-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v2",
+          "bollinger-reversion-v1",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1"
+        ],
+        "realisticHoldoutPf": [
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1",
+          "bollinger-reversion-v1"
+        ],
+        "walkForwardStability": [
+          "ema-pullback-v1",
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "costRobustness": [
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "tradeCountAdequacy": [
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v2",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v1",
+          "bollinger-reversion-v1"
+        ],
+        "overallResearch": [
+          "trend-structure-pullback-v1",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v2",
+          "bollinger-reversion-v1",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1"
+        ]
+      },
+      "notes": {
+        "deployed": false,
+        "strategiesEnabled": false,
+        "emaPullbackRemainsSuspended": true,
+        "productionPathsUnchanged": true,
+        "fillSemantics": "mid → adverse fill → propose SL/TP from fill → validate R:R from fill (CfdBacktester)"
+      }
+    },
+    "observedSpreadOnly": {
+      "config": {
+        "symbol": "XAUUSD",
+        "interval": "5m",
+        "spreadBps": 0.61,
+        "slippageBps": 0,
+        "contractSize": 100,
+        "tickSize": 0.01,
+        "tickValue": 1
+      },
+      "developmentCount": 948,
+      "holdoutCount": 407,
+      "walkForwardWindowCount": 6,
+      "strategies": [
+        {
+          "strategyId": "bollinger-reversion-v1",
+          "family": "mean_reversion",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 0,
+            "expectancyR": 0,
+            "profitFactor": null,
+            "netR": 0,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 0,
+            "expectancyR": 0
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0
+        },
+        {
+          "strategyId": "breakout-momentum-v1",
+          "family": "breakout_momentum",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 2,
+            "expectancyR": 0.1931,
+            "profitFactor": 72.7826,
+            "netR": 0.3862,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 2,
+            "expectancyR": 0.1867,
+            "profitFactor": 33.6327,
+            "netR": 0.3735,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 7,
+            "expectancyR": -0.324
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0064
+        },
+        {
+          "strategyId": "ema-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 17,
+            "expectancyR": -0.2942,
+            "profitFactor": 0.6279,
+            "netR": -5.0006,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 17,
+            "expectancyR": -0.3233,
+            "profitFactor": 0.5743,
+            "netR": -5.4966,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 39,
+            "expectancyR": 0.1165
+          },
+          "wf": {
+            "windows": 4,
+            "percentPositiveExpectancy": 0.5,
+            "percentProfitFactorAboveOne": 0.25,
+            "medianExpectancyR": -0.2697,
+            "worstExpectancyR": -1.0265,
+            "bestExpectancyR": 1.976,
+            "totalOosTrades": 5,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0291
+        },
+        {
+          "strategyId": "squeeze-breakout-v1",
+          "family": "breakout_momentum",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 7,
+            "expectancyR": -0.2426,
+            "profitFactor": 0.6442,
+            "netR": -1.6981,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 7,
+            "expectancyR": -0.251,
+            "profitFactor": 0.626,
+            "netR": -1.7572,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 14,
+            "expectancyR": 0.1821
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0084
+        },
+        {
+          "strategyId": "trend-structure-pullback-v1",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 2,
+            "expectancyR": 0.5001,
+            "profitFactor": 1.9897,
+            "netR": 1.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 2,
+            "expectancyR": 0.4696,
+            "profitFactor": 1.8615,
+            "netR": 0.9392,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 4,
+            "expectancyR": -0.25
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0305
+        },
+        {
+          "strategyId": "trend-structure-pullback-v2",
+          "family": "trend_pullback",
+          "classification": "TOO_SPARSE",
+          "verdict": "TOO_SPARSE",
+          "costEdgeCase": "TOO_SPARSE_INCONCLUSIVE",
+          "zeroHoldout": {
+            "trades": 3,
+            "expectancyR": 0.0001,
+            "profitFactor": 1.0012,
+            "netR": 0.0002,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "observedSpreadHoldout": {
+            "trades": 3,
+            "expectancyR": -0.0305,
+            "profitFactor": 0.9419,
+            "netR": -0.0914,
+            "sample": "VERY_LOW_SAMPLE"
+          },
+          "zeroDev": {
+            "trades": 13,
+            "expectancyR": -0.3077
+          },
+          "wf": {
+            "windows": 0,
+            "percentPositiveExpectancy": 0,
+            "percentProfitFactorAboveOne": 0,
+            "medianExpectancyR": 0,
+            "worstExpectancyR": 0,
+            "bestExpectancyR": 0,
+            "totalOosTrades": 0,
+            "singleWindowDominated": false
+          },
+          "costDragHoldoutExpectancyR": 0.0306
+        }
+      ],
+      "rankings": {
+        "realisticHoldoutExpectancyR": [
+          "trend-structure-pullback-v1",
+          "breakout-momentum-v1",
+          "bollinger-reversion-v1",
+          "trend-structure-pullback-v2",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1"
+        ],
+        "realisticHoldoutPf": [
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1",
+          "bollinger-reversion-v1"
+        ],
+        "walkForwardStability": [
+          "ema-pullback-v1",
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "costRobustness": [
+          "bollinger-reversion-v1",
+          "breakout-momentum-v1",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1",
+          "trend-structure-pullback-v1",
+          "trend-structure-pullback-v2"
+        ],
+        "tradeCountAdequacy": [
+          "ema-pullback-v1",
+          "squeeze-breakout-v1",
+          "trend-structure-pullback-v2",
+          "breakout-momentum-v1",
+          "trend-structure-pullback-v1",
+          "bollinger-reversion-v1"
+        ],
+        "overallResearch": [
+          "trend-structure-pullback-v1",
+          "breakout-momentum-v1",
+          "bollinger-reversion-v1",
+          "trend-structure-pullback-v2",
+          "squeeze-breakout-v1",
+          "ema-pullback-v1"
+        ]
+      },
+      "notes": {
+        "deployed": false,
+        "strategiesEnabled": false,
+        "emaPullbackRemainsSuspended": true,
+        "productionPathsUnchanged": true,
+        "fillSemantics": "mid → adverse fill → propose SL/TP from fill → validate R:R from fill (CfdBacktester)"
+      }
+    }
+  }
+}

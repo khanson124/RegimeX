@@ -16,7 +16,11 @@ export const STRATEGY_KINDS = [
   "ema-pullback",
   "bollinger-reversion",
   "squeeze-breakout",
-  "trend-structure-pullback"
+  "trend-structure-pullback",
+  /** Research-only XAU multi-timeframe candidate — not auto-enabled for live. */
+  "xau-mtf-structure-momentum",
+  /** Research-only XAU volatility expansion→retest candidate — not auto-enabled for live. */
+  "xau-volatility-expansion-retest"
 ] as const;
 
 export const strategyKindSchema = z.enum(STRATEGY_KINDS);

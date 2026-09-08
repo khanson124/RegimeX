@@ -19,6 +19,15 @@ export * from "./strategies/bollingerReversion.js";
 export * from "./strategies/bollingerReversionCfd.js";
 export * from "./strategies/squeezeBreakout.js";
 export * from "./strategies/squeezeBreakoutCfd.js";
+export * from "./strategies/mtfResampleAsOf.js";
+export * from "./strategies/htfStructure.js";
+export * from "./strategies/impulsePullback.js";
+export * from "./strategies/xauMtfEntryQuality.js";
+export * from "./strategies/xauMtfStructureMomentum.js";
+export * from "./strategies/xauMtfStructureMomentumCfd.js";
+export * from "./strategies/volatilityExpansionState.js";
+export * from "./strategies/xauVolatilityExpansionRetest.js";
+export * from "./strategies/xauVolatilityExpansionRetestCfd.js";
 export * from "./strategies/registry.js";
 
 // Selection & ensemble
@@ -96,6 +105,23 @@ export * from "./research/candleValidation.js";
 export * from "./research/candleBackfill.js";
 export * from "./research/gapSegments.js";
 export * from "./research/researchDatasetManifest.js";
+export * from "./research/xauUsdHistoryParity.js";
+export * from "./research/observedXauUsdSpread.js";
+export * from "./research/xauUsdWeeklyRobustness.js";
+export * from "./research/researchCandleInterval.js";
+export * from "./research/xauUsdTimeframeViability.js";
+export * from "./research/xauMtfStructureMomentumResearch.js";
+export * from "./research/xauVolatilityExpansionRetestResearch.js";
+export * from "./research/xauFeatureDiscoveryTypes.js";
+export * from "./research/xauFeatureDiscoveryBins.js";
+export * from "./research/xauFeatureDiscoveryFeatures.js";
+export * from "./research/xauFeatureDiscoveryAnalysis.js";
+export * from "./research/xauFeatureDiscovery.js";
+export * from "./research/mt5BarsStore.js";
+export * from "./research/mt5BarsFetcher.js";
+export * from "./research/mt5BarParity.js";
+export * from "./research/mt5SignalParity.js";
+export * from "./research/mt5DataParityStatus.js";
 export * from "./research/empiricalCostMath.js";
 export * from "./research/empiricalCostProfile.js";
 export * from "./research/mt5CostTelemetry.js";
@@ -120,6 +146,8 @@ export * from "./export/datasetExport.js";
 export * from "./deriv/types.js";
 export * from "./deriv/contractUpdate.js";
 export * from "./deriv/derivClient.js";
+export * from "./deriv/derivSymbols.js";
+export * from "./deriv/researchHistorySymbols.js";
 
 // Test fixtures (deterministic synthetic data)
 export * from "./testing/fixtures.js";

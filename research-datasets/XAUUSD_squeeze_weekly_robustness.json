@@ -1,0 +1,1627 @@
+{
+  "generatedAt": "2026-09-08T13:49:53.163Z",
+  "researchOnly": true,
+  "enablement": {
+    "allowlist": false,
+    "trades": false,
+    "deployed": false,
+    "strategyMutated": false,
+    "r10Unchanged": true
+  },
+  "inventory": [
+    {
+      "segmentId": "W01_2026-06-01",
+      "weekStartIso": "2026-06-01T00:00:00.000Z",
+      "startOpenTime": 1780272060000,
+      "endOpenTime": 1780692900000,
+      "startIso": "2026-06-01T00:01:00.000Z",
+      "endIso": "2026-06-05T20:55:00.000Z",
+      "bars1m": 6775,
+      "bars5m": 1354,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W02_2026-06-08",
+      "weekStartIso": "2026-06-08T00:00:00.000Z",
+      "startOpenTime": 1780876800000,
+      "endOpenTime": 1781297700000,
+      "startIso": "2026-06-08T00:00:00.000Z",
+      "endIso": "2026-06-12T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W03_2026-06-15",
+      "weekStartIso": "2026-06-15T00:00:00.000Z",
+      "startOpenTime": 1781481600000,
+      "endOpenTime": 1781888400000,
+      "startIso": "2026-06-15T00:00:00.000Z",
+      "endIso": "2026-06-19T17:00:00.000Z",
+      "bars1m": 6541,
+      "bars5m": 1308,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W04_2026-06-22",
+      "weekStartIso": "2026-06-22T00:00:00.000Z",
+      "startOpenTime": 1782086400000,
+      "endOpenTime": 1782507300000,
+      "startIso": "2026-06-22T00:00:00.000Z",
+      "endIso": "2026-06-26T20:55:00.000Z",
+      "bars1m": 6775,
+      "bars5m": 1354,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W05_2026-06-29",
+      "weekStartIso": "2026-06-29T00:00:00.000Z",
+      "startOpenTime": 1782691200000,
+      "endOpenTime": 1783098000000,
+      "startIso": "2026-06-29T00:00:00.000Z",
+      "endIso": "2026-07-03T17:00:00.000Z",
+      "bars1m": 6541,
+      "bars5m": 1308,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W06_2026-07-06",
+      "weekStartIso": "2026-07-06T00:00:00.000Z",
+      "startOpenTime": 1783296000000,
+      "endOpenTime": 1783716900000,
+      "startIso": "2026-07-06T00:00:00.000Z",
+      "endIso": "2026-07-10T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W07_2026-07-13",
+      "weekStartIso": "2026-07-13T00:00:00.000Z",
+      "startOpenTime": 1783900800000,
+      "endOpenTime": 1784321700000,
+      "startIso": "2026-07-13T00:00:00.000Z",
+      "endIso": "2026-07-17T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W08_2026-07-20",
+      "weekStartIso": "2026-07-20T00:00:00.000Z",
+      "startOpenTime": 1784505600000,
+      "endOpenTime": 1784926500000,
+      "startIso": "2026-07-20T00:00:00.000Z",
+      "endIso": "2026-07-24T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W09_2026-07-27",
+      "weekStartIso": "2026-07-27T00:00:00.000Z",
+      "startOpenTime": 1785110400000,
+      "endOpenTime": 1785531300000,
+      "startIso": "2026-07-27T00:00:00.000Z",
+      "endIso": "2026-07-31T20:55:00.000Z",
+      "bars1m": 6775,
+      "bars5m": 1354,
+      "unexpectedGaps": 1,
+      "usable": false,
+      "reason": "UNEXPECTED_INTERIOR_GAPS"
+    },
+    {
+      "segmentId": "W10_2026-08-03",
+      "weekStartIso": "2026-08-03T00:00:00.000Z",
+      "startOpenTime": 1785715200000,
+      "endOpenTime": 1786136100000,
+      "startIso": "2026-08-03T00:00:00.000Z",
+      "endIso": "2026-08-07T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W11_2026-08-10",
+      "weekStartIso": "2026-08-10T00:00:00.000Z",
+      "startOpenTime": 1786320000000,
+      "endOpenTime": 1786740900000,
+      "startIso": "2026-08-10T00:00:00.000Z",
+      "endIso": "2026-08-14T20:55:00.000Z",
+      "bars1m": 6775,
+      "bars5m": 1354,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W12_2026-08-17",
+      "weekStartIso": "2026-08-17T00:00:00.000Z",
+      "startOpenTime": 1786924800000,
+      "endOpenTime": 1787345700000,
+      "startIso": "2026-08-17T00:00:00.000Z",
+      "endIso": "2026-08-21T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W13_2026-08-24",
+      "weekStartIso": "2026-08-24T00:00:00.000Z",
+      "startOpenTime": 1787529600000,
+      "endOpenTime": 1787950500000,
+      "startIso": "2026-08-24T00:00:00.000Z",
+      "endIso": "2026-08-28T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W14_2026-08-31",
+      "weekStartIso": "2026-08-31T00:00:00.000Z",
+      "startOpenTime": 1788134400000,
+      "endOpenTime": 1788555300000,
+      "startIso": "2026-08-31T00:00:00.000Z",
+      "endIso": "2026-09-04T20:55:00.000Z",
+      "bars1m": 6776,
+      "bars5m": 1355,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W15_2026-09-07",
+      "weekStartIso": "2026-09-07T00:00:00.000Z",
+      "startOpenTime": 1788739200000,
+      "endOpenTime": 1788805800000,
+      "startIso": "2026-09-07T00:00:00.000Z",
+      "endIso": "2026-09-07T18:30:00.000Z",
+      "bars1m": 1111,
+      "bars5m": 222,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    },
+    {
+      "segmentId": "W16_2026-09-07",
+      "weekStartIso": "2026-09-07T00:00:00.000Z",
+      "startOpenTime": 1788825600000,
+      "endOpenTime": 1788872400000,
+      "startIso": "2026-09-08T00:00:00.000Z",
+      "endIso": "2026-09-08T13:00:00.000Z",
+      "bars1m": 781,
+      "bars5m": 156,
+      "unexpectedGaps": 0,
+      "usable": true,
+      "reason": "OK"
+    }
+  ],
+  "usableWeekCount": 15,
+  "totalUsableBars1m": 89507,
+  "totalUsableBars5m": 17896,
+  "spread": {
+    "symbol": "XAUUSD",
+    "sampleCount": 17,
+    "status": "PRELIMINARY",
+    "label": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+    "medianBps": 0.61,
+    "p75Bps": null,
+    "p90Bps": null,
+    "p95Bps": null,
+    "p99Bps": null,
+    "medianSpreadPrice": 0.27,
+    "sourcePath": null,
+    "note": "Sample file missing locally; using operator-reported production passive-sample summary (<30 → PRELIMINARY)."
+  },
+  "scaleParity": {
+    "internalSymbol": "XAUUSD",
+    "historicalApiSymbol": "frxXAUUSD",
+    "liveBrokerSymbol": "XAUUSD",
+    "historicalSource": "DERIV_HISTORY_API:frxXAUUSD",
+    "liveSource": "MT5_DEMO:XAUUSD",
+    "verdict": "MATCH_APPROXIMATE",
+    "reasons": [
+      "Historical candles from Deriv ticks_history frxXAUUSD (forex gold).",
+      "Live DEMO instrument is MT5 broker symbol XAUUSD (CFD).",
+      "Products share gold/USD underlying but are not proven identical contracts.",
+      "Price scale within 2% (rel=0.327%) — approximate only."
+    ],
+    "historicalLastClose": 4411.54,
+    "liveMid": 4426,
+    "relativeDiffPct": 0.32670582919114405
+  },
+  "overlapParity": {
+    "verdict": "INSUFFICIENT_OVERLAP",
+    "pairs": 0,
+    "medianAbsCloseDiffPct": null,
+    "meanAbsCloseDiffPct": null,
+    "returnSignAgreement": null,
+    "atrRatio": null,
+    "reasons": [
+      "Only 0 overlapping timestamps (need ≥30)."
+    ]
+  },
+  "weekly": {
+    "squeeze": [
+      {
+        "segmentId": "W01_2026-06-01",
+        "weekStartIso": "2026-06-01T00:00:00.000Z",
+        "trades": 75,
+        "wins": 29,
+        "losses": 46,
+        "winRate": 0.3867,
+        "profitFactor": 0.6281,
+        "expectancyR": -0.1821,
+        "netR": -13.6562,
+        "maxDrawdownPercent": 0.07573141314275322,
+        "buyExpectancyR": -0.1852,
+        "sellExpectancyR": -0.1781,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 75,
+            "winRate": 0.3867,
+            "expectancyR": -0.1821
+          }
+        }
+      },
+      {
+        "segmentId": "W02_2026-06-08",
+        "weekStartIso": "2026-06-08T00:00:00.000Z",
+        "trades": 81,
+        "wins": 37,
+        "losses": 44,
+        "winRate": 0.4568,
+        "profitFactor": 1.1674,
+        "expectancyR": 0.0907,
+        "netR": 7.3444,
+        "maxDrawdownPercent": 0.031092,
+        "buyExpectancyR": -0.1671,
+        "sellExpectancyR": 0.3074,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 81,
+            "winRate": 0.4568,
+            "expectancyR": 0.0907
+          }
+        }
+      },
+      {
+        "segmentId": "W03_2026-06-15",
+        "weekStartIso": "2026-06-15T00:00:00.000Z",
+        "trades": 63,
+        "wins": 30,
+        "losses": 33,
+        "winRate": 0.4762,
+        "profitFactor": 1.4055,
+        "expectancyR": 0.1629,
+        "netR": 10.2634,
+        "maxDrawdownPercent": 0.02705746903485937,
+        "buyExpectancyR": -0.0623,
+        "sellExpectancyR": 0.4106,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 63,
+            "winRate": 0.4762,
+            "expectancyR": 0.1629
+          }
+        }
+      },
+      {
+        "segmentId": "W04_2026-06-22",
+        "weekStartIso": "2026-06-22T00:00:00.000Z",
+        "trades": 80,
+        "wins": 33,
+        "losses": 47,
+        "winRate": 0.4125,
+        "profitFactor": 0.9953,
+        "expectancyR": -0.0062,
+        "netR": -0.4975,
+        "maxDrawdownPercent": 0.044546041804451146,
+        "buyExpectancyR": -0.172,
+        "sellExpectancyR": 0.1227,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 80,
+            "winRate": 0.4125,
+            "expectancyR": -0.0062
+          }
+        }
+      },
+      {
+        "segmentId": "W05_2026-06-29",
+        "weekStartIso": "2026-06-29T00:00:00.000Z",
+        "trades": 71,
+        "wins": 27,
+        "losses": 44,
+        "winRate": 0.3803,
+        "profitFactor": 0.7029,
+        "expectancyR": -0.131,
+        "netR": -9.3022,
+        "maxDrawdownPercent": 0.04861083461406764,
+        "buyExpectancyR": -0.325,
+        "sellExpectancyR": 0.08,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 71,
+            "winRate": 0.3803,
+            "expectancyR": -0.131
+          }
+        }
+      },
+      {
+        "segmentId": "W06_2026-07-06",
+        "weekStartIso": "2026-07-06T00:00:00.000Z",
+        "trades": 69,
+        "wins": 22,
+        "losses": 47,
+        "winRate": 0.3188,
+        "profitFactor": 0.6523,
+        "expectancyR": -0.1667,
+        "netR": -11.5019,
+        "maxDrawdownPercent": 0.06739795664091701,
+        "buyExpectancyR": -0.0106,
+        "sellExpectancyR": -0.3098,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 69,
+            "winRate": 0.3188,
+            "expectancyR": -0.1667
+          }
+        }
+      },
+      {
+        "segmentId": "W07_2026-07-13",
+        "weekStartIso": "2026-07-13T00:00:00.000Z",
+        "trades": 73,
+        "wins": 28,
+        "losses": 45,
+        "winRate": 0.3836,
+        "profitFactor": 0.7386,
+        "expectancyR": -0.1109,
+        "netR": -8.096,
+        "maxDrawdownPercent": 0.051716453394242794,
+        "buyExpectancyR": -0.0556,
+        "sellExpectancyR": -0.1591,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 73,
+            "winRate": 0.3836,
+            "expectancyR": -0.1109
+          }
+        }
+      },
+      {
+        "segmentId": "W08_2026-07-20",
+        "weekStartIso": "2026-07-20T00:00:00.000Z",
+        "trades": 71,
+        "wins": 30,
+        "losses": 41,
+        "winRate": 0.4225,
+        "profitFactor": 0.9006,
+        "expectancyR": -0.0413,
+        "netR": -2.9346,
+        "maxDrawdownPercent": 0.04397935416402586,
+        "buyExpectancyR": -0.0375,
+        "sellExpectancyR": -0.0455,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 71,
+            "winRate": 0.4225,
+            "expectancyR": -0.0413
+          }
+        }
+      },
+      {
+        "segmentId": "W10_2026-08-03",
+        "weekStartIso": "2026-08-03T00:00:00.000Z",
+        "trades": 70,
+        "wins": 33,
+        "losses": 37,
+        "winRate": 0.4714,
+        "profitFactor": 1.1026,
+        "expectancyR": 0.0489,
+        "netR": 3.4195,
+        "maxDrawdownPercent": 0.03289632461908837,
+        "buyExpectancyR": 0.1262,
+        "sellExpectancyR": -0.0605,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 70,
+            "winRate": 0.4714,
+            "expectancyR": 0.0489
+          }
+        }
+      },
+      {
+        "segmentId": "W11_2026-08-10",
+        "weekStartIso": "2026-08-10T00:00:00.000Z",
+        "trades": 65,
+        "wins": 35,
+        "losses": 30,
+        "winRate": 0.5385,
+        "profitFactor": 1.5229,
+        "expectancyR": 0.1743,
+        "netR": 11.3288,
+        "maxDrawdownPercent": 0.017745196235679054,
+        "buyExpectancyR": 0.3147,
+        "sellExpectancyR": 0.0203,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 65,
+            "winRate": 0.5385,
+            "expectancyR": 0.1743
+          }
+        }
+      },
+      {
+        "segmentId": "W12_2026-08-17",
+        "weekStartIso": "2026-08-17T00:00:00.000Z",
+        "trades": 62,
+        "wins": 36,
+        "losses": 26,
+        "winRate": 0.5806,
+        "profitFactor": 1.4956,
+        "expectancyR": 0.1682,
+        "netR": 10.4261,
+        "maxDrawdownPercent": 0.021437319945165623,
+        "buyExpectancyR": 0.0551,
+        "sellExpectancyR": 0.3471,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 62,
+            "winRate": 0.5806,
+            "expectancyR": 0.1682
+          }
+        }
+      },
+      {
+        "segmentId": "W13_2026-08-24",
+        "weekStartIso": "2026-08-24T00:00:00.000Z",
+        "trades": 74,
+        "wins": 32,
+        "losses": 42,
+        "winRate": 0.4324,
+        "profitFactor": 0.886,
+        "expectancyR": -0.0613,
+        "netR": -4.5369,
+        "maxDrawdownPercent": 0.04154833406652163,
+        "buyExpectancyR": -0.3033,
+        "sellExpectancyR": 0.1444,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 74,
+            "winRate": 0.4324,
+            "expectancyR": -0.0613
+          }
+        }
+      },
+      {
+        "segmentId": "W14_2026-08-31",
+        "weekStartIso": "2026-08-31T00:00:00.000Z",
+        "trades": 80,
+        "wins": 30,
+        "losses": 50,
+        "winRate": 0.375,
+        "profitFactor": 0.842,
+        "expectancyR": -0.0697,
+        "netR": -5.5735,
+        "maxDrawdownPercent": 0.055008,
+        "buyExpectancyR": -0.0066,
+        "sellExpectancyR": -0.136,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 80,
+            "winRate": 0.375,
+            "expectancyR": -0.0697
+          }
+        }
+      },
+      {
+        "segmentId": "W15_2026-09-07",
+        "weekStartIso": "2026-09-07T00:00:00.000Z",
+        "trades": 11,
+        "wins": 7,
+        "losses": 4,
+        "winRate": 0.6364,
+        "profitFactor": 2.071,
+        "expectancyR": 0.224,
+        "netR": 2.4637,
+        "maxDrawdownPercent": 0.010063471310549731,
+        "buyExpectancyR": 0.5797,
+        "sellExpectancyR": 0.0207,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 11,
+            "winRate": 0.6364,
+            "expectancyR": 0.224
+          }
+        }
+      },
+      {
+        "segmentId": "W16_2026-09-07",
+        "weekStartIso": "2026-09-07T00:00:00.000Z",
+        "trades": 7,
+        "wins": 3,
+        "losses": 4,
+        "winRate": 0.4286,
+        "profitFactor": 1.3138,
+        "expectancyR": 0.1353,
+        "netR": 0.9469,
+        "maxDrawdownPercent": 0.007599808645733669,
+        "buyExpectancyR": -0.1909,
+        "sellExpectancyR": 0.3799,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 7,
+            "winRate": 0.4286,
+            "expectancyR": 0.1353
+          }
+        }
+      }
+    ],
+    "ema": [
+      {
+        "segmentId": "W01_2026-06-01",
+        "trades": 198,
+        "expectancyR": -0.1555,
+        "profitFactor": 0.7832,
+        "netR": -30.7884,
+        "winRate": 0.3131
+      },
+      {
+        "segmentId": "W02_2026-06-08",
+        "trades": 206,
+        "expectancyR": -0.1369,
+        "profitFactor": 0.804,
+        "netR": -28.2103,
+        "winRate": 0.3107
+      },
+      {
+        "segmentId": "W03_2026-06-15",
+        "trades": 208,
+        "expectancyR": -0.1591,
+        "profitFactor": 0.7771,
+        "netR": -33.0879,
+        "winRate": 0.3125
+      },
+      {
+        "segmentId": "W04_2026-06-22",
+        "trades": 228,
+        "expectancyR": -0.2903,
+        "profitFactor": 0.6386,
+        "netR": -66.1929,
+        "winRate": 0.2632
+      },
+      {
+        "segmentId": "W05_2026-06-29",
+        "trades": 215,
+        "expectancyR": -0.1789,
+        "profitFactor": 0.7645,
+        "netR": -38.4628,
+        "winRate": 0.307
+      },
+      {
+        "segmentId": "W06_2026-07-06",
+        "trades": 207,
+        "expectancyR": -0.1957,
+        "profitFactor": 0.7432,
+        "netR": -40.5026,
+        "winRate": 0.2995
+      },
+      {
+        "segmentId": "W07_2026-07-13",
+        "trades": 188,
+        "expectancyR": -0.3136,
+        "profitFactor": 0.6183,
+        "netR": -58.9551,
+        "winRate": 0.2606
+      },
+      {
+        "segmentId": "W08_2026-07-20",
+        "trades": 206,
+        "expectancyR": -0.1517,
+        "profitFactor": 0.7942,
+        "netR": -31.247,
+        "winRate": 0.3155
+      },
+      {
+        "segmentId": "W10_2026-08-03",
+        "trades": 226,
+        "expectancyR": -0.0049,
+        "profitFactor": 0.9858,
+        "netR": -1.0984,
+        "winRate": 0.3628
+      },
+      {
+        "segmentId": "W11_2026-08-10",
+        "trades": 236,
+        "expectancyR": -0.2178,
+        "profitFactor": 0.7228,
+        "netR": -51.3927,
+        "winRate": 0.2966
+      },
+      {
+        "segmentId": "W12_2026-08-17",
+        "trades": 227,
+        "expectancyR": -0.1858,
+        "profitFactor": 0.7507,
+        "netR": -42.1698,
+        "winRate": 0.3084
+      },
+      {
+        "segmentId": "W13_2026-08-24",
+        "trades": 211,
+        "expectancyR": -0.0474,
+        "profitFactor": 0.924,
+        "netR": -10.005,
+        "winRate": 0.3507
+      },
+      {
+        "segmentId": "W14_2026-08-31",
+        "trades": 222,
+        "expectancyR": -0.3575,
+        "profitFactor": 0.5685,
+        "netR": -79.3698,
+        "winRate": 0.2477
+      },
+      {
+        "segmentId": "W15_2026-09-07",
+        "trades": 35,
+        "expectancyR": -0.071,
+        "profitFactor": 0.8952,
+        "netR": -2.4855,
+        "winRate": 0.3429
+      },
+      {
+        "segmentId": "W16_2026-09-07",
+        "trades": 23,
+        "expectancyR": 0.4606,
+        "profitFactor": 1.8569,
+        "netR": 10.5938,
+        "winRate": 0.5217
+      }
+    ]
+  },
+  "pooled": {
+    "squeezeZero": {
+      "weeks": 15,
+      "positiveWeekCount": 8,
+      "positiveWeekPct": 0.5333333333333333,
+      "medianWeeklyExpectancyR": 0.0143,
+      "bestWeek": {
+        "segmentId": "W15_2026-09-07",
+        "expectancyR": 0.263,
+        "netR": 2.8934
+      },
+      "worstWeek": {
+        "segmentId": "W01_2026-06-01",
+        "expectancyR": -0.1556,
+        "netR": -11.6719
+      },
+      "longestLosingWeekStreak": 4,
+      "totalTrades": 953,
+      "winRate": 0.4459601259181532,
+      "profitFactor": 1.0590060767882805,
+      "expectancyR": 0.024905141657922354,
+      "netR": 23.734600000000004,
+      "buyTrades": 483,
+      "sellTrades": 470,
+      "buyExpectancyR": -0.029061283643892336,
+      "sellExpectancyR": 0.08036893617021276,
+      "byRegime": {
+        "BREAKOUT_EXPANSION": {
+          "trades": 953,
+          "expectancyR": 0.024903252885624345
+        }
+      },
+      "sampleSize": "INFORMATIVE"
+    },
+    "squeezeObserved": {
+      "weeks": 15,
+      "positiveWeekCount": 7,
+      "positiveWeekPct": 0.4666666666666667,
+      "medianWeeklyExpectancyR": -0.0062,
+      "bestWeek": {
+        "segmentId": "W15_2026-09-07",
+        "expectancyR": 0.224,
+        "netR": 2.4637
+      },
+      "worstWeek": {
+        "segmentId": "W01_2026-06-01",
+        "expectancyR": -0.1821,
+        "netR": -13.6562
+      },
+      "longestLosingWeekStreak": 5,
+      "totalTrades": 952,
+      "winRate": 0.4327731092436975,
+      "profitFactor": 0.9761304627591775,
+      "expectancyR": -0.01040546218487395,
+      "netR": -9.906,
+      "buyTrades": 483,
+      "sellTrades": 469,
+      "buyExpectancyR": -0.05912753623188407,
+      "sellExpectancyR": 0.039754371002132194,
+      "byRegime": {
+        "BREAKOUT_EXPANSION": {
+          "trades": 952,
+          "expectancyR": -0.010394537815126052
+        }
+      },
+      "sampleSize": "INFORMATIVE"
+    },
+    "emaObserved": {
+      "weeks": 15,
+      "positiveWeekCount": 1,
+      "positiveWeekPct": 0.06666666666666667,
+      "medianWeeklyExpectancyR": -0.1591,
+      "bestWeek": {
+        "segmentId": "W16_2026-09-07",
+        "expectancyR": 0.4606,
+        "netR": 10.5938
+      },
+      "worstWeek": {
+        "segmentId": "W14_2026-08-31",
+        "expectancyR": -0.3575,
+        "netR": -79.3698
+      },
+      "longestLosingWeekStreak": 14,
+      "totalTrades": 2836,
+      "winRate": 0.306064880112835,
+      "profitFactor": 0.7662280185621495,
+      "expectancyR": -0.1774944992947814,
+      "netR": -503.37440000000004,
+      "buyTrades": 1362,
+      "sellTrades": 1474,
+      "buyExpectancyR": -0.18255183553597654,
+      "sellExpectancyR": -0.17282706919945728,
+      "byRegime": {
+        "STRONG_DOWNTREND": {
+          "trades": 1389,
+          "expectancyR": -0.17572383009359252
+        },
+        "STRONG_UPTREND": {
+          "trades": 1290,
+          "expectancyR": -0.1798273643410853
+        },
+        "WEAK_DOWNTREND": {
+          "trades": 85,
+          "expectancyR": -0.12555999999999998
+        },
+        "WEAK_UPTREND": {
+          "trades": 72,
+          "expectancyR": -0.23128333333333334
+        }
+      },
+      "sampleSize": "INFORMATIVE"
+    }
+  },
+  "leaveOneWeekOut": [
+    {
+      "leftOutSegmentId": "W01_2026-06-01",
+      "remainingWeeks": 14,
+      "trades": 877,
+      "expectancyR": 0.00427616875712657,
+      "profitFactor": 1.009937395046388,
+      "netR": 3.750200000000002
+    },
+    {
+      "leftOutSegmentId": "W02_2026-06-08",
+      "remainingWeeks": 14,
+      "trades": 871,
+      "expectancyR": -0.019805281285878305,
+      "profitFactor": 0.9546986190785047,
+      "netR": -17.250400000000003
+    },
+    {
+      "leftOutSegmentId": "W03_2026-06-15",
+      "remainingWeeks": 14,
+      "trades": 889,
+      "expectancyR": -0.02268773903262093,
+      "profitFactor": 0.9483823195924048,
+      "netR": -20.169400000000007
+    },
+    {
+      "leftOutSegmentId": "W04_2026-06-22",
+      "remainingWeeks": 14,
+      "trades": 872,
+      "expectancyR": -0.010789564220183488,
+      "profitFactor": 0.9751110706453241,
+      "netR": -9.408500000000002
+    },
+    {
+      "leftOutSegmentId": "W05_2026-06-29",
+      "remainingWeeks": 14,
+      "trades": 881,
+      "expectancyR": -0.0006853575482406362,
+      "profitFactor": 0.9984354796898792,
+      "netR": -0.6038000000000004
+    },
+    {
+      "leftOutSegmentId": "W06_2026-07-06",
+      "remainingWeeks": 14,
+      "trades": 883,
+      "expectancyR": 0.0018073612684031703,
+      "profitFactor": 1.0042082163691317,
+      "netR": 1.5958999999999994
+    },
+    {
+      "leftOutSegmentId": "W07_2026-07-13",
+      "remainingWeeks": 14,
+      "trades": 879,
+      "expectancyR": -0.002059158134243458,
+      "profitFactor": 0.9952552968284202,
+      "netR": -1.8099999999999996
+    },
+    {
+      "leftOutSegmentId": "W08_2026-07-20",
+      "remainingWeeks": 14,
+      "trades": 881,
+      "expectancyR": -0.00791305334846765,
+      "profitFactor": 0.9817149609589494,
+      "netR": -6.9714
+    },
+    {
+      "leftOutSegmentId": "W10_2026-08-03",
+      "remainingWeeks": 14,
+      "trades": 882,
+      "expectancyR": -0.015108276643990932,
+      "profitFactor": 0.9654318988687134,
+      "netR": -13.325500000000002
+    },
+    {
+      "leftOutSegmentId": "W11_2026-08-10",
+      "remainingWeeks": 14,
+      "trades": 887,
+      "expectancyR": -0.023940022547914316,
+      "profitFactor": 0.946054380339193,
+      "netR": -21.2348
+    },
+    {
+      "leftOutSegmentId": "W12_2026-08-17",
+      "remainingWeeks": 14,
+      "trades": 890,
+      "expectancyR": -0.02284505617977528,
+      "profitFactor": 0.9484631676740979,
+      "netR": -20.3321
+    },
+    {
+      "leftOutSegmentId": "W13_2026-08-24",
+      "remainingWeeks": 14,
+      "trades": 878,
+      "expectancyR": -0.00611514806378132,
+      "profitFactor": 0.985832871637447,
+      "netR": -5.369099999999999
+    },
+    {
+      "leftOutSegmentId": "W14_2026-08-31",
+      "remainingWeeks": 14,
+      "trades": 872,
+      "expectancyR": -0.004968463302752292,
+      "profitFactor": 0.9885811691112288,
+      "netR": -4.332499999999999
+    },
+    {
+      "leftOutSegmentId": "W15_2026-09-07",
+      "remainingWeeks": 14,
+      "trades": 941,
+      "expectancyR": -0.013145270988310307,
+      "profitFactor": 0.9700202674213385,
+      "netR": -12.3697
+    },
+    {
+      "leftOutSegmentId": "W16_2026-09-07",
+      "remainingWeeks": 14,
+      "trades": 945,
+      "expectancyR": -0.011484550264550265,
+      "profitFactor": 0.9736728356484713,
+      "netR": -10.8529
+    }
+  ],
+  "dominanceShareOfPositiveNetR": 0.24525034204464766,
+  "chronological": {
+    "developmentWeekIds": [
+      "W01_2026-06-01",
+      "W02_2026-06-08",
+      "W03_2026-06-15",
+      "W04_2026-06-22",
+      "W05_2026-06-29",
+      "W06_2026-07-06",
+      "W07_2026-07-13",
+      "W08_2026-07-20",
+      "W10_2026-08-03",
+      "W11_2026-08-10",
+      "W12_2026-08-17"
+    ],
+    "holdoutWeekIds": [
+      "W13_2026-08-24",
+      "W14_2026-08-31",
+      "W15_2026-09-07",
+      "W16_2026-09-07"
+    ],
+    "development": {
+      "observed": {
+        "trades": 780,
+        "wins": 340,
+        "losses": 440,
+        "winRate": 0.4359,
+        "profitFactor": 0.9813,
+        "expectancyR": -0.0041,
+        "averageWinR": 0.9838,
+        "averageLossR": -0.7675,
+        "netR": -3.2062,
+        "netPnl": -287.69,
+        "maxDrawdown": null,
+        "maxDrawdownPercent": null,
+        "longestLossStreak": null,
+        "averageBarsHeld": null,
+        "averageHoldingMs": null,
+        "buyTrades": 401,
+        "sellTrades": 379,
+        "buyExpectancyR": -0.0492,
+        "sellExpectancyR": 0.0436,
+        "buyWinRate": 0.4214,
+        "sellWinRate": 0.4512,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 780,
+            "winRate": 0.4359,
+            "expectancyR": -0.0041
+          }
+        },
+        "sampleSize": "INFORMATIVE"
+      },
+      "weekCount": 11
+    },
+    "walkForwardProxy": {
+      "developmentWeekCount": 11,
+      "percentPositiveExpectancy": 0.45454545454545453
+    },
+    "finalHoldout": {
+      "observed": {
+        "trades": 172,
+        "wins": 72,
+        "losses": 100,
+        "winRate": 0.4186,
+        "profitFactor": 0.9186,
+        "expectancyR": -0.039,
+        "averageWinR": 0.9777,
+        "averageLossR": -0.7709,
+        "netR": -6.6998,
+        "netPnl": -277.25,
+        "maxDrawdown": null,
+        "maxDrawdownPercent": null,
+        "longestLossStreak": null,
+        "averageBarsHeld": null,
+        "averageHoldingMs": null,
+        "buyTrades": 82,
+        "sellTrades": 90,
+        "buyExpectancyR": -0.1077,
+        "sellExpectancyR": 0.0237,
+        "buyWinRate": 0.378,
+        "sellWinRate": 0.4556,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 172,
+            "winRate": 0.4186,
+            "expectancyR": -0.039
+          }
+        },
+        "sampleSize": "INFORMATIVE"
+      },
+      "zero": {
+        "trades": 173,
+        "wins": 74,
+        "losses": 99,
+        "winRate": 0.4277,
+        "profitFactor": 0.9877,
+        "expectancyR": -0.0112,
+        "averageWinR": 0.9878,
+        "averageLossR": -0.7579,
+        "netR": -1.931,
+        "netPnl": -41,
+        "maxDrawdown": null,
+        "maxDrawdownPercent": null,
+        "longestLossStreak": null,
+        "averageBarsHeld": null,
+        "averageHoldingMs": null,
+        "buyTrades": 82,
+        "sellTrades": 91,
+        "buyExpectancyR": -0.0831,
+        "sellExpectancyR": 0.0537,
+        "buyWinRate": 0.3902,
+        "sellWinRate": 0.4615,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 173,
+            "winRate": 0.4277,
+            "expectancyR": -0.0112
+          }
+        },
+        "sampleSize": "INFORMATIVE"
+      },
+      "assumedSlip025": {
+        "trades": 172,
+        "wins": 72,
+        "losses": 100,
+        "winRate": 0.4186,
+        "profitFactor": 0.8614,
+        "expectancyR": -0.06,
+        "averageWinR": 0.9499,
+        "averageLossR": -0.7871,
+        "netR": -10.3199,
+        "netPnl": -484.68,
+        "maxDrawdown": null,
+        "maxDrawdownPercent": null,
+        "longestLossStreak": null,
+        "averageBarsHeld": null,
+        "averageHoldingMs": null,
+        "buyTrades": 82,
+        "sellTrades": 90,
+        "buyExpectancyR": -0.1271,
+        "sellExpectancyR": 0.0011,
+        "buyWinRate": 0.378,
+        "sellWinRate": 0.4556,
+        "byRegime": {
+          "BREAKOUT_EXPANSION": {
+            "trades": 172,
+            "winRate": 0.4186,
+            "expectancyR": -0.06
+          }
+        },
+        "sampleSize": "INFORMATIVE"
+      },
+      "tradeCount": 172,
+      "sampleSize": "INFORMATIVE"
+    }
+  },
+  "costSensitivity": [
+    {
+      "profileId": "ZERO",
+      "label": "ZERO",
+      "spreadBps": 0,
+      "slippageBps": 0,
+      "expectancyR": 0.024905141657922354,
+      "profitFactor": 1.0590060767882805,
+      "totalTrades": 953,
+      "positiveWeekPct": 0.5333333333333333,
+      "netR": 23.734600000000004
+    },
+    {
+      "profileId": "OBSERVED_SPREAD_ONLY",
+      "label": "OBSERVED_SPREAD_ONLY_NOT_FULL_EMPIRICAL_COST",
+      "spreadBps": 0.61,
+      "slippageBps": 0,
+      "expectancyR": -0.01040546218487395,
+      "profitFactor": 0.9761304627591775,
+      "totalTrades": 952,
+      "positiveWeekPct": 0.4666666666666667,
+      "netR": -9.906
+    },
+    {
+      "profileId": "ASSUMED_SLIP_0_10",
+      "label": "ASSUMED",
+      "spreadBps": 0.61,
+      "slippageBps": 0.1,
+      "expectancyR": -0.018705567226890752,
+      "profitFactor": 0.957430545228148,
+      "totalTrades": 952,
+      "positiveWeekPct": 0.4666666666666667,
+      "netR": -17.807699999999997
+    },
+    {
+      "profileId": "ASSUMED_SLIP_0_25",
+      "label": "ASSUMED",
+      "spreadBps": 0.61,
+      "slippageBps": 0.25,
+      "expectancyR": -0.03063406940063092,
+      "profitFactor": 0.9309478214420094,
+      "totalTrades": 951,
+      "positiveWeekPct": 0.4666666666666667,
+      "netR": -29.133000000000006
+    },
+    {
+      "profileId": "ASSUMED_SLIP_0_50",
+      "label": "ASSUMED",
+      "spreadBps": 0.61,
+      "slippageBps": 0.5,
+      "expectancyR": -0.0524731296101159,
+      "profitFactor": 0.8835114509888506,
+      "totalTrades": 949,
+      "positiveWeekPct": 0.4,
+      "netR": -49.79699999999999
+    },
+    {
+      "profileId": "ASSUMED_SLIP_1_00",
+      "label": "ASSUMED",
+      "spreadBps": 0.61,
+      "slippageBps": 1,
+      "expectancyR": -0.09248835978835979,
+      "profitFactor": 0.8011605542595291,
+      "totalTrades": 945,
+      "positiveWeekPct": 0.4,
+      "netR": -87.4015
+    }
+  ],
+  "diagnostics": {
+    "holdoutOrDev": {
+      "wins": 72,
+      "losses": 100,
+      "features": {
+        "adx": {
+          "winAvg": 21.79383207235151,
+          "lossAvg": 22.34857150680078
+        },
+        "atr": {
+          "winAvg": 1.9699845690720208,
+          "lossAvg": 1.7737419915847636
+        },
+        "atrPercent": {
+          "winAvg": 0.00043819827986219087,
+          "lossAvg": 0.0003938451863610344
+        },
+        "bollingerWidth": {
+          "winAvg": 0.002179115635454056,
+          "lossAvg": 0.0018969030276156096
+        },
+        "volatilityPercentile": {
+          "winAvg": 31.0746352413019,
+          "lossAvg": 28.707070707070702
+        },
+        "recentReturn": {
+          "winAvg": -0.00005072064313284414,
+          "lossAvg": 0.00004093173576610951
+        },
+        "candleBodySize": {
+          "winAvg": 2.169027777777777,
+          "lossAvg": 1.9513999999999994
+        },
+        "distanceFromDonchianHigh": {
+          "winAvg": 0.0010533611111111117,
+          "lossAvg": 0.0007893999999999998
+        },
+        "distanceFromDonchianLow": {
+          "winAvg": 0.0009253611111111112,
+          "lossAvg": 0.0009497199999999998
+        },
+        "buyShare": {
+          "winAvg": 0.4305555555555556,
+          "lossAvg": 0.51
+        }
+      }
+    },
+    "pooled": {
+      "wins": 412,
+      "losses": 540,
+      "features": {
+        "adx": {
+          "winAvg": 21.919004586807926,
+          "lossAvg": 21.759101396920894
+        },
+        "atr": {
+          "winAvg": 1.8916251291029418,
+          "lossAvg": 1.7420869545928779
+        },
+        "atrPercent": {
+          "winAvg": 0.0004440479701062485,
+          "lossAvg": 0.00040991849084418816
+        },
+        "bollingerWidth": {
+          "winAvg": 0.0020961521619260832,
+          "lossAvg": 0.0018697936151263251
+        },
+        "volatilityPercentile": {
+          "winAvg": 31.41365107384528,
+          "lossAvg": 31.185933408155627
+        },
+        "recentReturn": {
+          "winAvg": 0.000004728959762244075,
+          "lossAvg": 0.00009215109863815458
+        },
+        "candleBodySize": {
+          "winAvg": 2.1293689320388336,
+          "lossAvg": 2.016666666666666
+        },
+        "distanceFromDonchianHigh": {
+          "winAvg": 0.0009621650485436894,
+          "lossAvg": 0.0007841851851851844
+        },
+        "distanceFromDonchianLow": {
+          "winAvg": 0.0009534053398058258,
+          "lossAvg": 0.0009490851851851864
+        },
+        "buyShare": {
+          "winAvg": 0.4854368932038835,
+          "lossAvg": 0.524074074074074
+        }
+      }
+    }
+  },
+  "timeOfDay": {
+    "holdoutOrDev": [
+      {
+        "hourUtc": 0,
+        "trades": 1,
+        "expectancyR": -1.0283,
+        "netR": -1.0283
+      },
+      {
+        "hourUtc": 1,
+        "trades": 4,
+        "expectancyR": -0.19315000000000002,
+        "netR": -0.7726000000000001
+      },
+      {
+        "hourUtc": 2,
+        "trades": 11,
+        "expectancyR": 0.21635454545454547,
+        "netR": 2.3799
+      },
+      {
+        "hourUtc": 3,
+        "trades": 10,
+        "expectancyR": -0.19671,
+        "netR": -1.9670999999999998
+      },
+      {
+        "hourUtc": 4,
+        "trades": 10,
+        "expectancyR": -0.36910999999999994,
+        "netR": -3.6910999999999996
+      },
+      {
+        "hourUtc": 5,
+        "trades": 6,
+        "expectancyR": -0.4262666666666666,
+        "netR": -2.5576
+      },
+      {
+        "hourUtc": 6,
+        "trades": 6,
+        "expectancyR": 0.00626666666666668,
+        "netR": 0.03760000000000008
+      },
+      {
+        "hourUtc": 7,
+        "trades": 9,
+        "expectancyR": 0.27226666666666666,
+        "netR": 2.4504
+      },
+      {
+        "hourUtc": 8,
+        "trades": 10,
+        "expectancyR": -0.29803,
+        "netR": -2.9803
+      },
+      {
+        "hourUtc": 9,
+        "trades": 11,
+        "expectancyR": 0.0037363636363636184,
+        "netR": 0.0410999999999998
+      },
+      {
+        "hourUtc": 10,
+        "trades": 12,
+        "expectancyR": -0.3025333333333334,
+        "netR": -3.6304000000000003
+      },
+      {
+        "hourUtc": 11,
+        "trades": 5,
+        "expectancyR": 0.35581999999999997,
+        "netR": 1.7791
+      },
+      {
+        "hourUtc": 12,
+        "trades": 3,
+        "expectancyR": 0.4745000000000001,
+        "netR": 1.4235000000000002
+      },
+      {
+        "hourUtc": 13,
+        "trades": 4,
+        "expectancyR": 0.3188,
+        "netR": 1.2752
+      },
+      {
+        "hourUtc": 14,
+        "trades": 8,
+        "expectancyR": 0.40878749999999997,
+        "netR": 3.2702999999999998
+      },
+      {
+        "hourUtc": 15,
+        "trades": 9,
+        "expectancyR": 0.18465555555555557,
+        "netR": 1.6619000000000002
+      },
+      {
+        "hourUtc": 16,
+        "trades": 6,
+        "expectancyR": 0.31398333333333334,
+        "netR": 1.8839
+      },
+      {
+        "hourUtc": 17,
+        "trades": 12,
+        "expectancyR": -0.22234166666666666,
+        "netR": -2.6681
+      },
+      {
+        "hourUtc": 18,
+        "trades": 10,
+        "expectancyR": -0.28702000000000005,
+        "netR": -2.8702000000000005
+      },
+      {
+        "hourUtc": 19,
+        "trades": 8,
+        "expectancyR": 0.4101250000000001,
+        "netR": 3.2810000000000006
+      },
+      {
+        "hourUtc": 20,
+        "trades": 4,
+        "expectancyR": -0.7721,
+        "netR": -3.0884
+      },
+      {
+        "hourUtc": 21,
+        "trades": 1,
+        "expectancyR": -1.0188,
+        "netR": -1.0188
+      },
+      {
+        "hourUtc": 22,
+        "trades": 7,
+        "expectancyR": -0.15492857142857144,
+        "netR": -1.0845
+      },
+      {
+        "hourUtc": 23,
+        "trades": 5,
+        "expectancyR": 0.23474,
+        "netR": 1.1737
+      }
+    ],
+    "pooled": [
+      {
+        "hourUtc": 0,
+        "trades": 10,
+        "expectancyR": -0.12115999999999998,
+        "netR": -1.2115999999999998
+      },
+      {
+        "hourUtc": 1,
+        "trades": 25,
+        "expectancyR": 0.11971599999999999,
+        "netR": 2.9928999999999997
+      },
+      {
+        "hourUtc": 2,
+        "trades": 62,
+        "expectancyR": 0.17698387096774199,
+        "netR": 10.973000000000003
+      },
+      {
+        "hourUtc": 3,
+        "trades": 53,
+        "expectancyR": -0.03165849056603773,
+        "netR": -1.6778999999999997
+      },
+      {
+        "hourUtc": 4,
+        "trades": 53,
+        "expectancyR": -0.13645094339622638,
+        "netR": -7.231899999999999
+      },
+      {
+        "hourUtc": 5,
+        "trades": 32,
+        "expectancyR": 0.030909374999999947,
+        "netR": 0.9890999999999983
+      },
+      {
+        "hourUtc": 6,
+        "trades": 28,
+        "expectancyR": 0.06712142857142854,
+        "netR": 1.8793999999999993
+      },
+      {
+        "hourUtc": 7,
+        "trades": 64,
+        "expectancyR": -0.15930468749999993,
+        "netR": -10.195499999999996
+      },
+      {
+        "hourUtc": 8,
+        "trades": 47,
+        "expectancyR": -0.1804765957446808,
+        "netR": -8.482399999999998
+      },
+      {
+        "hourUtc": 9,
+        "trades": 58,
+        "expectancyR": -0.17297758620689657,
+        "netR": -10.032700000000002
+      },
+      {
+        "hourUtc": 10,
+        "trades": 59,
+        "expectancyR": -0.08892203389830511,
+        "netR": -5.246400000000001
+      },
+      {
+        "hourUtc": 11,
+        "trades": 39,
+        "expectancyR": 0.07169487179487175,
+        "netR": 2.7960999999999983
+      },
+      {
+        "hourUtc": 12,
+        "trades": 12,
+        "expectancyR": -0.009724999999999984,
+        "netR": -0.1166999999999998
+      },
+      {
+        "hourUtc": 13,
+        "trades": 14,
+        "expectancyR": -0.41619285714285725,
+        "netR": -5.8267000000000015
+      },
+      {
+        "hourUtc": 14,
+        "trades": 46,
+        "expectancyR": 0.002076086956521723,
+        "netR": 0.09549999999999925
+      },
+      {
+        "hourUtc": 15,
+        "trades": 57,
+        "expectancyR": 0.15434210526315786,
+        "netR": 8.797499999999998
+      },
+      {
+        "hourUtc": 16,
+        "trades": 52,
+        "expectancyR": 0.16395769230769236,
+        "netR": 8.525800000000002
+      },
+      {
+        "hourUtc": 17,
+        "trades": 57,
+        "expectancyR": -0.1928017543859649,
+        "netR": -10.9897
+      },
+      {
+        "hourUtc": 18,
+        "trades": 50,
+        "expectancyR": 0.3854800000000001,
+        "netR": 19.274000000000004
+      },
+      {
+        "hourUtc": 19,
+        "trades": 48,
+        "expectancyR": 0.20933958333333333,
+        "netR": 10.0483
+      },
+      {
+        "hourUtc": 20,
+        "trades": 31,
+        "expectancyR": -0.2028225806451613,
+        "netR": -6.2875
+      },
+      {
+        "hourUtc": 21,
+        "trades": 1,
+        "expectancyR": -1.0188,
+        "netR": -1.0188
+      },
+      {
+        "hourUtc": 22,
+        "trades": 26,
+        "expectancyR": -0.3199615384615384,
+        "netR": -8.318999999999999
+      },
+      {
+        "hourUtc": 23,
+        "trades": 28,
+        "expectancyR": 0.0128285714285714,
+        "netR": 0.3591999999999992
+      }
+    ]
+  },
+  "sessions": {
+    "holdoutOrDev": [
+      {
+        "session": "ASIA",
+        "trades": 48,
+        "expectancyR": -0.15831666666666663,
+        "netR": -7.599199999999999
+      },
+      {
+        "session": "LONDON",
+        "trades": 47,
+        "expectancyR": -0.04978936170212766,
+        "netR": -2.3401
+      },
+      {
+        "session": "LONDON_NY_OVERLAP",
+        "trades": 24,
+        "expectancyR": 0.31795416666666665,
+        "netR": 7.6309
+      },
+      {
+        "session": "NEW_YORK",
+        "trades": 40,
+        "expectancyR": -0.08654499999999998,
+        "netR": -3.4617999999999993
+      },
+      {
+        "session": "OFF_HOURS",
+        "trades": 13,
+        "expectancyR": -0.07150769230769234,
+        "netR": -0.9296000000000004
+      }
+    ],
+    "pooled": [
+      {
+        "session": "ASIA",
+        "trades": 263,
+        "expectancyR": 0.02552471482889732,
+        "netR": 6.712999999999995
+      },
+      {
+        "session": "LONDON",
+        "trades": 267,
+        "expectancyR": -0.11670749063670409,
+        "netR": -31.16089999999999
+      },
+      {
+        "session": "LONDON_NY_OVERLAP",
+        "trades": 129,
+        "expectancyR": 0.022865116279069776,
+        "netR": 2.949600000000001
+      },
+      {
+        "session": "NEW_YORK",
+        "trades": 238,
+        "expectancyR": 0.08643235294117653,
+        "netR": 20.570900000000012
+      },
+      {
+        "session": "OFF_HOURS",
+        "trades": 55,
+        "expectancyR": -0.16324727272727266,
+        "netR": -8.978599999999997
+      }
+    ]
+  },
+  "classification": {
+    "classification": "NO_EDGE",
+    "reasons": [
+      "Pooled observed-spread expectancy≤0 or PF≤1"
+    ]
+  }
+}

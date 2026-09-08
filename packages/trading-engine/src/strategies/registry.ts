@@ -7,6 +7,14 @@ import {
   TrendStructurePullbackStrategy,
   TREND_STRUCTURE_PULLBACK_DEFAULTS
 } from "./trendStructurePullback.js";
+import {
+  XauMtfStructureMomentumStrategy,
+  XAU_MTF_STRUCTURE_MOMENTUM_DEFAULTS
+} from "./xauMtfStructureMomentum.js";
+import {
+  XauVolatilityExpansionRetestStrategy,
+  XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS
+} from "./xauVolatilityExpansionRetest.js";
 import { type StrategyCatalogueEntry, type TradingStrategy } from "./types.js";
 
 /** Instantiate a strategy implementation by kind. Strategies are stateless. */
@@ -22,6 +30,11 @@ export function createStrategy(kind: StrategyKind): TradingStrategy {
       return new SqueezeBreakoutStrategy();
     case "trend-structure-pullback":
       return new TrendStructurePullbackStrategy();
+    case "xau-mtf-structure-momentum":
+      // Research-only candidate — createStrategy does not enable MT5/live.
+      return new XauMtfStructureMomentumStrategy();
+    case "xau-volatility-expansion-retest":
+      return new XauVolatilityExpansionRetestStrategy();
   }
 }
 
@@ -30,7 +43,9 @@ export const DEFAULT_STRATEGY_PARAMETERS: Record<StrategyKind, Record<string, nu
   "ema-pullback": EMA_PULLBACK_DEFAULTS,
   "bollinger-reversion": BOLLINGER_REVERSION_DEFAULTS,
   "squeeze-breakout": SQUEEZE_BREAKOUT_DEFAULTS,
-  "trend-structure-pullback": TREND_STRUCTURE_PULLBACK_DEFAULTS
+  "trend-structure-pullback": TREND_STRUCTURE_PULLBACK_DEFAULTS,
+  "xau-mtf-structure-momentum": XAU_MTF_STRUCTURE_MOMENTUM_DEFAULTS,
+  "xau-volatility-expansion-retest": XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS
 };
 
 export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
@@ -77,6 +92,36 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
     description:
       "Research candidates (v1 hard gates; v2 contextual extension + entryQualityScore). IDs: trend-structure-pullback-v1 / v2. Does not replace ema-pullback-v1.",
     supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "STRONG_DOWNTREND", "WEAK_DOWNTREND"],
+    cfdCapable: true
+  },
+  {
+    kind: "xau-mtf-structure-momentum",
+    name: "XAU MTF Structure Momentum",
+    version: "1",
+    description:
+      "Research-only XAUUSD multi-timeframe structure→pullback→continuation candidate (id xau-mtf-structure-momentum-v1). Not auto-enabled for MT5/live.",
+    supportedRegimes: [
+      "STRONG_UPTREND",
+      "WEAK_UPTREND",
+      "STRONG_DOWNTREND",
+      "WEAK_DOWNTREND",
+      "BREAKOUT_EXPANSION"
+    ],
+    cfdCapable: true
+  },
+  {
+    kind: "xau-volatility-expansion-retest",
+    name: "XAU Volatility Expansion Retest",
+    version: "1",
+    description:
+      "Research-only XAUUSD compression→expansion→retest→acceptance candidate (id xau-volatility-expansion-retest-v1). Distinct from squeeze-breakout. Not auto-enabled for MT5/live.",
+    supportedRegimes: [
+      "VOLATILITY_COMPRESSION",
+      "BREAKOUT_EXPANSION",
+      "RANGE_LOW_VOLATILITY",
+      "RANGE_HIGH_VOLATILITY",
+      "TRANSITION"
+    ],
     cfdCapable: true
   }
 ];

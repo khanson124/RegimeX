@@ -9,10 +9,13 @@ import { proposeEmaPullbackStopTarget } from "./emaPullbackCfd.js";
 import { proposeBollingerReversionStopTarget } from "./bollingerReversionCfd.js";
 import { proposeSqueezeBreakoutStopTarget } from "./squeezeBreakoutCfd.js";
 import { proposeTrendStructurePullbackStopTarget } from "./trendStructurePullbackCfd.js";
+import { proposeXauMtfStructureMomentumStopTarget } from "./xauMtfStructureMomentumCfd.js";
+import { proposeXauVolatilityExpansionRetestStopTarget } from "./xauVolatilityExpansionRetestCfd.js";
 
 /**
  * Strategies with a complete CFD stop/target implementation.
  * A strategy must be listed here before paper/live/backtest execution may select it.
+ * Listing here does NOT enable MT5 live/demo (separate allowlist).
  */
 export const CFD_CAPABLE_STRATEGY_IDS = [
   "breakout-momentum-v1",
@@ -20,7 +23,9 @@ export const CFD_CAPABLE_STRATEGY_IDS = [
   "bollinger-reversion-v1",
   "squeeze-breakout-v1",
   "trend-structure-pullback-v1",
-  "trend-structure-pullback-v2"
+  "trend-structure-pullback-v2",
+  "xau-mtf-structure-momentum-v1",
+  "xau-volatility-expansion-retest-v1"
 ] as const;
 
 export type CfdCapableStrategyId = (typeof CFD_CAPABLE_STRATEGY_IDS)[number];
@@ -115,6 +120,34 @@ export function proposeCfdStopTarget(input: ProposeCfdStopTargetInput): StopTarg
     case "trend-structure-pullback-v1":
     case "trend-structure-pullback-v2":
       return proposeTrendStructurePullbackStopTarget({
+        direction: input.direction,
+        entryPrice: input.entryPrice,
+        features: input.features,
+        candles: input.candles,
+        metadata: input.metadata,
+        params: {
+          tickSize: input.tickSize,
+          targetRMultiple: input.targetRMultiple,
+          stopAtrMultiple: input.stopAtrMultiple,
+          structureBufferAtr: input.structureBufferAtr
+        }
+      });
+    case "xau-mtf-structure-momentum-v1":
+      return proposeXauMtfStructureMomentumStopTarget({
+        direction: input.direction,
+        entryPrice: input.entryPrice,
+        features: input.features,
+        candles: input.candles,
+        metadata: input.metadata,
+        params: {
+          tickSize: input.tickSize,
+          targetRMultiple: input.targetRMultiple,
+          stopAtrMultiple: input.stopAtrMultiple,
+          structureBufferAtr: input.structureBufferAtr
+        }
+      });
+    case "xau-volatility-expansion-retest-v1":
+      return proposeXauVolatilityExpansionRetestStopTarget({
         direction: input.direction,
         entryPrice: input.entryPrice,
         features: input.features,

@@ -18,6 +18,7 @@ export const MT5_COMMANDS = [
   "getQuote",
   "getOpenPositions",
   "getHistory",
+  "getBars",
   "openMarket",
   "modifyPosition",
   "closePosition"
@@ -191,6 +192,55 @@ export interface Mt5HistoryDeal {
   entry: "IN" | "OUT" | "INOUT" | "UNKNOWN";
   reason?: string | null;
   reasonRaw?: string | null;
+}
+
+/** Read-only OHLC bar query. Cap is enforced by EA (~250) for mailbox size. */
+export type Mt5BarTimeframe = "1m" | "5m" | "15m";
+
+export interface Mt5BarsQuery {
+  symbol: string;
+  timeframe: Mt5BarTimeframe;
+  /** Inclusive UTC epoch ms for bar open (converted to broker server time in EA). */
+  fromMs?: number;
+  /** Inclusive UTC epoch ms upper bound for bar open. */
+  toMs?: number;
+  /** Max bars to return (EA clamps). Prefer with from/to for pagination. */
+  count?: number;
+  /** Default true — exclude the currently forming bar. */
+  completedBarsOnly?: boolean;
+}
+
+export interface Mt5Bar {
+  symbol: string;
+  timeframe: Mt5BarTimeframe;
+  /** Bar open time in UTC epoch ms (normalized from broker server time). */
+  openTimeMs: number;
+  /** Bar close time in UTC epoch ms (open + timeframe). */
+  closeTimeMs: number;
+  /** Raw broker-server open datetime as epoch ms (trade server clock). */
+  brokerServerOpenTimeMs: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  tickVolume: number | null;
+  realVolume: number | null;
+  spreadPoints: number | null;
+  source: "MT5";
+  isComplete: boolean;
+}
+
+export interface Mt5BarsResult {
+  symbol: string;
+  timeframe: Mt5BarTimeframe;
+  /** TimeCurrent() - TimeGMT() at fetch (seconds). Used to convert server bar times → UTC. */
+  brokerServerUtcOffsetSeconds: number;
+  timestampSemantics: string;
+  completedBarsOnly: boolean;
+  requestedFromMs: number | null;
+  requestedToMs: number | null;
+  returnedCount: number;
+  bars: Mt5Bar[];
 }
 
 export interface Mt5BridgeTransport {

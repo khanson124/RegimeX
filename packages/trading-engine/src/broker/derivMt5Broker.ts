@@ -38,6 +38,8 @@ import {
   type Mt5FillingMode,
   type Mt5HistoryDeal,
   type Mt5HistoryQuery,
+  type Mt5BarsQuery,
+  type Mt5BarsResult,
   type Mt5OpenMarketResult,
   type Mt5Quote,
   type Mt5SymbolInfo
@@ -644,6 +646,28 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
         throw new Error("MT5_HISTORY_UNAVAILABLE");
       }
       return [];
+    }
+    return reply.result;
+  }
+
+  /**
+   * READ-ONLY native MT5 OHLC via EA CopyRates (getBars).
+   * Does not place orders. Prefer completedBarsOnly=true.
+   */
+  async getBars(query: Mt5BarsQuery): Promise<Mt5BarsResult> {
+    const reply = await this.requireTransport().request<Mt5BarsResult>(
+      "getBars",
+      {
+        completedBarsOnly: true,
+        ...query
+      },
+      this.ids(`bars:${query.symbol}:${query.timeframe}`)
+    );
+    if (!reply.ok || !reply.result) {
+      throw new Mt5BrokerError(
+        reply.errorCode ?? "MT5_BARS_UNAVAILABLE",
+        reply.errorMessage ?? "getBars failed"
+      );
     }
     return reply.result;
   }

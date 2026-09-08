@@ -1,0 +1,63 @@
+{
+  "probedAt": "2026-09-08T13:12:47.873Z",
+  "appId": "3480EH7xcjeMLwUvdv0GP",
+  "window": {
+    "start": 1788869567,
+    "end": 1788873167
+  },
+  "symbols": {
+    "XAUUSD": {
+      "ok": false,
+      "error": "Invalid symbol."
+    },
+    "frxXAUUSD": {
+      "ok": true,
+      "count": 50,
+      "first": {
+        "openTimeMs": 1788870180000,
+        "open": 4391.54,
+        "high": 4394.21,
+        "low": 4390.73,
+        "close": 4394.01
+      },
+      "last": {
+        "openTimeMs": 1788873120000,
+        "open": 4405.43,
+        "high": 4407.84,
+        "low": 4405.4,
+        "close": 4407.17
+      }
+    },
+    "frxXAUUSDc": {
+      "ok": false,
+      "error": "Invalid symbol."
+    },
+    "GOLD": {
+      "ok": false,
+      "error": "Invalid symbol."
+    },
+    "cryXAUUSD": {
+      "ok": false,
+      "error": "Invalid symbol."
+    },
+    "WLDXAU": {
+      "ok": true,
+      "count": 50,
+      "first": {
+        "openTimeMs": 1788870180000,
+        "open": 994850.325,
+        "high": 995412.591,
+        "low": 994684.253,
+        "close": 995344.843
+      },
+      "last": {
+        "openTimeMs": 1788873120000,
+        "open": 996926.422,
+        "high": 997367.749,
+        "low": 996926.422,
+        "close": 997237.459
+      }
+    }
+  },
+  "activeGoldLikeError": "Input validation failed: Properties not allowed: product_type."
+}

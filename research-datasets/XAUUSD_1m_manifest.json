@@ -1,0 +1,19 @@
+{
+  "datasetId": "XAUUSD_1m_HISTORY_API_1788873792627",
+  "symbol": "XAUUSD",
+  "interval": "1m",
+  "sources": [
+    "HISTORY_API"
+  ],
+  "startOpenTime": 1780272060000,
+  "endOpenTime": 1788872400000,
+  "startIso": "2026-06-01T00:01:00.000Z",
+  "endIso": "2026-09-08T13:00:00.000Z",
+  "rowCount": 96282,
+  "coveragePct": 0.671704,
+  "missingMinutes": 47058,
+  "gapCount": 58,
+  "contentHash": "61a4fa5a2c92ec74e1a1c0bced5edf600c50fbf55106655a17071020b1a0f390",
+  "createdAt": "2026-09-08T13:23:12.700Z",
+  "notes": "XAUUSD research history from Deriv frxXAUUSD. Live DEMO is MT5 XAUUSD. See parity verdict. Session-aware: ≥12h gaps = expected closures."
+}

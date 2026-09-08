@@ -2,20 +2,20 @@
   "datasetId": "XAUUSD_1m",
   "symbol": "XAUUSD",
   "interval": "1m",
-  "candleCount": 0,
-  "cataloguePresent": false,
-  "mapping": null,
-  "passiveSpreadSampleCount": 0,
-  "discoveryArtifactPresent": true,
-  "researchStatus": "XAUUSD_RESEARCH_BLOCKED_INSUFFICIENT_HISTORY",
-  "note": "No fabricated history. MT5 bridge not configured in local .env — live gold discovery blocked. Forward MT5 1m collection + optional historical API only when available. Seed XAUUSD catalogue via database seed; mapping remains unverified until live discovery.",
-  "strategiesBenchmarked": [],
-  "empiricalSlippageSamples": 0,
+  "candleCount": 96282,
+  "cataloguePresent": true,
+  "historicalSource": "DERIV_HISTORY_API:frxXAUUSD",
+  "liveSource": "MT5_DEMO:XAUUSD",
+  "parityVerdict": "MATCH_APPROXIMATE",
+  "researchStatus": "XAUUSD_HISTORY_PRESENT_RESEARCH_COMPLETE_NO_ENABLEMENT",
+  "manifest": "research-datasets/XAUUSD_1m_manifest.json",
+  "benchmark": "research-datasets/XAUUSD_cross_strategy_research.json",
+  "passiveSpreadSampleCount": 17,
+  "spreadStatus": "PRELIMINARY",
   "enablement": {
     "allowlist": false,
     "autonomousTrading": false,
     "deployed": false
   },
-  "generatedAt": "2026-09-08T03:57:00.000Z",
-  "discoveryStatus": "MT5_BRIDGE_NOT_CONFIGURED"
+  "generatedAt": "2026-09-08T13:26:00.000Z"
 }
