@@ -8,7 +8,13 @@ export const engineConfigurationSchema = z.object({
   selectionMode: z.enum(["AUTO", "SINGLE", "ENSEMBLE"]).default("AUTO"),
   fixedStrategyId: z.string().nullable().default(null),
   riskProfileId: z.string().nullable().default(null),
-  resumeTradingAfterRestart: z.boolean().default(false)
+  resumeTradingAfterRestart: z.boolean().default(false),
+  /**
+   * When true, keeps other active LiveEngineConfiguration rows so R_10 and XAUUSD
+   * can run in parallel. Default false preserves single-active-config behavior.
+   * Does NOT enable trading, allowlists, or MT5_ENGINE_ENABLED.
+   */
+  retainOtherActiveConfigurations: z.boolean().default(false)
 });
 
 export type EngineConfigurationInputSchema = z.infer<typeof engineConfigurationSchema>;

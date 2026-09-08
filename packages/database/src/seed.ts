@@ -10,7 +10,7 @@ import {
   DEFAULT_REGIME_THRESHOLDS,
   REGIME_CLASSIFIER_VERSION,
   STRATEGY_CATALOGUE,
-  MT5_SYNTHETIC_MAPPING_CANDIDATES
+  MT5_INSTRUMENT_MAPPING_CANDIDATES
 } from "@regimex/trading-engine";
 
 const prisma = getPrisma();
@@ -20,7 +20,9 @@ const SYMBOLS = [
   { derivSymbol: "R_25", displayName: "Volatility 25 Index", pricePrecision: 3 },
   { derivSymbol: "R_50", displayName: "Volatility 50 Index", pricePrecision: 4 },
   { derivSymbol: "R_75", displayName: "Volatility 75 Index", pricePrecision: 4 },
-  { derivSymbol: "R_100", displayName: "Volatility 100 Index", pricePrecision: 2 }
+  { derivSymbol: "R_100", displayName: "Volatility 100 Index", pricePrecision: 2 },
+  // Catalogue only — NOT on MT5_ENGINE_SYMBOL_ALLOWLIST; mapping unverified until live discovery.
+  { derivSymbol: "XAUUSD", displayName: "Gold / XAUUSD", pricePrecision: 2 }
 ];
 
 /** Deterministic PRNG (mulberry32) so seeded candles are reproducible. */
@@ -185,7 +187,7 @@ async function seedPilotInstrumentMetadata(): Promise<void> {
 }
 
 async function seedUnverifiedBrokerMappings(): Promise<void> {
-  for (const candidate of MT5_SYNTHETIC_MAPPING_CANDIDATES) {
+  for (const candidate of MT5_INSTRUMENT_MAPPING_CANDIDATES) {
     const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: candidate.internalSymbol } });
     if (!symbol) continue;
     const existing = await prisma.brokerSymbolMapping.findUnique({

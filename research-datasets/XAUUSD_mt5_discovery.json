@@ -1,0 +1,16 @@
+{
+  "internalSymbol": "XAUUSD",
+  "discoveredAt": "2026-09-08T04:05:00.000Z",
+  "status": "AWAITING_WORKER_CONTAINER_EXEC",
+  "note": "Prior MT5_BRIDGE_NOT_CONFIGURED was a false negative from host-local .env. Discovery must run inside the worker container via createConfiguredMt5Client (same path as R_10).",
+  "priorFalseNegative": {
+    "status": "MT5_BRIDGE_NOT_CONFIGURED",
+    "cause": "CLI early-gated on local .env MT5_BRIDGE_URL/SECRET; production worker gets URL from Compose/resolveMt5BridgeUrl and SECRET from container env_file"
+  },
+  "productionCommand": "docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec -T worker pnpm --filter @regimex/worker exec tsx scripts/discoverXauUsdMt5.ts",
+  "enablement": {
+    "allowlist": false,
+    "autonomousTrading": false,
+    "deployed": false
+  }
+}

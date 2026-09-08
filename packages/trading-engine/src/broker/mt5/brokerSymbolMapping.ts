@@ -16,6 +16,21 @@ export const MT5_SYNTHETIC_MAPPING_CANDIDATES = [
   { internalSymbol: "R_100", brokerSymbol: "Volatility 100 Index" }
 ] as const;
 
+/**
+ * Provisional gold candidate. Broker name is often not literally `XAUUSD`;
+ * live discoverSymbols/getInstrument must confirm before verified=true.
+ */
+export const MT5_XAUUSD_MAPPING_CANDIDATE = {
+  internalSymbol: "XAUUSD",
+  brokerSymbol: "XAUUSD"
+} as const;
+
+/** All seeded MT5 mapping candidates (synthetics + metals). Unverified until live discovery. */
+export const MT5_INSTRUMENT_MAPPING_CANDIDATES = [
+  ...MT5_SYNTHETIC_MAPPING_CANDIDATES,
+  MT5_XAUUSD_MAPPING_CANDIDATE
+] as const;
+
 export interface BrokerSymbolMappingRecord {
   internalSymbol: string;
   brokerSymbol: string;
@@ -47,7 +62,9 @@ export function isVolatilityOneSecondVariant(brokerSymbol: string): boolean {
 }
 
 export function candidateBrokerSymbolForInternal(internalSymbol: string): string | null {
-  return MT5_SYNTHETIC_MAPPING_CANDIDATES.find((c) => c.internalSymbol === internalSymbol)?.brokerSymbol ?? null;
+  return (
+    MT5_INSTRUMENT_MAPPING_CANDIDATES.find((c) => c.internalSymbol === internalSymbol)?.brokerSymbol ?? null
+  );
 }
 
 /**

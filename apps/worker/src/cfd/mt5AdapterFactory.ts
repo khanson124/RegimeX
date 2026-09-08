@@ -8,6 +8,12 @@ import {
 
 let sharedAdapter: DerivMT5BrokerAdapter | null = null;
 
+/**
+ * Build the exact DerivMT5BrokerConfig the live DEMO engine uses.
+ * Bridge URL is resolved via resolveMt5BridgeUrl (MT5_BRIDGE_URL or
+ * MT5_BRIDGE_HOST:MT5_BRIDGE_PORT defaulting to http://mt5-bridge:8765).
+ * MT5_BRIDGE_URL itself is not required in .env when Compose injects host/URL.
+ */
 export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConfig {
   assertMt5DemoAdapterAllowed(config);
   return {
@@ -26,6 +32,10 @@ export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConf
   };
 }
 
+/**
+ * Shared singleton used by LiveEngineSession / Mt5CfdRuntime.
+ * Same transport: HttpMt5BridgeClient → mt5-bridge → mailbox → EA.
+ */
 export async function getOrConnectMt5Adapter(config: AppConfig): Promise<DerivMT5BrokerAdapter> {
   if (sharedAdapter) {
     const status = sharedAdapter.getStatus();
@@ -37,9 +47,27 @@ export async function getOrConnectMt5Adapter(config: AppConfig): Promise<DerivMT
   return adapter;
 }
 
+/**
+ * Fresh adapter with the SAME config/transport as the live engine.
+ * Prefer this for CLI/research so disconnect() does not tear down the engine singleton.
+ */
+export async function createConfiguredMt5Adapter(config: AppConfig): Promise<DerivMT5BrokerAdapter> {
+  const adapter = new DerivMT5BrokerAdapter(buildDerivMt5BrokerConfig(config));
+  await adapter.connect();
+  return adapter;
+}
+
+/** Alias documenting the shared “one MT5 client path” for engine + discovery + observation. */
+export const createConfiguredMt5Client = createConfiguredMt5Adapter;
+
 export async function disconnectMt5Adapter(): Promise<void> {
   if (sharedAdapter) {
     await sharedAdapter.disconnect();
     sharedAdapter = null;
   }
+}
+
+/** Exported for tests — do not use in production paths. */
+export function __resetSharedMt5AdapterForTests(): void {
+  sharedAdapter = null;
 }

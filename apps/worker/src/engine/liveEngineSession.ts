@@ -165,7 +165,11 @@ export class LiveEngineSession {
     return this.deps.logger.child({ userId: this.userId, engineId: this.engineId, symbol: this.symbol });
   }
 
-  async start(options: { allowTradingResume: boolean }): Promise<void> {
+  async start(options: {
+    allowTradingResume: boolean;
+    configurationId?: string;
+    symbol?: string;
+  }): Promise<void> {
     const { prisma, config, publish } = this.deps;
 
     this.executionBackend = resolveExecutionBackend(config);
@@ -196,7 +200,17 @@ export class LiveEngineSession {
       where: { userId: this.userId },
       create: { userId: this.userId, engineVersion: config.ENGINE_VERSION },
       update: {},
-      include: { configurations: { where: { isActive: true }, take: 1 } }
+      include: {
+        configurations: {
+          where: {
+            isActive: true,
+            ...(options.configurationId ? { id: options.configurationId } : {}),
+            ...(options.symbol && !options.configurationId ? { symbol: options.symbol } : {})
+          },
+          take: 1,
+          orderBy: { createdAt: "asc" }
+        }
+      }
     });
     this.engineId = engine.id;
     const configuration = engine.configurations[0];

@@ -1,6 +1,11 @@
 import { type PrismaClient } from "@regimex/database";
 import { type AppConfig } from "@regimex/config";
 import { CHANNELS, type EngineControlMessage } from "@regimex/shared";
+import {
+  engineSessionKey,
+  listSessionKeysForUser,
+  parseEngineSessionKey
+} from "@regimex/trading-engine";
 import { type Redis } from "ioredis";
 import { type Logger } from "pino";
 import { type EventPublisher } from "../lib/events.js";
@@ -11,6 +16,9 @@ import { LiveEngineSession, type SessionDeps } from "./liveEngineSession.js";
  * messages from the API (via Redis pub/sub), and performs safe restart
  * recovery: engines that were running are restored in ANALYSIS-ONLY mode
  * unless their configuration explicitly opted into trading resume.
+ *
+ * Sessions are keyed by `userId::symbol` so R_10 and XAUUSD can run in parallel
+ * on the same DEMO account. Account-wide capacity/risk remains user-scoped.
  */
 export class EngineManager {
   private readonly sessions = new Map<string, LiveEngineSession>();
@@ -34,6 +42,31 @@ export class EngineManager {
       credentialDecrypt: this.credentialDecrypt,
       enqueueCounterfactual: this.enqueueCounterfactual
     };
+  }
+
+  private sessionsForUser(userId: string): Array<{ key: string; session: LiveEngineSession }> {
+    const keys = listSessionKeysForUser(this.sessions.keys(), userId);
+    // Legacy single-key sessions (pre multi-symbol) used bare userId.
+    if (this.sessions.has(userId) && !keys.includes(userId)) {
+      keys.push(userId);
+    }
+    return keys
+      .map((key) => {
+        const session = this.sessions.get(key);
+        return session ? { key, session } : null;
+      })
+      .filter((row): row is { key: string; session: LiveEngineSession } => row != null);
+  }
+
+  private async stopSessionsForUser(userId: string, reason?: string): Promise<void> {
+    for (const { key, session } of this.sessionsForUser(userId)) {
+      try {
+        await session.stop(reason);
+      } catch (err) {
+        this.logger.warn({ err, userId, key }, "Session stop failed");
+      }
+      this.sessions.delete(key);
+    }
   }
 
   async init(): Promise<void> {
@@ -80,7 +113,7 @@ export class EngineManager {
         }
       });
       try {
-        await this.startSession(engine.userId, { allowTradingResume: false });
+        await this.startSessions(engine.userId, { allowTradingResume: false });
       } catch (err) {
         this.logger.error({ err, userId: engine.userId }, "Engine recovery failed");
         await this.prisma.liveEngine.update({
@@ -94,23 +127,22 @@ export class EngineManager {
   private async handleControl(message: EngineControlMessage): Promise<void> {
     const { command, userId } = message;
     this.logger.info({ command, userId }, "Engine control received");
-    const session = this.sessions.get(userId);
+    const userSessions = this.sessionsForUser(userId);
 
     switch (command) {
       case "START":
-        if (session) await session.stop("Restarting");
-        await this.startSession(userId, { allowTradingResume: true });
+        await this.stopSessionsForUser(userId, "Restarting");
+        await this.startSessions(userId, { allowTradingResume: true });
         break;
       case "PAUSE":
-        await session?.pause();
+        for (const { session } of userSessions) await session.pause();
         break;
       case "RESUME":
-        await session?.resume();
+        for (const { session } of userSessions) await session.resume();
         break;
       case "STOP":
-        if (session) {
-          await session.stop();
-          this.sessions.delete(userId);
+        if (userSessions.length > 0) {
+          await this.stopSessionsForUser(userId);
         } else {
           await this.prisma.liveEngine.updateMany({
             where: { userId },
@@ -119,9 +151,11 @@ export class EngineManager {
         }
         break;
       case "EMERGENCY_STOP":
-        if (session) {
-          await session.emergencyStop();
-          this.sessions.delete(userId);
+        if (userSessions.length > 0) {
+          for (const { key, session } of userSessions) {
+            await session.emergencyStop();
+            this.sessions.delete(key);
+          }
         } else if (this.config.EXECUTION_MODE === "paper_cfd") {
           // No live session — still attempt paper liquidation via ephemeral runtime.
           const runtime = new (await import("../cfd/paperCfdRuntime.js")).PaperCfdRuntime(userId, {
@@ -154,9 +188,15 @@ export class EngineManager {
           this.logger.warn({ message }, "CLOSE_POSITION missing positionId");
           break;
         }
+        const pos = await this.prisma.position.findFirst({
+          where: { id: positionId, userId },
+          select: { symbol: true }
+        });
+        const keyed = pos?.symbol ? this.sessions.get(engineSessionKey(userId, pos.symbol)) : undefined;
+        const session = keyed ?? userSessions[0]?.session;
         if (session) {
           const result = await session.closePaperPosition(positionId);
-          this.logger.info({ userId, positionId, result }, "Manual close via session");
+          this.logger.info({ userId, positionId, symbol: pos?.symbol, result }, "Manual close via session");
         } else if (this.config.EXECUTION_MODE === "broker_demo_mt5") {
           const { closeMt5LocalPosition } = await import("../cfd/mt5CloseRuntime.js");
           const result = await closeMt5LocalPosition({
@@ -174,10 +214,6 @@ export class EngineManager {
             publish: this.publish,
             logger: this.logger
           });
-          const pos = await this.prisma.position.findFirst({
-            where: { id: positionId, userId },
-            select: { symbol: true }
-          });
           await runtime.init(pos?.symbol ?? "R_10");
           const result = await runtime.manualClose(positionId);
           this.logger.info({ userId, positionId, result }, "Manual close via ephemeral runtime");
@@ -190,13 +226,49 @@ export class EngineManager {
     }
   }
 
-  private async startSession(userId: string, options: { allowTradingResume: boolean }): Promise<void> {
-    const session = new LiveEngineSession(userId, this.sessionDeps());
-    this.sessions.set(userId, session);
+  /**
+   * Starts one LiveEngineSession per active LiveEngineConfiguration.
+   * Account-wide MT5 capacity/risk is shared across those sessions.
+   */
+  private async startSessions(userId: string, options: { allowTradingResume: boolean }): Promise<void> {
+    const engine = await this.prisma.liveEngine.findUnique({
+      where: { userId },
+      include: { configurations: { where: { isActive: true }, orderBy: { createdAt: "asc" } } }
+    });
+    const configurations = engine?.configurations ?? [];
+    if (configurations.length === 0) {
+      throw new Error("Engine has no active configuration");
+    }
+
+    const startedKeys: string[] = [];
     try {
-      await session.start(options);
+      for (const configuration of configurations) {
+        const key = engineSessionKey(userId, configuration.symbol);
+        const session = new LiveEngineSession(userId, this.sessionDeps());
+        this.sessions.set(key, session);
+        startedKeys.push(key);
+        await session.start({
+          allowTradingResume: options.allowTradingResume,
+          configurationId: configuration.id,
+          symbol: configuration.symbol
+        });
+        this.logger.info(
+          { userId, symbol: configuration.symbol, sessionKey: key, parsed: parseEngineSessionKey(key) },
+          "Live engine session started for symbol track"
+        );
+      }
     } catch (err) {
-      this.sessions.delete(userId);
+      for (const key of startedKeys) {
+        const session = this.sessions.get(key);
+        if (session) {
+          try {
+            await session.stop("Sibling session start failed");
+          } catch {
+            /* ignore */
+          }
+          this.sessions.delete(key);
+        }
+      }
       await this.prisma.liveEngine.updateMany({
         where: { userId },
         data: { state: "ERROR", stateReason: err instanceof Error ? err.message : "Start failed" }
@@ -206,11 +278,11 @@ export class EngineManager {
   }
 
   async shutdown(): Promise<void> {
-    for (const [userId, session] of this.sessions) {
+    for (const [key, session] of this.sessions) {
       try {
         await session.stop("Worker shutting down");
       } catch (err) {
-        this.logger.warn({ err, userId }, "Session stop failed during shutdown");
+        this.logger.warn({ err, key }, "Session stop failed during shutdown");
       }
     }
     this.sessions.clear();

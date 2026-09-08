@@ -23,7 +23,7 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
   async function engineWithConfig(userId: string) {
     return prisma.liveEngine.findUnique({
       where: { userId },
-      include: { configurations: { where: { isActive: true }, take: 1 } }
+      include: { configurations: { where: { isActive: true }, orderBy: { createdAt: "asc" } } }
     });
   }
 
@@ -40,7 +40,10 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
         lastCandleAt: engine.lastCandleAt,
         lastHeartbeatAt: engine.lastHeartbeatAt,
         reconnectCount: engine.reconnectCount,
+        /** Primary/legacy single-config view (first active by createdAt). */
         configuration: engine.configurations[0] ?? null,
+        /** All active symbol tracks (multi-symbol DEMO prep). */
+        configurations: engine.configurations,
         demoTradingGloballyEnabled: config.DEMO_TRADING_ENABLED
       }
     };
@@ -64,10 +67,18 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
       update: {}
     });
 
-    await prisma.liveEngineConfiguration.updateMany({
-      where: { liveEngineId: engine.id, isActive: true },
-      data: { isActive: false }
-    });
+    if (!body.retainOtherActiveConfigurations) {
+      await prisma.liveEngineConfiguration.updateMany({
+        where: { liveEngineId: engine.id, isActive: true },
+        data: { isActive: false }
+      });
+    } else {
+      // Parallel track: deactivate only an existing active row for the same symbol.
+      await prisma.liveEngineConfiguration.updateMany({
+        where: { liveEngineId: engine.id, isActive: true, symbol: body.symbol },
+        data: { isActive: false }
+      });
+    }
     const configuration = await prisma.liveEngineConfiguration.create({
       data: {
         liveEngineId: engine.id,

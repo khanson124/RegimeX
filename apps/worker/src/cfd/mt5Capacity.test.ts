@@ -390,4 +390,26 @@ describe("mt5 capacity reservation", () => {
     prisma.positions.set("c", { id: "c", userId: "u1", origin: "ENGINE", status: "CLOSED" });
     expect(await countMt5ConsumedCapacitySlots(prisma as never, "u1")).toBe(0);
   });
+
+  it("O. capacity is account-wide across R_10 + XAUUSD (not per-symbol)", async () => {
+    const prisma = buildCapacityPrisma();
+    prisma.positions.set("r10", {
+      id: "r10",
+      userId: "u1",
+      origin: "ENGINE",
+      status: "OPEN",
+      symbol: "R_10"
+    });
+    prisma.positions.set("xau", {
+      id: "xau",
+      userId: "u1",
+      origin: "ENGINE",
+      status: "OPEN",
+      symbol: "XAUUSD"
+    });
+    // countMt5ConsumedCapacitySlots filters by userId only — both symbols share the budget.
+    expect(await countMt5ConsumedCapacitySlots(prisma as never, "u1")).toBe(2);
+    expect(decideCapacityReservation({ consumedBefore: 2, maxConcurrent: 2 }).allowed).toBe(false);
+    expect(decideCapacityReservation({ consumedBefore: 1, maxConcurrent: 2 }).allowed).toBe(true);
+  });
 });
