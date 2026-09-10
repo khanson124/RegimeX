@@ -16,7 +16,14 @@ import {
   mt5BarDedupeKey,
   type Mt5StoredBar
 } from "./mt5BarsStore.js";
-import { fetchMt5BarsChunked, MT5_BARS_MAX_PER_REQUEST, timeframeMs } from "./mt5BarsFetcher.js";
+import { Mt5BrokerError } from "../broker/mt5/mt5BrokerError.js";
+import {
+  fetchMt5BarsChunked,
+  MT5_BARS_MAX_PER_REQUEST,
+  timeframeMs,
+  type Mt5BarsClient
+} from "./mt5BarsFetcher.js";
+import { type Mt5Bar, type Mt5BarsResult } from "../broker/mt5/types.js";
 import {
   alignMt5WithFrxBars,
   classifyOhlcParity,
@@ -136,6 +143,143 @@ describe("MT5 getBars read-only", () => {
     expect(report.firstOpenTimeMs).toBe(start);
     expect(report.lastOpenTimeMs).toBe(start + 599 * step);
     expect(MT5_BARS_MAX_PER_REQUEST).toBe(250);
+  });
+});
+
+describe("fetchMt5BarsChunked empty-chunk tolerance", () => {
+  const step = timeframeMs("1m");
+  const start = Date.UTC(2026, 5, 8, 0, 0, 0);
+
+  function barAt(i: number): Mt5Bar {
+    const openTimeMs = start + i * step;
+    return {
+      symbol: "XAUUSD",
+      timeframe: "1m",
+      openTimeMs,
+      closeTimeMs: openTimeMs + step,
+      brokerServerOpenTimeMs: openTimeMs,
+      open: 2000 + i * 0.01,
+      high: 2000.1 + i * 0.01,
+      low: 1999.9 + i * 0.01,
+      close: 2000.05 + i * 0.01,
+      tickVolume: 1,
+      realVolume: null,
+      spreadPoints: 20,
+      source: "MT5",
+      isComplete: true
+    };
+  }
+
+  function okResult(bars: Mt5Bar[]): Mt5BarsResult {
+    return {
+      symbol: "XAUUSD",
+      timeframe: "1m",
+      brokerServerUtcOffsetSeconds: 0,
+      timestampSemantics: "test",
+      completedBarsOnly: true,
+      requestedFromMs: bars[0]?.openTimeMs ?? null,
+      requestedToMs: bars.at(-1)?.openTimeMs ?? null,
+      returnedCount: bars.length,
+      bars
+    };
+  }
+
+  it("collects a successful chunk", async () => {
+    const client: Mt5BarsClient = {
+      async getBars(query) {
+        const bars = [0, 1, 2]
+          .map(barAt)
+          .filter((b) => b.openTimeMs >= (query.fromMs ?? 0) && b.openTimeMs <= (query.toMs ?? Infinity));
+        return okResult(bars);
+      }
+    };
+    const report = await fetchMt5BarsChunked(client, {
+      symbol: "XAUUSD",
+      timeframe: "1m",
+      fromMs: start,
+      toMs: start + 2 * step,
+      maxPerRequest: 10
+    });
+    expect(report.chunks).toBe(1);
+    expect(report.emptyChunks).toBe(0);
+    expect(report.bars).toHaveLength(3);
+    expect(report.brokerServerUtcOffsetSeconds).toBe(0);
+    expect(report.timestampSemantics).toBe("test");
+  });
+
+  it("skips MT5_BARS_UNAVAILABLE mid-range and still collects later chunks", async () => {
+    const gapFrom = start + 10 * step;
+    const gapTo = start + 19 * step;
+    const client: Mt5BarsClient = {
+      async getBars(query) {
+        const from = query.fromMs ?? 0;
+        const to = query.toMs ?? 0;
+        // Middle window overlaps the synthetic closure gap → unavailable
+        if (from <= gapTo && to >= gapFrom) {
+          throw new Mt5BrokerError("MT5_BARS_UNAVAILABLE", "CopyRates returned 0");
+        }
+        const bars: Mt5Bar[] = [];
+        for (let t = from; t <= to; t += step) {
+          if (t >= gapFrom && t <= gapTo) continue;
+          const i = Math.round((t - start) / step);
+          if (i < 0 || i > 40) continue;
+          bars.push(barAt(i));
+        }
+        return okResult(bars);
+      }
+    };
+    const report = await fetchMt5BarsChunked(client, {
+      symbol: "XAUUSD",
+      timeframe: "1m",
+      fromMs: start,
+      toMs: start + 40 * step,
+      maxPerRequest: 10
+    });
+    expect(report.emptyChunks).toBeGreaterThanOrEqual(1);
+    expect(report.chunks).toBeGreaterThan(report.emptyChunks);
+    expect(report.bars.some((b) => b.openTimeMs < gapFrom)).toBe(true);
+    expect(report.bars.some((b) => b.openTimeMs > gapTo)).toBe(true);
+    expect(report.bars.every((b) => b.openTimeMs < gapFrom || b.openTimeMs > gapTo)).toBe(true);
+  });
+
+  it("rethrows non-MT5_BARS_UNAVAILABLE errors", async () => {
+    const client: Mt5BarsClient = {
+      async getBars() {
+        throw new Mt5BrokerError("MT5_BRIDGE_UNAVAILABLE", "bridge down");
+      }
+    };
+    await expect(
+      fetchMt5BarsChunked(client, {
+        symbol: "XAUUSD",
+        timeframe: "1m",
+        fromMs: start,
+        toMs: start + 5 * step,
+        maxPerRequest: 10
+      })
+    ).rejects.toMatchObject({ errorCode: "MT5_BRIDGE_UNAVAILABLE" });
+  });
+
+  it("counts skipped unavailable chunks in emptyChunks", async () => {
+    let calls = 0;
+    const client: Mt5BarsClient = {
+      async getBars(query) {
+        calls++;
+        if (calls === 1) {
+          throw new Mt5BrokerError("MT5_BARS_UNAVAILABLE", "CopyRates returned 0");
+        }
+        const bars = [barAt(Math.round(((query.fromMs ?? start) - start) / step))];
+        return okResult(bars.filter((b) => b.openTimeMs <= (query.toMs ?? Infinity)));
+      }
+    };
+    const report = await fetchMt5BarsChunked(client, {
+      symbol: "XAUUSD",
+      timeframe: "1m",
+      fromMs: start,
+      toMs: start + 15 * step,
+      maxPerRequest: 10
+    });
+    expect(report.emptyChunks).toBeGreaterThanOrEqual(1);
+    expect(report.bars.length).toBeGreaterThan(0);
   });
 });
 

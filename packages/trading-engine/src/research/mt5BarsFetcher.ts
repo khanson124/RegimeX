@@ -1,6 +1,7 @@
 /**
  * Chunked read-only MT5 bar retrieval (pagination + overlap handling).
  */
+import { Mt5BrokerError } from "../broker/mt5/mt5BrokerError.js";
 import {
   type Mt5Bar,
   type Mt5BarTimeframe,
@@ -63,14 +64,28 @@ export async function fetchMt5BarsChunked(
   let cursor = input.fromMs;
   while (cursor <= input.toMs) {
     const chunkTo = Math.min(input.toMs, cursor + windowMs - step);
-    const result = await client.getBars({
-      symbol: input.symbol,
-      timeframe: input.timeframe,
-      fromMs: cursor,
-      toMs: chunkTo,
-      count: maxPer,
-      completedBarsOnly: input.completedBarsOnly ?? true
-    });
+    let result: Mt5BarsResult;
+    try {
+      result = await client.getBars({
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+        fromMs: cursor,
+        toMs: chunkTo,
+        count: maxPer,
+        completedBarsOnly: input.completedBarsOnly ?? true
+      });
+    } catch (err) {
+      // Historical gaps / market closures: tolerate only this empty-chunk code here.
+      // Do not soft-succeed getBars globally — other errors still abort pagination.
+      if (err instanceof Mt5BrokerError && err.errorCode === "MT5_BARS_UNAVAILABLE") {
+        chunks++;
+        emptyChunks++;
+        cursor = chunkTo + step;
+        if (chunks > 10_000) break;
+        continue;
+      }
+      throw err;
+    }
     chunks++;
     offset = result.brokerServerUtcOffsetSeconds;
     semantics = result.timestampSemantics;
