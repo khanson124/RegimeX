@@ -16,6 +16,42 @@ import {
   type Mt5PersistedCostRaw
 } from "@regimex/trading-engine";
 
+type CostProfileRow = { label: string; spreadBps: number; slippageBps: number };
+
+/** Research-only assumed-slippage sensitivities on observed median spread — not empirical profiles. */
+export const SPREAD_SENSITIVITY_SCENARIOS = [
+  { label: "SPREAD_OBS_SLIP_0", slippageBps: 0 },
+  { label: "SPREAD_OBS_SLIP_0_10", slippageBps: 0.1 },
+  { label: "SPREAD_OBS_SLIP_0_25", slippageBps: 0.25 },
+  { label: "SPREAD_OBS_SLIP_0_50", slippageBps: 0.5 }
+] as const;
+
+/**
+ * Append hypothetical spread×assumed-slip rows for breakout comparison only.
+ * Does not mutate calibration.profiles.
+ */
+export function appendObservedSpreadSensitivityProfiles(
+  profiles: CostProfileRow[],
+  observedSpreadBps: number | null | undefined
+): {
+  observedSpreadBpsUsed: number | null;
+  sensitivityLabels: string[];
+} {
+  if (observedSpreadBps == null || !Number.isFinite(observedSpreadBps)) {
+    return { observedSpreadBpsUsed: null, sensitivityLabels: [] };
+  }
+  const labels: string[] = [];
+  for (const s of SPREAD_SENSITIVITY_SCENARIOS) {
+    profiles.push({
+      label: s.label,
+      spreadBps: observedSpreadBps,
+      slippageBps: s.slippageBps
+    });
+    labels.push(s.label);
+  }
+  return { observedSpreadBpsUsed: observedSpreadBps, sensitivityLabels: labels };
+}
+
 function loadDatabaseUrlFromEnvFile(): string | null {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   for (const path of [
@@ -64,6 +100,39 @@ async function loadHistoryApiR10(): Promise<Candle[]> {
 }
 
 describe("empirical MT5 cost calibration research", () => {
+  it("appends research-only spread sensitivity profiles from observed median without touching calibration.profiles", () => {
+    const calibrationProfiles = [
+      { label: "ZERO", spreadBps: 0, slippageBps: 0 },
+      { label: "LEGACY_8_3", spreadBps: 8, slippageBps: 3 }
+    ];
+    const profiles: CostProfileRow[] = [...calibrationProfiles];
+    const observed = 0.8729;
+    const meta = appendObservedSpreadSensitivityProfiles(profiles, observed);
+
+    expect(meta.observedSpreadBpsUsed).toBe(observed);
+    expect(meta.sensitivityLabels).toEqual([
+      "SPREAD_OBS_SLIP_0",
+      "SPREAD_OBS_SLIP_0_10",
+      "SPREAD_OBS_SLIP_0_25",
+      "SPREAD_OBS_SLIP_0_50"
+    ]);
+    expect(profiles).toHaveLength(6);
+    for (const label of meta.sensitivityLabels) {
+      const row = profiles.find((p) => p.label === label)!;
+      expect(row.spreadBps).toBe(observed);
+    }
+    expect(profiles.find((p) => p.label === "SPREAD_OBS_SLIP_0")!.slippageBps).toBe(0);
+    expect(profiles.find((p) => p.label === "SPREAD_OBS_SLIP_0_10")!.slippageBps).toBe(0.1);
+    expect(profiles.find((p) => p.label === "SPREAD_OBS_SLIP_0_25")!.slippageBps).toBe(0.25);
+    expect(profiles.find((p) => p.label === "SPREAD_OBS_SLIP_0_50")!.slippageBps).toBe(0.5);
+    // calibration.profiles must remain untouched (we only copied labels into comparison list)
+    expect(calibrationProfiles).toHaveLength(2);
+    expect(calibrationProfiles.map((p) => p.label)).toEqual(["ZERO", "LEGACY_8_3"]);
+
+    expect(appendObservedSpreadSensitivityProfiles([], null).sensitivityLabels).toEqual([]);
+    expect(appendObservedSpreadSensitivityProfiles([], Number.NaN).sensitivityLabels).toEqual([]);
+  });
+
   it("measures available telemetry and compares breakout holdout under available profiles", async () => {
     const prisma = new PrismaClient();
     let raw: Mt5PersistedCostRaw[] = [];
@@ -115,6 +184,11 @@ describe("empirical MT5 cost calibration research", () => {
       profiles.push({ label: "LEGACY_8_3", spreadBps: 8, slippageBps: 3 });
     }
 
+    const sensitivity = appendObservedSpreadSensitivityProfiles(
+      profiles,
+      calibration.spread.bps.median
+    );
+
     const comparison = await runBreakoutFamilyCostProfileComparison({
       candles1m,
       candles5mContiguous: contiguous.validBars,
@@ -155,6 +229,15 @@ describe("empirical MT5 cost calibration research", () => {
       profilesUsed: profiles,
       comparison,
       decision,
+      spreadSensitivityMetadata: {
+        observedSpreadBpsUsed: sensitivity.observedSpreadBpsUsed,
+        sensitivityLabels: sensitivity.sensitivityLabels,
+        note:
+          "SPREAD_OBS_SLIP_* rows are research-only sensitivity scenarios using observed median spread with assumed slippage. They are NOT empirical slippage estimates. Entry slippage telemetry remains inconclusive until reliable timed samples exist. These labels are not inserted into calibration.profiles.",
+        slippageTelemetryInconclusive: true,
+        notEmpiricalSlippageEstimates: true,
+        notInsertedIntoCalibrationProfiles: true
+      },
       confirmations: {
         deployed: false,
         strategyEnabled: false,
@@ -164,6 +247,17 @@ describe("empirical MT5 cost calibration research", () => {
         historicalResearchResultsNotAltered: true
       }
     };
+
+    if (sensitivity.observedSpreadBpsUsed != null) {
+      for (const label of sensitivity.sensitivityLabels) {
+        expect(profiles.some((p) => p.label === label)).toBe(true);
+        expect(profiles.find((p) => p.label === label)!.spreadBps).toBe(
+          sensitivity.observedSpreadBpsUsed
+        );
+        expect(calibration.profiles.some((p) => (p.label as string) === label)).toBe(false);
+      }
+      expect(comparison.rows.some((r) => r.profileLabel === "SPREAD_OBS_SLIP_0")).toBe(true);
+    }
 
     const outDir = resolve(process.cwd(), "../../research-datasets");
     mkdirSync(outDir, { recursive: true });
