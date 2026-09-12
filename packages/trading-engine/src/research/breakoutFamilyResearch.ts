@@ -544,6 +544,106 @@ export interface BreakoutCostProfileHoldoutRow {
   netR: number;
   maxDrawdownPercent: number | null;
   costDragR: number | null;
+  directionalDiagnostics: BreakoutDirectionalDiagnostics;
+}
+
+export interface BreakoutDirectionSummary {
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  profitFactor: number | null;
+  expectancyR: number | null;
+  netR: number;
+  averageGrossR: number | null;
+  medianBarsHeld: number | null;
+  medianStopDistanceAtr: number | null;
+  medianTargetDistanceAtr: number | null;
+}
+
+export interface BreakoutDirectionalDiagnostics {
+  BUY: BreakoutDirectionSummary;
+  SELL: BreakoutDirectionSummary;
+}
+
+function medianFinite(values: ReadonlyArray<number | null | undefined>): number | null {
+  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+function meanFinite(values: ReadonlyArray<number | null | undefined>): number | null {
+  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (xs.length === 0) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function stopDistanceAtr(t: CfdSimulatedTrade): number | null {
+  const atr = t.entryFeatures?.atr;
+  if (atr == null || !(atr > 0) || !Number.isFinite(atr)) return null;
+  const d = Math.abs(t.entryPrice - t.stopLoss) / atr;
+  return Number.isFinite(d) ? d : null;
+}
+
+function targetDistanceAtr(t: CfdSimulatedTrade): number | null {
+  const atr = t.entryFeatures?.atr;
+  if (atr == null || !(atr > 0) || !Number.isFinite(atr)) return null;
+  const d = Math.abs(t.takeProfit - t.entryPrice) / atr;
+  return Number.isFinite(d) ? d : null;
+}
+
+/** Research diagnostics from already-produced holdout trades — does not mutate input. */
+export function summarizeDirectionFromTrades(
+  trades: ReadonlyArray<CfdSimulatedTrade>,
+  action: "BUY" | "SELL"
+): BreakoutDirectionSummary {
+  const scoped = trades.filter((t) => t.action === action);
+  let wins = 0;
+  let losses = 0;
+  let grossWinProfit = 0;
+  let grossLossProfitAbs = 0;
+  let netRSum = 0;
+
+  for (const t of scoped) {
+    if (t.outcome === "WIN") {
+      wins++;
+      if (Number.isFinite(t.profit)) grossWinProfit += t.profit;
+    } else if (t.outcome === "LOSS") {
+      losses++;
+      if (Number.isFinite(t.profit)) grossLossProfitAbs += Math.abs(t.profit);
+    }
+    if (t.netR != null && Number.isFinite(t.netR)) netRSum += t.netR;
+  }
+
+  const netRDefined = scoped.map((t) => t.netR);
+  const grossRDefined = scoped.map((t) => t.grossR);
+  const expectancyR = meanFinite(netRDefined);
+  const averageGrossR = meanFinite(grossRDefined);
+
+  return {
+    trades: scoped.length,
+    wins,
+    losses,
+    winRate: scoped.length > 0 ? wins / scoped.length : 0,
+    profitFactor: grossLossProfitAbs > 0 ? grossWinProfit / grossLossProfitAbs : null,
+    expectancyR,
+    netR: netRSum,
+    averageGrossR,
+    medianBarsHeld: medianFinite(scoped.map((t) => t.barsHeld)),
+    medianStopDistanceAtr: medianFinite(scoped.map(stopDistanceAtr)),
+    medianTargetDistanceAtr: medianFinite(scoped.map(targetDistanceAtr))
+  };
+}
+
+export function buildBreakoutDirectionalDiagnostics(
+  trades: ReadonlyArray<CfdSimulatedTrade>
+): BreakoutDirectionalDiagnostics {
+  return {
+    BUY: summarizeDirectionFromTrades(trades, "BUY"),
+    SELL: summarizeDirectionFromTrades(trades, "SELL")
+  };
 }
 
 /**
@@ -601,7 +701,8 @@ export async function runBreakoutFamilyCostProfileComparison(input: {
           expectancyR: metrics.expectancyR,
           netR: metrics.netR,
           maxDrawdownPercent: metrics.maxDrawdownPercent,
-          costDragR: ctm.medianCostDragR
+          costDragR: ctm.medianCostDragR,
+          directionalDiagnostics: buildBreakoutDirectionalDiagnostics(hold.trades)
         });
       }
     }

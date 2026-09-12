@@ -13,11 +13,53 @@ import {
   splitHoldoutByTimestamp
 } from "./holdoutSplit.js";
 import {
+  buildBreakoutDirectionalDiagnostics,
   classifyBreakoutTf,
   listBreakoutFamilyStrategies,
-  runBreakoutFamilyResearch
+  runBreakoutFamilyResearch,
+  summarizeDirectionFromTrades
 } from "./breakoutFamilyResearch.js";
+import { type CfdSimulatedTrade } from "../backtest/cfdMetrics.js";
+import { CFD_SIMULATOR_VERSION } from "@regimex/shared";
 import { BREAKOUT_MOMENTUM_DEFAULTS } from "../strategies/breakoutMomentum.js";
+
+function trade(partial: Partial<CfdSimulatedTrade> & Pick<CfdSimulatedTrade, "action" | "outcome">): CfdSimulatedTrade {
+  return {
+    strategyId: "squeeze-breakout-v1",
+    strategyVersion: "1",
+    regime: "UNKNOWN",
+    regimeConfidence: 0,
+    entryTime: 1,
+    exitTime: 2,
+    entryPrice: 100,
+    exitPrice: 101,
+    exitTriggerPrice: 101,
+    volume: 0.1,
+    riskAmount: 1,
+    initialRiskAmount: 1,
+    riskPercent: 0.01,
+    stopLoss: 99,
+    takeProfit: 102,
+    profit: 1,
+    grossPnl: 1,
+    netPnl: 1,
+    grossR: 1,
+    netR: 1,
+    closeReason: "TAKE_PROFIT",
+    barsHeld: 5,
+    rMultiple: 1,
+    confidence: 1,
+    entryReason: [],
+    isOutOfSample: true,
+    simulatorVersion: CFD_SIMULATOR_VERSION,
+    entryFeatures: {
+      timestamp: 1,
+      strategyId: "squeeze-breakout-v1",
+      atr: 1
+    } as CfdSimulatedTrade["entryFeatures"],
+    ...partial
+  };
+}
 
 function m1(i: number, overrides: Partial<Candle> = {}): Candle {
   const t = Date.UTC(2026, 0, 1, 12, 0, 0) + i * 60_000;
@@ -236,4 +278,122 @@ describe("breakoutFamilyResearch", () => {
     const ids = report.runs.map((r) => `${r.strategyId}:${r.timeframe}`);
     expect(ids).toEqual([...ids].sort());
   }, 120_000);
+});
+
+describe("breakout directional holdout diagnostics", () => {
+  it("separates BUY and SELL correctly without mutating trades", () => {
+    const trades = [
+      trade({
+        action: "BUY",
+        outcome: "WIN",
+        profit: 2,
+        netR: 1.5,
+        grossR: 1.6,
+        barsHeld: 4,
+        entryPrice: 100,
+        stopLoss: 98,
+        takeProfit: 104,
+        entryFeatures: { atr: 2 } as CfdSimulatedTrade["entryFeatures"]
+      }),
+      trade({
+        action: "BUY",
+        outcome: "LOSS",
+        profit: -1,
+        netR: -1,
+        grossR: -0.9,
+        barsHeld: 6,
+        entryPrice: 100,
+        stopLoss: 99,
+        takeProfit: 102,
+        entryFeatures: { atr: 1 } as CfdSimulatedTrade["entryFeatures"]
+      }),
+      trade({
+        action: "SELL",
+        outcome: "WIN",
+        profit: 3,
+        netR: 2,
+        grossR: 2.1,
+        barsHeld: 10,
+        entryPrice: 100,
+        stopLoss: 101,
+        takeProfit: 97,
+        entryFeatures: { atr: 1 } as CfdSimulatedTrade["entryFeatures"]
+      })
+    ];
+    const frozen = JSON.stringify(trades);
+    const diag = buildBreakoutDirectionalDiagnostics(trades);
+
+    expect(diag.BUY.trades).toBe(2);
+    expect(diag.BUY.wins).toBe(1);
+    expect(diag.BUY.losses).toBe(1);
+    expect(diag.BUY.winRate).toBe(0.5);
+    expect(diag.BUY.netR).toBeCloseTo(0.5, 10);
+    expect(diag.BUY.expectancyR).toBeCloseTo(0.25, 10);
+    expect(diag.BUY.averageGrossR).toBeCloseTo((1.6 + -0.9) / 2, 10);
+    expect(diag.BUY.profitFactor).toBeCloseTo(2 / 1, 10);
+
+    expect(diag.SELL.trades).toBe(1);
+    expect(diag.SELL.wins).toBe(1);
+    expect(diag.SELL.losses).toBe(0);
+    expect(diag.SELL.profitFactor).toBeNull(); // no losing profit denominator
+    expect(diag.SELL.netR).toBe(2);
+    expect(JSON.stringify(trades)).toBe(frozen);
+  });
+
+  it("computes median stopDistanceAtr from entry/stop/atr", () => {
+    const trades = [
+      trade({
+        action: "BUY",
+        outcome: "WIN",
+        entryPrice: 100,
+        stopLoss: 98, // 2
+        takeProfit: 103, // 3
+        entryFeatures: { atr: 2 } as CfdSimulatedTrade["entryFeatures"] // stop=1, target=1.5
+      }),
+      trade({
+        action: "BUY",
+        outcome: "LOSS",
+        entryPrice: 100,
+        stopLoss: 97, // 3
+        takeProfit: 104, // 4
+        entryFeatures: { atr: 1 } as CfdSimulatedTrade["entryFeatures"] // stop=3, target=4
+      }),
+      trade({
+        action: "BUY",
+        outcome: "PUSH",
+        entryPrice: 100,
+        stopLoss: 99,
+        takeProfit: 101,
+        entryFeatures: { atr: 0 } as CfdSimulatedTrade["entryFeatures"] // ignored
+      })
+    ];
+    const buy = summarizeDirectionFromTrades(trades, "BUY");
+    // finite stop distances: 1 and 3 → median 2
+    expect(buy.medianStopDistanceAtr).toBe(2);
+    // finite target distances: 1.5 and 4 → median 2.75
+    expect(buy.medianTargetDistanceAtr).toBe(2.75);
+    expect(buy.medianBarsHeld).toBe(5);
+  });
+
+  it("returns zero counts and null medians/PF for empty direction", () => {
+    const onlyBuy = [
+      trade({
+        action: "BUY",
+        outcome: "WIN",
+        entryFeatures: { atr: 1 } as CfdSimulatedTrade["entryFeatures"]
+      })
+    ];
+    const sell = summarizeDirectionFromTrades(onlyBuy, "SELL");
+    expect(sell.trades).toBe(0);
+    expect(sell.wins).toBe(0);
+    expect(sell.losses).toBe(0);
+    expect(sell.winRate).toBe(0);
+    expect(sell.profitFactor).toBeNull();
+    expect(sell.expectancyR).toBeNull();
+    expect(sell.netR).toBe(0);
+    expect(sell.averageGrossR).toBeNull();
+    expect(sell.medianBarsHeld).toBeNull();
+    expect(sell.medianStopDistanceAtr).toBeNull();
+    expect(sell.medianTargetDistanceAtr).toBeNull();
+  });
 });
