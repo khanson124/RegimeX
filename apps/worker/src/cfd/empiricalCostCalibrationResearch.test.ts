@@ -72,17 +72,38 @@ function loadDatabaseUrlFromEnvFile(): string | null {
 const databaseUrl = loadDatabaseUrlFromEnvFile();
 if (databaseUrl) process.env.DATABASE_URL = databaseUrl;
 
-async function loadHistoryApiR10(): Promise<Candle[]> {
+/** Same R_10 1m loading rule as breakoutFamilyResearch.test.ts `loadAllR10OneMinute`. */
+async function loadAllR10OneMinute(): Promise<{
+  candles: Candle[];
+  totalInDb: number;
+  historyApiCount: number;
+  loadSourcePreference: "HISTORY_API" | "ALL";
+}> {
   const prisma = new PrismaClient();
   try {
     const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: "R_10" } });
-    if (!symbol) return [];
+    if (!symbol) {
+      return { candles: [], totalInDb: 0, historyApiCount: 0, loadSourcePreference: "ALL" };
+    }
+    const totalInDb = await prisma.candle.count({
+      where: { symbolId: symbol.id, interval: "1m" }
+    });
+    // Prefer Deriv HISTORY_API for research continuity (exclude SEED mocks / mixed live).
+    const historyApiCount = await prisma.candle.count({
+      where: { symbolId: symbol.id, interval: "1m", source: "HISTORY_API" }
+    });
+    const loadSourcePreference: "HISTORY_API" | "ALL" =
+      historyApiCount >= 1000 ? "HISTORY_API" : "ALL";
+    const sourceFilter =
+      loadSourcePreference === "HISTORY_API"
+        ? ({ source: "HISTORY_API" as const } as const)
+        : ({} as const);
     const rows = await prisma.candle.findMany({
-      where: { symbolId: symbol.id, interval: "1m", source: "HISTORY_API", isComplete: true },
+      where: { symbolId: symbol.id, interval: "1m", ...sourceFilter },
       orderBy: { openTime: "asc" }
     });
-    return rows.map((r) => ({
-      symbol: "R_10",
+    const candles = rows.map((r) => ({
+      symbol: "R_10" as const,
       interval: "1m" as const,
       openTime: r.openTime.getTime(),
       closeTime: r.closeTime.getTime(),
@@ -92,8 +113,9 @@ async function loadHistoryApiR10(): Promise<Candle[]> {
       close: Number(r.close),
       tickCount: r.tickCount,
       isComplete: true as const,
-      source: "HISTORY_API" as const
+      source: r.source as Candle["source"]
     }));
+    return { candles, totalInDb, historyApiCount, loadSourcePreference };
   } finally {
     await prisma.$disconnect();
   }
@@ -164,7 +186,12 @@ describe("empirical MT5 cost calibration research", () => {
     const bundle = extractMt5CostSamplesFromPositions(raw, { tickSize: 0.001 });
     const calibration = buildEmpiricalCostCalibrationReport({ symbol: "R_10", bundle });
 
-    const candles1m = await loadHistoryApiR10();
+    const {
+      candles: candles1m,
+      totalInDb,
+      historyApiCount,
+      loadSourcePreference
+    } = await loadAllR10OneMinute();
     expect(candles1m.length).toBeGreaterThan(1000);
     const contiguous = aggregateContiguousCompletedCandles(candles1m, "5m");
     const holdoutStartOpenTime = splitHoldout(candles1m, 0.3).holdout[0]!.openTime;
@@ -225,6 +252,16 @@ describe("empirical MT5 cost calibration research", () => {
 
     const report = {
       calibration,
+      dataAvailability: {
+        totalInDb,
+        historyApiCount,
+        loaded: candles1m.length,
+        loadSourcePreference,
+        note:
+          loadSourcePreference === "HISTORY_API"
+            ? "Loaded HISTORY_API R_10 1m only (research provenance)"
+            : "HISTORY_API sparse; loaded all sources"
+      },
       holdoutStartIso: new Date(holdoutStartOpenTime).toISOString(),
       profilesUsed: profiles,
       comparison,
