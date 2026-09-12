@@ -75,6 +75,10 @@ import {
   shouldSubscribeDerivTicks
 } from "./liveEngineMarketData.js";
 import { Mt5QuotePollInFlightGate } from "./mt5QuotePollInFlight.js";
+import {
+  R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
+  shouldBlockR10SqueezeForwardTrialSell
+} from "./r10SqueezeForwardTrialGuard.js";
 
 export interface SessionDeps {
   prisma: PrismaClient;
@@ -903,6 +907,45 @@ export class LiveEngineSession {
     }
 
     if (this.executionBackend === "broker_demo_mt5") {
+      // Temporary DEMO forward-trial guard: R_10 1m squeeze-breakout-v1 SELL is research-only.
+      if (
+        shouldBlockR10SqueezeForwardTrialSell({
+          executionBackend: this.executionBackend,
+          symbol: this.symbol,
+          interval: this.interval,
+          strategyId: chosen.strategy.id,
+          action: decision.action
+        })
+      ) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        await this.recordCandidate(latest, correlationId, {
+          decisionCode: "REJECT_STRATEGY",
+          rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
+          reasons: [
+            R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
+            "DEMO forward-trial directional guard: R_10 1m squeeze-breakout-v1 SELL persisted but not executed on MT5"
+          ],
+          strategyId: chosen.strategy.id,
+          direction: decision.action
+        });
+        await this.logAutonomousDecision("NO_TRADE", [
+          R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
+          "DEMO forward-trial directional guard — SELL not submitted to MT5"
+        ], {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId,
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          featureSummary: {
+            interval: this.interval,
+            internalSymbol: this.symbol,
+            forwardTrialDirectionalGuard: true,
+            reason: R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON
+          }
+        });
+        return;
+      }
       const readiness = isMt5MarketDataReady(this.candles, this.mt5WarmupRequirement);
       if (!readiness.ready) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
