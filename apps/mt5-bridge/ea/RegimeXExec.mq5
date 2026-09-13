@@ -499,6 +499,8 @@ ENUM_TIMEFRAMES ParseBarTimeframe(string tf)
       return PERIOD_M5;
    if(tf == "15m" || tf == "M15")
       return PERIOD_M15;
+   if(tf == "4h" || tf == "H4")
+      return PERIOD_H4;
    return PERIOD_CURRENT;
   }
 
@@ -510,6 +512,8 @@ int TimeframeSeconds(ENUM_TIMEFRAMES period)
       return 300;
    if(period == PERIOD_M15)
       return 900;
+   if(period == PERIOD_H4)
+      return 14400;
    return PeriodSeconds(period);
   }
 

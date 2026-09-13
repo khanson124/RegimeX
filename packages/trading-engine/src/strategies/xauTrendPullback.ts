@@ -2,8 +2,9 @@
  * xau-trend-pullback-v1 — XAUUSD H4 bias + M15 pullback/breakout.
  *
  * Live/DEMO entry interval: native 15m only.
- * Research backtests may still evaluate on a 1m series (signals only on completed M15 closes).
- * H4 bias uses session-aware completed 4h bars aggregated from the evaluation series (no lookahead).
+ * Live broker_demo_mt5 prefers native MT5 H4 context candles when provided.
+ * Research backtests may still evaluate on a 1m series (signals only on completed M15 closes)
+ * and aggregate H4 from the evaluation series when contextCandles are absent.
  */
 import { z } from "zod";
 import {
@@ -27,9 +28,16 @@ import {
   type H4TrendBias
 } from "./xauTrendPullbackHtf.js";
 import { sessionContextFromEpochMs } from "./xauMtfEntryQuality.js";
+import {
+  XAU_TREND_PULLBACK_H4_MINIMUM_BARS,
+  XAU_TREND_PULLBACK_M15_MINIMUM_BARS,
+  completedContextBarsAsOf,
+  type MultiTimeframeWarmupSpec
+} from "../candles/mt5MtfWarmup.js";
 
 export const XAU_TREND_PULLBACK_REASON_CODES = [
   "INSUFFICIENT_HISTORY",
+  "INSUFFICIENT_H4_CONTEXT",
   "COOLDOWN_ACTIVE",
   "NOT_M15_CLOSE",
   "UNSUPPORTED_EXECUTION_INTERVAL",
@@ -136,14 +144,29 @@ export class XauTrendPullbackStrategy implements TradingStrategy {
   /** Live/DEMO execution interval — research may still feed 1m series into evaluate(). */
   readonly allowedIntervals = ["15m"] as const;
   /**
-   * Native 15m warm-up (~55 completed H4 ≈ 880 M15 + indicator buffer).
-   * 1m research path enforces a higher dynamic floor inside evaluate().
+   * M15 entry warm-up only (derived from ATR/ADX/EMA/percentile/structure lookbacks).
+   * H4 context is a separate MTF requirement — not manufactured from M15 count.
    */
-  readonly minimumHistory: number = 1_000;
+  readonly minimumHistory: number = XAU_TREND_PULLBACK_M15_MINIMUM_BARS;
+  readonly multiTimeframeWarmup: MultiTimeframeWarmupSpec = {
+    executionInterval: "15m",
+    requirements: [
+      {
+        interval: "15m",
+        minimumBars: XAU_TREND_PULLBACK_M15_MINIMUM_BARS,
+        role: "execution"
+      },
+      {
+        interval: "4h",
+        minimumBars: XAU_TREND_PULLBACK_H4_MINIMUM_BARS,
+        role: "context"
+      }
+    ]
+  };
   readonly eligibility: StrategyEligibility = {
     supportedRegimes: SUPPORTED,
     requiredIndicators: ["atr", "adx", "emaFast", "emaSlow"],
-    minimumHistory: 1_000,
+    minimumHistory: XAU_TREND_PULLBACK_M15_MINIMUM_BARS,
     minimumRegimeConfidence: 0,
     minimumStrategyConfidence: 0.5,
     allowedSymbols: [],
@@ -204,9 +227,24 @@ export class XauTrendPullbackStrategy implements TradingStrategy {
     const m15 = isNative15
       ? candles.slice(0, i + 1).filter((c) => c.isComplete)
       : completedHtfBarsAsOf(candles, i, "15m");
-    const h4 = completedSessionAwareHtfBarsAsOf(candles, i, "4h", {
-      minFillRatio: p.h4MinFillRatio
-    });
+
+    const nativeH4All = context.contextCandles?.["4h"];
+    const useNativeH4 = Array.isArray(nativeH4All) && nativeH4All.length > 0;
+    const h4 = useNativeH4
+      ? completedContextBarsAsOf(nativeH4All, ts)
+      : completedSessionAwareHtfBarsAsOf(candles, i, "4h", {
+          minFillRatio: p.h4MinFillRatio
+        });
+
+    if (useNativeH4 && h4.length < XAU_TREND_PULLBACK_H4_MINIMUM_BARS) {
+      return holdWith(this, ts, ["INSUFFICIENT_H4_CONTEXT"], {
+        ...baseTelem,
+        h4BarCount: h4.length,
+        h4Required: XAU_TREND_PULLBACK_H4_MINIMUM_BARS,
+        h4ContextSource: "native_mt5_history"
+      });
+    }
+
     const biasSnap = classifyH4TrendBias(h4, { slopeLookback: p.h4SlopeLookback });
     const lastClosedH4 = h4.length > 0 ? h4[h4.length - 1]! : null;
     const telem = {
@@ -219,11 +257,14 @@ export class XauTrendPullbackStrategy implements TradingStrategy {
       m15BarCount: m15.length,
       lastClosedH4OpenTime: lastClosedH4?.openTime ?? null,
       lastClosedH4CloseTime: lastClosedH4?.closeTime ?? null,
-      h4ContextSource: isNative15
-        ? "aggregated_from_native_15m_closed_bars"
-        : "aggregated_from_1m_closed_bars",
-      h4AlignmentNote:
-        "H4 bars are session-aware completed wall-clock buckets with closeTime <= as-of bar close; forming H4 never included. Live evaluates on native 15m; research may use 1m→M15."
+      h4ContextSource: useNativeH4
+        ? "native_mt5_history"
+        : isNative15
+          ? "aggregated_from_native_15m_closed_bars"
+          : "aggregated_from_1m_closed_bars",
+      h4AlignmentNote: useNativeH4
+        ? "Native MT5 H4: only completed bars with closeTime <= M15 decision time; forming H4 never included."
+        : "H4 bars are session-aware completed wall-clock buckets with closeTime <= as-of bar close; forming H4 never included."
     };
 
     if (biasSnap.bias === "NEUTRAL") {

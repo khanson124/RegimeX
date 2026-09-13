@@ -23,6 +23,11 @@ export interface StrategyContext {
   parameters: Record<string, number | boolean | string>;
   /** Candles since this strategy last signalled (Infinity if never). */
   candlesSinceLastSignal: number;
+  /**
+   * Optional multi-timeframe context (e.g. native broker H4), kept separate from
+   * the execution candle buffer. Keys are interval strings like "4h".
+   */
+  contextCandles?: Readonly<Partial<Record<string, ReadonlyArray<Candle>>>>;
 }
 
 /** Public strategy interface. Implementations must be deterministic and pure. */
@@ -34,6 +39,11 @@ export interface TradingStrategy {
   supportedRegimes: MarketRegime[];
   minimumHistory: number;
   eligibility: StrategyEligibility;
+  /**
+   * Optional multi-timeframe warm-up (execution + context intervals).
+   * When absent, broker_demo_mt5 uses minimumHistory on the engine interval only.
+   */
+  multiTimeframeWarmup?: import("../candles/mt5MtfWarmup.js").MultiTimeframeWarmupSpec;
   /** Validate + normalize raw parameters; throws on invalid values. */
   validateParameters(raw: Record<string, unknown>): Record<string, number | boolean | string>;
   evaluate(context: StrategyContext): StrategyDecision;

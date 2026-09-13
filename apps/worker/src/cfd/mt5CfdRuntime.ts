@@ -1950,7 +1950,7 @@ export class Mt5CfdRuntime {
    */
   async getHistoricalBarsForWarmup(input: {
     engineSymbol: string;
-    timeframe: "1m" | "5m" | "15m";
+    timeframe: "1m" | "5m" | "15m" | "4h";
     count: number;
   }): Promise<
     | {

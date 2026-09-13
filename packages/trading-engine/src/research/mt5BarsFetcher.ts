@@ -14,7 +14,8 @@ export const MT5_BARS_MAX_PER_REQUEST = 250;
 export function timeframeMs(tf: Mt5BarTimeframe): number {
   if (tf === "1m") return 60_000;
   if (tf === "5m") return 300_000;
-  return 900_000;
+  if (tf === "15m") return 900_000;
+  return 14_400_000; // 4h
 }
 
 export interface Mt5BarsClient {

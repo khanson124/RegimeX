@@ -48,6 +48,7 @@ export * from "./candles/aggregator.js";
 export * from "./candles/candleIntegrity.js";
 export * from "./candles/mt5MarketData.js";
 export * from "./candles/mt5HistoricalWarmup.js";
+export * from "./candles/mt5MtfWarmup.js";
 
 // Multi-symbol live sessions (account-wide risk remains user-scoped)
 export * from "./engine/multiSymbolSessions.js";

@@ -195,7 +195,7 @@ export interface Mt5HistoryDeal {
 }
 
 /** Read-only OHLC bar query. Cap is enforced by EA (~250) for mailbox size. */
-export type Mt5BarTimeframe = "1m" | "5m" | "15m";
+export type Mt5BarTimeframe = "1m" | "5m" | "15m" | "4h";
 
 export interface Mt5BarsQuery {
   symbol: string;

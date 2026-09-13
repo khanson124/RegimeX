@@ -34,12 +34,12 @@ export interface PersistedCandleRow {
 export function mapRestoredSessionCandles(input: {
   executionBackend: ExecutionBackend;
   symbol: string;
-  interval: Candle["interval"];
+  interval: Candle["interval"] | string;
   rows: readonly PersistedCandleRow[];
 }): { candles: Candle[]; rejected: boolean; reason: string | null } {
   const mapped: Candle[] = input.rows.map((r) => ({
     symbol: input.symbol,
-    interval: input.interval,
+    interval: input.interval as Candle["interval"],
     openTime: r.openTime.getTime(),
     closeTime: r.closeTime.getTime(),
     open: Number(r.open),

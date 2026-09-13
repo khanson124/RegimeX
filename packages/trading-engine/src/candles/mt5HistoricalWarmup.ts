@@ -20,6 +20,7 @@ import {
   timeframeMs,
   type Mt5BarsClient
 } from "../research/mt5BarsFetcher.js";
+import { toBacktestCandle } from "../research/researchCandleInterval.js";
 import {
   countMt5ProvenanceSources,
   filterRestorableMt5Candles,
@@ -41,16 +42,33 @@ export const MT5_WARMUP_MERGE_REJECTED = "MT5_WARMUP_MERGE_REJECTED";
 export function candleIntervalToMt5BarTimeframe(
   interval: CandleInterval | string
 ): Mt5BarTimeframe | null {
-  if (interval === "1m" || interval === "5m" || interval === "15m") return interval;
+  if (interval === "1m" || interval === "5m" || interval === "15m" || interval === "4h") {
+    return interval;
+  }
   return null;
 }
 
 export function mt5BarToHistoryCandle(input: {
   bar: Mt5Bar;
   engineSymbol: string;
-  interval: CandleInterval;
+  interval: CandleInterval | "4h";
 }): Candle {
   const { bar, engineSymbol, interval } = input;
+  if (interval === "4h") {
+    return toBacktestCandle({
+      symbol: engineSymbol,
+      interval: "4h",
+      openTime: bar.openTimeMs,
+      closeTime: bar.closeTimeMs,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      tickCount: bar.tickVolume ?? 0,
+      isComplete: true,
+      source: "MT5_HISTORY"
+    });
+  }
   return {
     symbol: engineSymbol,
     interval,
@@ -229,7 +247,7 @@ export function assembleMt5HistoricalWarmup(input: {
   persistedCandles: readonly Candle[];
   fetchedBars: readonly Mt5Bar[];
   engineSymbol: string;
-  interval: CandleInterval;
+  interval: CandleInterval | "4h";
 }): Mt5HistoricalWarmupResult {
   const { plan, requirement, persistedCandles, fetchedBars, engineSymbol, interval } = input;
 
@@ -374,7 +392,7 @@ export async function runMt5HistoricalWarmup(input: {
   client: Mt5BarsClient;
   requirement: Mt5WarmupRequirement;
   persistedCandles: readonly Candle[];
-  interval: CandleInterval;
+  interval: CandleInterval | "4h";
   engineSymbol: string;
   mapping: BrokerSymbolMappingRecord | null | undefined;
   isDemoAccount: boolean;

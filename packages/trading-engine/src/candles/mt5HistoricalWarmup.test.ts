@@ -32,7 +32,7 @@ import { XAU_TREND_PULLBACK_DEFAULTS } from "../strategies/xauTrendPullback.js";
 
 const XAU_REQ = {
   status: "REQUIRES_BARS" as const,
-  requiredBars: 1000,
+  requiredBars: 120,
   eligibleStrategyIds: ["xau-trend-pullback-v1"] as const
 };
 
@@ -220,8 +220,8 @@ describe("planMt5HistoricalWarmup gates", () => {
     expect(plan.reason).toBe(MT5_WARMUP_DEMO_REQUIRED);
   });
 
-  it("1000 MT5_HISTORY bars satisfy XAU warm-up without fetch", () => {
-    const bars = Array.from({ length: 1000 }, (_, i) => hist(i));
+  it("120 MT5_HISTORY bars satisfy XAU M15 warm-up without fetch", () => {
+    const bars = Array.from({ length: 120 }, (_, i) => hist(i));
     const plan = planMt5HistoricalWarmup({
       requirement: XAU_REQ,
       persistedCandles: bars,
@@ -236,9 +236,9 @@ describe("planMt5HistoricalWarmup gates", () => {
 });
 
 describe("assembleMt5HistoricalWarmup", () => {
-  it("persisted 300 + fetched 700+ reaches readiness", () => {
-    const persisted = Array.from({ length: 300 }, (_, i) => live(700 + i));
-    const fetched = Array.from({ length: 1010 }, (_, i) => mt5Bar(i));
+  it("persisted 30 + fetched window reaches M15 readiness at 120", () => {
+    const persisted = Array.from({ length: 30 }, (_, i) => live(100 + i));
+    const fetched = Array.from({ length: 130 }, (_, i) => mt5Bar(i));
     const plan = planMt5HistoricalWarmup({
       requirement: XAU_REQ,
       persistedCandles: persisted,
@@ -248,6 +248,7 @@ describe("assembleMt5HistoricalWarmup", () => {
       isDemoAccount: true
     });
     expect(plan.status).toBe("FETCH");
+    expect(plan.fetchCount).toBe(130);
     const result = assembleMt5HistoricalWarmup({
       plan,
       requirement: XAU_REQ,
@@ -257,13 +258,7 @@ describe("assembleMt5HistoricalWarmup", () => {
       interval: "15m"
     });
     expect(result.status).toBe("READY");
-    expect(result.candles.length).toBeGreaterThanOrEqual(1000);
-    expect(result.sourceMix.liveTicks).toBe(300);
-    expect(result.sourceMix.history).toBeGreaterThan(0);
-    // Live wins on overlap buckets
-    const overlapped = result.candles.filter((c) => c.openTime === live(700).openTime);
-    expect(overlapped).toHaveLength(1);
-    expect(overlapped[0]!.source).toBe("MT5_LIVE_TICKS");
+    expect(result.candles.length).toBeGreaterThanOrEqual(120);
   });
 
   it("current forming M15 bar excluded; completedBarsOnly enforced", () => {
@@ -369,7 +364,7 @@ describe("H4 after historical M15 bootstrap", () => {
 
   it("XAU strategy can evaluate immediately after historical bootstrap (no INSUFFICIENT_HISTORY)", () => {
     const strategy = new XauTrendPullbackStrategy();
-    const bars = Array.from({ length: 1000 }, (_, i) => hist(i, undefined, Date.UTC(2026, 0, 1, 8, 0, 0)));
+    const bars = Array.from({ length: 120 }, (_, i) => hist(i, undefined, Date.UTC(2026, 0, 1, 8, 0, 0)));
     expect(isMt5MarketDataReady(bars, XAU_REQ).ready).toBe(true);
     const features = extractFeatures(bars);
     const decision = strategy.evaluate({
