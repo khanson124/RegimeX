@@ -109,7 +109,7 @@ model Symbol {
   displayName     String
   enabled         Boolean  @default(true)
   pricePrecision  Int      @default(3)
-  /// Supported candle intervals, e.g. ["1m","5m"]
+  /// Supported candle intervals, e.g. ["1m","5m","15m"]
   candleIntervals Json
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -154,7 +154,7 @@ model BrokerSymbolMapping {
 model Candle {
   id         String   @id @default(cuid())
   symbolId   String
-  interval   String // "1m" | "5m"
+  interval   String // "1m" | "5m" | "15m"
   openTime   DateTime
   closeTime  DateTime
   open       Decimal  @db.Decimal(18, 5)

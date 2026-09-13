@@ -87,7 +87,7 @@ describe("XAUUSD timeframe viability research", () => {
     async () => {
       assertProductionIntervalsUnchanged();
       assertNoStrategyParameterMutation();
-      expect(CANDLE_INTERVALS).toEqual(["1m", "5m"]);
+      expect(CANDLE_INTERVALS).toEqual(["1m", "5m", "15m"]);
 
       const history = await loadCandles("HISTORY_API");
       expect(history.length).toBeGreaterThan(5000);
@@ -118,7 +118,9 @@ describe("XAUUSD timeframe viability research", () => {
         .filter(
           (id) =>
             id !== "xau-mtf-structure-momentum-v1" &&
-            id !== "xau-volatility-expansion-retest-v1"
+            id !== "xau-volatility-expansion-retest-v1" &&
+            id !== "xau-trend-pullback-v1" &&
+            id !== "xau-trend-breakout-v2"
         );
       expect(strategyIds).toHaveLength(6);
 

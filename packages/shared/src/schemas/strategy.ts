@@ -20,7 +20,11 @@ export const STRATEGY_KINDS = [
   /** Research-only XAU multi-timeframe candidate — not auto-enabled for live. */
   "xau-mtf-structure-momentum",
   /** Research-only XAU volatility expansion→retest candidate — not auto-enabled for live. */
-  "xau-volatility-expansion-retest"
+  "xau-volatility-expansion-retest",
+  /** Research-only XAU H4/M15 trend pullback candidate — not auto-enabled for live. */
+  "xau-trend-pullback",
+  /** Research-only XAU H4/M15 consolidation breakout candidate — not auto-enabled for live. */
+  "xau-trend-breakout"
 ] as const;
 
 export const strategyKindSchema = z.enum(STRATEGY_KINDS);

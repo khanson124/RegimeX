@@ -5,7 +5,7 @@ import { useConfigureEngine, useEngine, useEngineAction, useMt5Status, useSymbol
 import { Badge, Button, Card, ErrorView, Metric, Row, SectionTitle, Skeleton } from "../src/components/ui";
 import { colors, font, spacing } from "../src/theme";
 
-const INTERVALS = ["1m", "5m"] as const;
+const INTERVALS = ["1m", "5m", "15m"] as const;
 const MODES = [
   { value: "ANALYSIS_ONLY", label: "Analysis only" },
   { value: "DEMO_TRADING", label: "CFD demo trading" }

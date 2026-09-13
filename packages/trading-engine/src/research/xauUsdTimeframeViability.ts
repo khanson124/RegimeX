@@ -1,5 +1,5 @@
 /**
- * XAUUSD timeframe viability research (1m / 5m / research-only 15m).
+ * XAUUSD timeframe viability research (1m / 5m / production+research 15m).
  * No strategy mutation, no production interval changes, no enablement.
  */
 import { type Candle } from "@regimex/shared";

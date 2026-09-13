@@ -42,6 +42,20 @@ export const DEFAULT_RESEARCH_PARAMETER_SPACES: Record<StrategyKind, ParameterSp
     minExpansionRangeAtr: [1.0, 1.2, 1.5],
     retestZoneWidthAtr: [0.25, 0.35, 0.5],
     maxRetestDelayBars: [8, 12, 18]
+  },
+  /** Research-only XAU H4/M15 trend-pullback — compact ranges; not a live grid. */
+  "xau-trend-pullback": {
+    adxMinimum: [15, 20, 25],
+    stopAtrMultiple: [1.25, 1.5, 2],
+    targetRMultiple: [1.5, 2, 2.5],
+    cooldownCandles: [2, 4, 6]
+  },
+  /** Research-only XAU H4/M15 consolidation breakout — compact ranges; not a live grid. */
+  "xau-trend-breakout": {
+    consolidationLookback: [8, 12, 16],
+    minBreakoutDistanceAtr: [0.05, 0.1, 0.15],
+    targetRMultiple: [1.5, 2, 2.5],
+    cooldownCandles: [1, 2, 4]
   }
 };
 

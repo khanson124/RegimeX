@@ -41,8 +41,12 @@ async function seedSymbols(): Promise<void> {
   for (const s of SYMBOLS) {
     await prisma.symbol.upsert({
       where: { derivSymbol: s.derivSymbol },
-      create: { ...s, enabled: true, candleIntervals: ["1m", "5m"] },
-      update: { displayName: s.displayName, pricePrecision: s.pricePrecision }
+      create: { ...s, enabled: true, candleIntervals: ["1m", "5m", "15m"] },
+      update: {
+        displayName: s.displayName,
+        pricePrecision: s.pricePrecision,
+        candleIntervals: ["1m", "5m", "15m"]
+      }
     });
   }
   console.warn(`Seeded ${SYMBOLS.length} symbols`);

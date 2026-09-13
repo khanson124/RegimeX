@@ -3,58 +3,70 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
-  shouldBlockR10SqueezeForwardTrialSell
+  R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+  isR10SqueezeForwardTrialExecutable,
+  shouldBlockR10SqueezeForwardTrial
 } from "./r10SqueezeForwardTrialGuard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-describe("R10 squeeze forward-trial BUY-only guard", () => {
-  const blocked = {
+describe("R10 squeeze forward-trial 1m BUY-only guard", () => {
+  const base = {
     executionBackend: "broker_demo_mt5",
     symbol: "R_10",
     interval: "1m",
     strategyId: "squeeze-breakout-v1",
-    action: "SELL"
+    action: "BUY"
   } as const;
 
-  it("blocks R_10 1m squeeze-breakout-v1 SELL on broker_demo_mt5", () => {
-    expect(shouldBlockR10SqueezeForwardTrialSell(blocked)).toBe(true);
-    expect(R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON).toBe("R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY");
+  it("allows only R_10 1m squeeze-breakout-v1 BUY on broker_demo_mt5", () => {
+    expect(isR10SqueezeForwardTrialExecutable(base)).toBe(true);
+    expect(shouldBlockR10SqueezeForwardTrial(base)).toBe(false);
+    expect(R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON).toBe("R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY");
   });
 
-  it("does not block BUY", () => {
-    expect(shouldBlockR10SqueezeForwardTrialSell({ ...blocked, action: "BUY" })).toBe(false);
+  it("blocks 1m SELL", () => {
+    expect(shouldBlockR10SqueezeForwardTrial({ ...base, action: "SELL" })).toBe(true);
   });
 
-  it("does not block another strategy", () => {
+  it("blocks 5m BUY and 5m SELL", () => {
+    expect(shouldBlockR10SqueezeForwardTrial({ ...base, interval: "5m", action: "BUY" })).toBe(true);
+    expect(shouldBlockR10SqueezeForwardTrial({ ...base, interval: "5m", action: "SELL" })).toBe(true);
+  });
+
+  it("blocks every other interval", () => {
+    for (const interval of ["15m", "1h", "4h", "1d"] as const) {
+      expect(shouldBlockR10SqueezeForwardTrial({ ...base, interval, action: "BUY" })).toBe(true);
+      expect(shouldBlockR10SqueezeForwardTrial({ ...base, interval, action: "SELL" })).toBe(true);
+    }
+  });
+
+  it("does not apply to another strategy on R_10", () => {
     expect(
-      shouldBlockR10SqueezeForwardTrialSell({ ...blocked, strategyId: "breakout-momentum-v1" })
+      shouldBlockR10SqueezeForwardTrial({ ...base, strategyId: "breakout-momentum-v1", action: "SELL" })
     ).toBe(false);
   });
 
-  it("does not block another symbol", () => {
-    expect(shouldBlockR10SqueezeForwardTrialSell({ ...blocked, symbol: "XAUUSD" })).toBe(false);
+  it("does not apply to another symbol", () => {
+    expect(shouldBlockR10SqueezeForwardTrial({ ...base, symbol: "XAUUSD", action: "SELL" })).toBe(
+      false
+    );
   });
 
-  it("does not block another timeframe", () => {
-    expect(shouldBlockR10SqueezeForwardTrialSell({ ...blocked, interval: "5m" })).toBe(false);
-  });
-
-  it("does not block paper / non-MT5 backends", () => {
+  it("does not apply to paper backends", () => {
     expect(
-      shouldBlockR10SqueezeForwardTrialSell({ ...blocked, executionBackend: "paper_cfd" })
+      shouldBlockR10SqueezeForwardTrial({ ...base, executionBackend: "paper_cfd", action: "SELL" })
     ).toBe(false);
   });
 
-  it("session places guard after SIGNAL_PRODUCED and before executeCfdSignal; no cooldown on blocked SELL", () => {
+  it("session places guard after SIGNAL_PRODUCED and before executeCfdSignal", () => {
     const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
-    expect(src).toContain("shouldBlockR10SqueezeForwardTrialSell");
-    expect(src).toContain("R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON");
-    expect(src).toContain("Temporary DEMO forward-trial guard");
+    expect(src).toContain("shouldBlockR10SqueezeForwardTrial");
+    expect(src).toContain("R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON");
+    expect(src).toContain("Temporary DEMO forward-trial guard: R_10");
 
     const produced = src.indexOf('await this.logDecision("SIGNAL_PRODUCED"');
-    const guard = src.indexOf("shouldBlockR10SqueezeForwardTrialSell({");
+    const guard = src.indexOf("shouldBlockR10SqueezeForwardTrial({");
     const execute = src.indexOf("this.mt5Cfd.executeCfdSignal");
     expect(produced).toBeGreaterThan(-1);
     expect(guard).toBeGreaterThan(produced);

@@ -11,7 +11,7 @@ const INTERNAL_SYMBOL = {
   displayName: "Volatility 10 Index",
   enabled: true,
   pricePrecision: 3,
-  candleIntervals: ["1m", "5m"],
+  candleIntervals: ["1m", "5m", "15m"],
   createdAt: new Date(),
   updatedAt: new Date()
 };

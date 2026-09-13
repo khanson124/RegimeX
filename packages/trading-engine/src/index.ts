@@ -28,6 +28,12 @@ export * from "./strategies/xauMtfStructureMomentumCfd.js";
 export * from "./strategies/volatilityExpansionState.js";
 export * from "./strategies/xauVolatilityExpansionRetest.js";
 export * from "./strategies/xauVolatilityExpansionRetestCfd.js";
+export * from "./strategies/xauTrendPullbackHtf.js";
+export * from "./strategies/xauTrendPullback.js";
+export * from "./strategies/xauTrendPullbackCfd.js";
+export * from "./strategies/xauTrendBreakoutV2Consolidation.js";
+export * from "./strategies/xauTrendBreakoutV2.js";
+export * from "./strategies/xauTrendBreakoutV2Cfd.js";
 export * from "./strategies/registry.js";
 
 // Selection & ensemble
@@ -112,6 +118,9 @@ export * from "./research/researchCandleInterval.js";
 export * from "./research/xauUsdTimeframeViability.js";
 export * from "./research/xauMtfStructureMomentumResearch.js";
 export * from "./research/xauVolatilityExpansionRetestResearch.js";
+export * from "./research/xauTrendPullbackResearch.js";
+export * from "./research/xauTrendPullbackSparsityDiagnostic.js";
+export * from "./research/xauTrendBreakoutV2Research.js";
 export * from "./research/xauFeatureDiscoveryTypes.js";
 export * from "./research/xauFeatureDiscoveryBins.js";
 export * from "./research/xauFeatureDiscoveryFeatures.js";

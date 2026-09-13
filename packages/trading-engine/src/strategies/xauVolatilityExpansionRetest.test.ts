@@ -174,7 +174,7 @@ describe("xau-volatility-expansion-retest-v1 contract", () => {
     expect(JSON.stringify(SQUEEZE_BREAKOUT_DEFAULTS)).toBe(beforeSq);
     expect(JSON.stringify(XAU_MTF_STRUCTURE_MOMENTUM_DEFAULTS)).toBe(beforeMtf);
     assertProductionIntervalsUnchanged();
-    expect(CANDLE_INTERVALS).toEqual(["1m", "5m"]);
+    expect(CANDLE_INTERVALS).toEqual(["1m", "5m", "15m"]);
   });
 
   it("structural stop BUY/SELL + target room cap", () => {

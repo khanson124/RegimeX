@@ -11,6 +11,8 @@ import { proposeSqueezeBreakoutStopTarget } from "./squeezeBreakoutCfd.js";
 import { proposeTrendStructurePullbackStopTarget } from "./trendStructurePullbackCfd.js";
 import { proposeXauMtfStructureMomentumStopTarget } from "./xauMtfStructureMomentumCfd.js";
 import { proposeXauVolatilityExpansionRetestStopTarget } from "./xauVolatilityExpansionRetestCfd.js";
+import { proposeXauTrendPullbackStopTarget } from "./xauTrendPullbackCfd.js";
+import { proposeXauTrendBreakoutV2StopTarget } from "./xauTrendBreakoutV2Cfd.js";
 
 /**
  * Strategies with a complete CFD stop/target implementation.
@@ -25,7 +27,9 @@ export const CFD_CAPABLE_STRATEGY_IDS = [
   "trend-structure-pullback-v1",
   "trend-structure-pullback-v2",
   "xau-mtf-structure-momentum-v1",
-  "xau-volatility-expansion-retest-v1"
+  "xau-volatility-expansion-retest-v1",
+  "xau-trend-pullback-v1",
+  "xau-trend-breakout-v2"
 ] as const;
 
 export type CfdCapableStrategyId = (typeof CFD_CAPABLE_STRATEGY_IDS)[number];
@@ -148,6 +152,34 @@ export function proposeCfdStopTarget(input: ProposeCfdStopTargetInput): StopTarg
       });
     case "xau-volatility-expansion-retest-v1":
       return proposeXauVolatilityExpansionRetestStopTarget({
+        direction: input.direction,
+        entryPrice: input.entryPrice,
+        features: input.features,
+        candles: input.candles,
+        metadata: input.metadata,
+        params: {
+          tickSize: input.tickSize,
+          targetRMultiple: input.targetRMultiple,
+          stopAtrMultiple: input.stopAtrMultiple,
+          structureBufferAtr: input.structureBufferAtr
+        }
+      });
+    case "xau-trend-pullback-v1":
+      return proposeXauTrendPullbackStopTarget({
+        direction: input.direction,
+        entryPrice: input.entryPrice,
+        features: input.features,
+        candles: input.candles,
+        metadata: input.metadata,
+        params: {
+          tickSize: input.tickSize,
+          targetRMultiple: input.targetRMultiple,
+          stopAtrMultiple: input.stopAtrMultiple,
+          structureBufferAtr: input.structureBufferAtr
+        }
+      });
+    case "xau-trend-breakout-v2":
+      return proposeXauTrendBreakoutV2StopTarget({
         direction: input.direction,
         entryPrice: input.entryPrice,
         features: input.features,

@@ -11,7 +11,7 @@ function fmt(n: number | null | undefined, digits = 3): string {
   return n.toFixed(digits);
 }
 
-const INTERVALS = ["1m", "5m"] as const;
+const INTERVALS = ["1m", "5m", "15m"] as const;
 
 const COMPONENT_LABELS: Record<string, string> = {
   regimeFit: "regime fit",

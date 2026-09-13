@@ -12,7 +12,7 @@ const STRATEGIES = [
   { kind: "squeeze-breakout", label: "Squeeze Breakout" }
 ] as const;
 
-const INTERVALS = ["1m", "5m"] as const;
+const INTERVALS = ["1m", "5m", "15m"] as const;
 
 function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);

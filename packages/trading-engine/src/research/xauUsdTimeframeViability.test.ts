@@ -39,11 +39,11 @@ function m1(
 }
 
 describe("research-only 15m aggregation", () => {
-  it("does not widen production CandleInterval contracts", () => {
+  it("locks production CandleInterval contracts to 1m/5m/15m", () => {
     assertProductionIntervalsUnchanged();
-    expect(CANDLE_INTERVALS).toEqual(["1m", "5m"]);
+    expect(CANDLE_INTERVALS).toEqual(["1m", "5m", "15m"]);
     expect(RESEARCH_CANDLE_INTERVALS).toContain("15m");
-    expect(() => candleIntervalSchema.parse("15m")).toThrow();
+    expect(candleIntervalSchema.parse("15m")).toBe("15m");
     expect(candleIntervalSchema.parse("5m")).toBe("5m");
   });
 

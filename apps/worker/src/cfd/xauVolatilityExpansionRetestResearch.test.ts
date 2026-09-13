@@ -92,7 +92,7 @@ describe("xau-volatility-expansion-retest-v1 research", () => {
     "runs funnel / sensitivity / weekly / holdout vs baselines without enabling XAUUSD",
     async () => {
       assertProductionIntervalsUnchanged();
-      expect(CANDLE_INTERVALS).toEqual(["1m", "5m"]);
+      expect(CANDLE_INTERVALS).toEqual(["1m", "5m", "15m"]);
       expect(SQUEEZE_BREAKOUT_DEFAULTS).toBeTruthy();
       expect(BREAKOUT_MOMENTUM_DEFAULTS).toBeTruthy();
       expect(EMA_PULLBACK_DEFAULTS).toBeTruthy();

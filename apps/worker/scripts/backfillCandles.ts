@@ -110,7 +110,7 @@ async function main(): Promise<void> {
           displayName: "Gold / XAUUSD",
           enabled: true,
           pricePrecision: 2,
-          candleIntervals: ["1m", "5m"]
+          candleIntervals: ["1m", "5m", "15m"]
         }
       });
       console.log(JSON.stringify({ action: "catalogue-created", symbol: "XAUUSD", note: "research catalogue only — not allowlisted" }));

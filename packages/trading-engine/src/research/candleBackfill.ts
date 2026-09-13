@@ -65,7 +65,7 @@ export interface HistoricalBackfillResult {
   invalidSamples: Array<{ openTimeMs: number; failures: string[] }>;
 }
 
-const GRANULARITY_SEC: Record<CandleInterval, number> = { "1m": 60, "5m": 300 };
+const GRANULARITY_SEC: Record<CandleInterval, number> = { "1m": 60, "5m": 300, "15m": 900 };
 /**
  * Deriv `ticks_history` style=candles hard-caps at 1000 candles per request and
  * returns the *trailing* end of [start,end]. Windows larger than this silently

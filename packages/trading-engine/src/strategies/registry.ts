@@ -15,6 +15,14 @@ import {
   XauVolatilityExpansionRetestStrategy,
   XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS
 } from "./xauVolatilityExpansionRetest.js";
+import {
+  XauTrendPullbackStrategy,
+  XAU_TREND_PULLBACK_DEFAULTS
+} from "./xauTrendPullback.js";
+import {
+  XauTrendBreakoutV2Strategy,
+  XAU_TREND_BREAKOUT_V2_DEFAULTS
+} from "./xauTrendBreakoutV2.js";
 import { type StrategyCatalogueEntry, type TradingStrategy } from "./types.js";
 
 /** Instantiate a strategy implementation by kind. Strategies are stateless. */
@@ -35,6 +43,10 @@ export function createStrategy(kind: StrategyKind): TradingStrategy {
       return new XauMtfStructureMomentumStrategy();
     case "xau-volatility-expansion-retest":
       return new XauVolatilityExpansionRetestStrategy();
+    case "xau-trend-pullback":
+      return new XauTrendPullbackStrategy();
+    case "xau-trend-breakout":
+      return new XauTrendBreakoutV2Strategy();
   }
 }
 
@@ -45,7 +57,9 @@ export const DEFAULT_STRATEGY_PARAMETERS: Record<StrategyKind, Record<string, nu
   "squeeze-breakout": SQUEEZE_BREAKOUT_DEFAULTS,
   "trend-structure-pullback": TREND_STRUCTURE_PULLBACK_DEFAULTS,
   "xau-mtf-structure-momentum": XAU_MTF_STRUCTURE_MOMENTUM_DEFAULTS,
-  "xau-volatility-expansion-retest": XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS
+  "xau-volatility-expansion-retest": XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS,
+  "xau-trend-pullback": XAU_TREND_PULLBACK_DEFAULTS,
+  "xau-trend-breakout": XAU_TREND_BREAKOUT_V2_DEFAULTS
 };
 
 export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
@@ -121,6 +135,37 @@ export const STRATEGY_CATALOGUE: StrategyCatalogueEntry[] = [
       "RANGE_LOW_VOLATILITY",
       "RANGE_HIGH_VOLATILITY",
       "TRANSITION"
+    ],
+    cfdCapable: true
+  },
+  {
+    kind: "xau-trend-pullback",
+    name: "XAU Trend Pullback",
+    version: "1",
+    description:
+      "Research-only XAUUSD H4 EMA bias + M15 pullback/breakout candidate (id xau-trend-pullback-v1). Not auto-enabled for MT5/live.",
+    supportedRegimes: [
+      "STRONG_UPTREND",
+      "WEAK_UPTREND",
+      "STRONG_DOWNTREND",
+      "WEAK_DOWNTREND",
+      "BREAKOUT_EXPANSION"
+    ],
+    cfdCapable: true
+  },
+  {
+    kind: "xau-trend-breakout",
+    name: "XAU Trend Breakout",
+    version: "2",
+    description:
+      "Research-only XAUUSD H4 EMA bias + M15 consolidation/structural breakout candidate (id xau-trend-breakout-v2). Not auto-enabled for MT5/live.",
+    supportedRegimes: [
+      "STRONG_UPTREND",
+      "WEAK_UPTREND",
+      "STRONG_DOWNTREND",
+      "WEAK_DOWNTREND",
+      "BREAKOUT_EXPANSION",
+      "VOLATILITY_COMPRESSION"
     ],
     cfdCapable: true
   }

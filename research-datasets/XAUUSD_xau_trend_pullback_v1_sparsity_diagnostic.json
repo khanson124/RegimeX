@@ -1,0 +1,791 @@
+{
+  "generatedAt": "2026-09-12T23:30:29.726Z",
+  "strategyId": "xau-trend-pullback-v1",
+  "diagnosticOnly": true,
+  "productionDefaultsUnchanged": true,
+  "priorHoldout": {
+    "status": "CONSUMED_DO_NOT_USE_FOR_MODEL_SELECTION",
+    "startOpenTime": 1787529600000,
+    "startIso": "2026-08-24T00:00:00.000Z",
+    "endOpenTime": 1788872400000,
+    "endIso": "2026-09-08T13:00:00.000Z",
+    "note": "Inspected in prior research run; excluded from this diagnostic selection."
+  },
+  "developmentScope": {
+    "bars1m": 80838,
+    "startIso": "2026-06-01T00:01:00.000Z",
+    "endIso": "2026-08-21T20:55:00.000Z",
+    "holdoutExcluded": true
+  },
+  "baselineFunnel": {
+    "params": {
+      "h4SlopeLookback": 3,
+      "adxMinimum": 20,
+      "atrPercentileLookback": 100,
+      "atrPercentileMin": 0.2,
+      "atrPercentileMax": 0.85,
+      "sessionStartHourUtc": 7,
+      "sessionEndHourUtc": 17,
+      "maxDistanceFromEma21Atr": 2.5,
+      "pullbackTouchAtr": 0.6,
+      "swingLookback": 2,
+      "minContinuationBodyAtr": 0.1,
+      "stopAtrMultiple": 1.5,
+      "targetRMultiple": 2,
+      "structureBufferAtr": 0.15,
+      "cooldownCandles": 4,
+      "minimumConfidence": 0.55,
+      "maxSpreadBps": -1,
+      "maxSpreadVsMedianMult": 2,
+      "h4MinFillRatio": 0.25,
+      "continuationMode": "either"
+    },
+    "totalM15Bars": 5299,
+    "stages": [
+      {
+        "stage": "m15_bars",
+        "count": 5299,
+        "pctOfPrevious": null,
+        "pctOfTotal": 100,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "h4_context_valid",
+        "count": 4529,
+        "pctOfPrevious": 85.47,
+        "pctOfTotal": 85.47,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "h4_bias_non_neutral",
+        "count": 3103,
+        "pctOfPrevious": 68.51,
+        "pctOfTotal": 58.56,
+        "buyCandidates": 1541,
+        "sellCandidates": 1562
+      },
+      {
+        "stage": "adx_ok",
+        "count": 2115,
+        "pctOfPrevious": 68.16,
+        "pctOfTotal": 39.91,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "session_allowed",
+        "count": 984,
+        "pctOfPrevious": 46.52,
+        "pctOfTotal": 18.57,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "atr_percentile_ok",
+        "count": 576,
+        "pctOfPrevious": 58.54,
+        "pctOfTotal": 10.87,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "not_overextended",
+        "count": 523,
+        "pctOfPrevious": 90.8,
+        "pctOfTotal": 9.87,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "pullback_detected",
+        "count": 368,
+        "pctOfPrevious": 70.36,
+        "pctOfTotal": 6.94,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "continuation_detected",
+        "count": 105,
+        "pctOfPrevious": 28.53,
+        "pctOfTotal": 1.98,
+        "buyCandidates": 51,
+        "sellCandidates": 54
+      },
+      {
+        "stage": "cooldown_clear",
+        "count": 58,
+        "pctOfPrevious": 55.24,
+        "pctOfTotal": 1.09,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "spread_eligible",
+        "count": 58,
+        "pctOfPrevious": 100,
+        "pctOfTotal": 1.09,
+        "buyCandidates": 0,
+        "sellCandidates": 0
+      },
+      {
+        "stage": "final_signal",
+        "count": 58,
+        "pctOfPrevious": 100,
+        "pctOfTotal": 1.09,
+        "buyCandidates": 27,
+        "sellCandidates": 31
+      }
+    ],
+    "primaryBottlenecks": [
+      {
+        "stage": "continuation_detected",
+        "dropFromPrevious": 263,
+        "dropPct": 71.47
+      },
+      {
+        "stage": "session_allowed",
+        "dropFromPrevious": 1131,
+        "dropPct": 53.48
+      },
+      {
+        "stage": "cooldown_clear",
+        "dropFromPrevious": 47,
+        "dropPct": 44.76
+      },
+      {
+        "stage": "atr_percentile_ok",
+        "dropFromPrevious": 408,
+        "dropPct": 41.46
+      },
+      {
+        "stage": "adx_ok",
+        "dropFromPrevious": 988,
+        "dropPct": 31.84
+      }
+    ],
+    "directionOpportunity": {
+      "bullishH4Bars": 1541,
+      "bearishH4Bars": 1562,
+      "neutralH4Bars": 1426,
+      "finalBuy": 27,
+      "finalSell": 31
+    },
+    "sessionOpportunity": {
+      "LONDON_NY_OVERLAP": {
+        "barsWithBias": 544,
+        "signals": 26
+      },
+      "ASIA": {
+        "barsWithBias": 959,
+        "signals": 0
+      },
+      "LONDON": {
+        "barsWithBias": 684,
+        "signals": 29
+      },
+      "NY": {
+        "barsWithBias": 686,
+        "signals": 3
+      },
+      "OFF": {
+        "barsWithBias": 230,
+        "signals": 0
+      }
+    },
+    "atrPercentileOpportunity": {
+      "p20_40": {
+        "barsWithBias": 132,
+        "signals": 15
+      },
+      "p40_60": {
+        "barsWithBias": 177,
+        "signals": 20
+      },
+      "p60_85": {
+        "barsWithBias": 260,
+        "signals": 21
+      },
+      "p0_20": {
+        "barsWithBias": 160,
+        "signals": 0
+      },
+      "p85_100": {
+        "barsWithBias": 255,
+        "signals": 2
+      }
+    },
+    "adxOpportunity": {
+      "adx_15_20": {
+        "barsWithBias": 707,
+        "signals": 0
+      },
+      "adx_20_25": {
+        "barsWithBias": 706,
+        "signals": 30
+      },
+      "adx_25_30": {
+        "barsWithBias": 473,
+        "signals": 12
+      },
+      "adx_lt_15": {
+        "barsWithBias": 281,
+        "signals": 0
+      },
+      "adx_gte_30": {
+        "barsWithBias": 936,
+        "signals": 16
+      }
+    },
+    "pullback": {
+      "h4AlignedTrendBars": 3103,
+      "withPullback": 368,
+      "withContinuation": 105,
+      "expiredWithoutContinuation": 3,
+      "medianBarsPullbackToConfirmation": 1,
+      "note": "Pullback counted when M15 touches EMA21/50 within pullbackTouchAtr while H4 bias active; confirmation = continuation trigger within 16 M15 bars."
+    },
+    "alignmentAudit": {
+      "closedH4Only": true,
+      "noFutureH4LeakObserved": true,
+      "examples": [
+        {
+          "m15CloseIso": "2026-06-10T09:45:00.000Z",
+          "m15CloseTime": 1781084700000,
+          "latestH4OpenIso": "2026-06-10T04:00:00.000Z",
+          "latestH4CloseIso": "2026-06-10T08:00:00.000Z",
+          "latestH4CloseTime": 1781078400000,
+          "h4CloseBeforeM15": true,
+          "h4Bias": "NEUTRAL",
+          "note": "H4 bucket included only if closeTime <= M15 closeTime"
+        },
+        {
+          "m15CloseIso": "2026-06-22T02:00:00.000Z",
+          "m15CloseTime": 1782093600000,
+          "latestH4OpenIso": "2026-06-19T16:00:00.000Z",
+          "latestH4CloseIso": "2026-06-19T20:00:00.000Z",
+          "latestH4CloseTime": 1781899200000,
+          "h4CloseBeforeM15": true,
+          "h4Bias": "BEARISH",
+          "note": "H4 bucket included only if closeTime <= M15 closeTime"
+        },
+        {
+          "m15CloseIso": "2026-07-01T11:30:00.000Z",
+          "m15CloseTime": 1782905400000,
+          "latestH4OpenIso": "2026-07-01T04:00:00.000Z",
+          "latestH4CloseIso": "2026-07-01T08:00:00.000Z",
+          "latestH4CloseTime": 1782892800000,
+          "h4CloseBeforeM15": true,
+          "h4Bias": "BEARISH",
+          "note": "H4 bucket included only if closeTime <= M15 closeTime"
+        },
+        {
+          "m15CloseIso": "2026-07-13T03:45:00.000Z",
+          "m15CloseTime": 1783914300000,
+          "latestH4OpenIso": "2026-07-10T16:00:00.000Z",
+          "latestH4CloseIso": "2026-07-10T20:00:00.000Z",
+          "latestH4CloseTime": 1783713600000,
+          "h4CloseBeforeM15": true,
+          "h4Bias": "NEUTRAL",
+          "note": "H4 bucket included only if closeTime <= M15 closeTime"
+        },
+        {
+          "m15CloseIso": "2026-07-22T13:00:00.000Z",
+          "m15CloseTime": 1784725200000,
+          "latestH4OpenIso": "2026-07-22T08:00:00.000Z",
+          "latestH4CloseIso": "2026-07-22T12:00:00.000Z",
+          "latestH4CloseTime": 1784721600000,
+          "h4CloseBeforeM15": true,
+          "h4Bias": "BULLISH",
+          "note": "H4 bucket included only if closeTime <= M15 closeTime"
+        },
+        {
+          "m15CloseIso": "2026-08-03T01:45:00.000Z",
+          "m15CloseTime": 1785721500000,
+          "latestH4OpenIso": "2026-07-31T16:00:00.000Z",
+          "latestH4CloseIso": "2026-07-31T20:00:00.000Z",
+          "latestH4CloseTime": 1785528000000,
+          "h4CloseBeforeM15": true,
+          "h4Bias": "NEUTRAL",
+          "note": "H4 bucket included only if closeTime <= M15 closeTime"
+        }
+      ]
+    }
+  },
+  "primaryBottlenecks": [
+    {
+      "stage": "continuation_detected",
+      "dropFromPrevious": 263,
+      "dropPct": 71.47
+    },
+    {
+      "stage": "session_allowed",
+      "dropFromPrevious": 1131,
+      "dropPct": 53.48
+    },
+    {
+      "stage": "cooldown_clear",
+      "dropFromPrevious": 47,
+      "dropPct": 44.76
+    },
+    {
+      "stage": "atr_percentile_ok",
+      "dropFromPrevious": 408,
+      "dropPct": 41.46
+    },
+    {
+      "stage": "adx_ok",
+      "dropFromPrevious": 988,
+      "dropPct": 31.84
+    }
+  ],
+  "directionalDiagnostics": {
+    "bullishH4Bars": 1541,
+    "bearishH4Bars": 1562,
+    "neutralH4Bars": 1426,
+    "finalBuy": 27,
+    "finalSell": 31
+  },
+  "sessionDiagnostics": {
+    "LONDON_NY_OVERLAP": {
+      "barsWithBias": 544,
+      "signals": 26
+    },
+    "ASIA": {
+      "barsWithBias": 959,
+      "signals": 0
+    },
+    "LONDON": {
+      "barsWithBias": 684,
+      "signals": 29
+    },
+    "NY": {
+      "barsWithBias": 686,
+      "signals": 3
+    },
+    "OFF": {
+      "barsWithBias": 230,
+      "signals": 0
+    }
+  },
+  "volatilityDiagnostics": {
+    "p20_40": {
+      "barsWithBias": 132,
+      "signals": 15
+    },
+    "p40_60": {
+      "barsWithBias": 177,
+      "signals": 20
+    },
+    "p60_85": {
+      "barsWithBias": 260,
+      "signals": 21
+    },
+    "p0_20": {
+      "barsWithBias": 160,
+      "signals": 0
+    },
+    "p85_100": {
+      "barsWithBias": 255,
+      "signals": 2
+    }
+  },
+  "adxDiagnostics": {
+    "adx_15_20": {
+      "barsWithBias": 707,
+      "signals": 0
+    },
+    "adx_20_25": {
+      "barsWithBias": 706,
+      "signals": 30
+    },
+    "adx_25_30": {
+      "barsWithBias": 473,
+      "signals": 12
+    },
+    "adx_lt_15": {
+      "barsWithBias": 281,
+      "signals": 0
+    },
+    "adx_gte_30": {
+      "barsWithBias": 936,
+      "signals": 16
+    }
+  },
+  "pullbackDiagnostic": {
+    "h4AlignedTrendBars": 3103,
+    "withPullback": 368,
+    "withContinuation": 105,
+    "expiredWithoutContinuation": 3,
+    "medianBarsPullbackToConfirmation": 1,
+    "note": "Pullback counted when M15 touches EMA21/50 within pullbackTouchAtr while H4 bias active; confirmation = continuation trigger within 16 M15 bars."
+  },
+  "alignmentAudit": {
+    "closedH4Only": true,
+    "noFutureH4LeakObserved": true,
+    "examples": [
+      {
+        "m15CloseIso": "2026-06-10T09:45:00.000Z",
+        "m15CloseTime": 1781084700000,
+        "latestH4OpenIso": "2026-06-10T04:00:00.000Z",
+        "latestH4CloseIso": "2026-06-10T08:00:00.000Z",
+        "latestH4CloseTime": 1781078400000,
+        "h4CloseBeforeM15": true,
+        "h4Bias": "NEUTRAL",
+        "note": "H4 bucket included only if closeTime <= M15 closeTime"
+      },
+      {
+        "m15CloseIso": "2026-06-22T02:00:00.000Z",
+        "m15CloseTime": 1782093600000,
+        "latestH4OpenIso": "2026-06-19T16:00:00.000Z",
+        "latestH4CloseIso": "2026-06-19T20:00:00.000Z",
+        "latestH4CloseTime": 1781899200000,
+        "h4CloseBeforeM15": true,
+        "h4Bias": "BEARISH",
+        "note": "H4 bucket included only if closeTime <= M15 closeTime"
+      },
+      {
+        "m15CloseIso": "2026-07-01T11:30:00.000Z",
+        "m15CloseTime": 1782905400000,
+        "latestH4OpenIso": "2026-07-01T04:00:00.000Z",
+        "latestH4CloseIso": "2026-07-01T08:00:00.000Z",
+        "latestH4CloseTime": 1782892800000,
+        "h4CloseBeforeM15": true,
+        "h4Bias": "BEARISH",
+        "note": "H4 bucket included only if closeTime <= M15 closeTime"
+      },
+      {
+        "m15CloseIso": "2026-07-13T03:45:00.000Z",
+        "m15CloseTime": 1783914300000,
+        "latestH4OpenIso": "2026-07-10T16:00:00.000Z",
+        "latestH4CloseIso": "2026-07-10T20:00:00.000Z",
+        "latestH4CloseTime": 1783713600000,
+        "h4CloseBeforeM15": true,
+        "h4Bias": "NEUTRAL",
+        "note": "H4 bucket included only if closeTime <= M15 closeTime"
+      },
+      {
+        "m15CloseIso": "2026-07-22T13:00:00.000Z",
+        "m15CloseTime": 1784725200000,
+        "latestH4OpenIso": "2026-07-22T08:00:00.000Z",
+        "latestH4CloseIso": "2026-07-22T12:00:00.000Z",
+        "latestH4CloseTime": 1784721600000,
+        "h4CloseBeforeM15": true,
+        "h4Bias": "BULLISH",
+        "note": "H4 bucket included only if closeTime <= M15 closeTime"
+      },
+      {
+        "m15CloseIso": "2026-08-03T01:45:00.000Z",
+        "m15CloseTime": 1785721500000,
+        "latestH4OpenIso": "2026-07-31T16:00:00.000Z",
+        "latestH4CloseIso": "2026-07-31T20:00:00.000Z",
+        "latestH4CloseTime": 1785528000000,
+        "h4CloseBeforeM15": true,
+        "h4Bias": "NEUTRAL",
+        "note": "H4 bucket included only if closeTime <= M15 closeTime"
+      }
+    ]
+  },
+  "ablationTable": [
+    {
+      "variantId": "baseline",
+      "family": "baseline",
+      "changeDescription": "Current defaults",
+      "params": {},
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 37,
+      "expectancyR": 0.0488,
+      "profitFactor": 1.1028,
+      "netR": 1.8044,
+      "maxDrawdownR": 6.4524,
+      "winRate": 0.4324,
+      "buyTrades": 19,
+      "sellTrades": 18,
+      "costSensitivity": null,
+      "funnelFinalSignals": 58
+    },
+    {
+      "variantId": "adx_15",
+      "family": "adx",
+      "changeDescription": "ADX >= 15",
+      "params": {
+        "adxMinimum": 15
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 46,
+      "expectancyR": 0.0103,
+      "profitFactor": 1.0284,
+      "netR": 0.4739,
+      "maxDrawdownR": 8.5087,
+      "winRate": 0.4348,
+      "buyTrades": 25,
+      "sellTrades": 21,
+      "costSensitivity": null,
+      "funnelFinalSignals": 81
+    },
+    {
+      "variantId": "adx_25",
+      "family": "adx",
+      "changeDescription": "ADX >= 25",
+      "params": {
+        "adxMinimum": 25
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 26,
+      "expectancyR": 0.0064,
+      "profitFactor": 0.9843,
+      "netR": 0.166,
+      "maxDrawdownR": 5.4479,
+      "winRate": 0.4231,
+      "buyTrades": 10,
+      "sellTrades": 16,
+      "costSensitivity": null,
+      "funnelFinalSignals": 31
+    },
+    {
+      "variantId": "atr_10_90",
+      "family": "atr_percentile",
+      "changeDescription": "ATR pctl 10–90",
+      "params": {
+        "atrPercentileMin": 0.1,
+        "atrPercentileMax": 0.9
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 42,
+      "expectancyR": -0.0496,
+      "profitFactor": 0.8875,
+      "netR": -2.0835,
+      "maxDrawdownR": 9.2386,
+      "winRate": 0.4048,
+      "buyTrades": 20,
+      "sellTrades": 22,
+      "costSensitivity": null,
+      "funnelFinalSignals": 67
+    },
+    {
+      "variantId": "atr_15_90",
+      "family": "atr_percentile",
+      "changeDescription": "ATR pctl 15–90",
+      "params": {
+        "atrPercentileMin": 0.15,
+        "atrPercentileMax": 0.9
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 39,
+      "expectancyR": 0.022,
+      "profitFactor": 1.0472,
+      "netR": 0.8591,
+      "maxDrawdownR": 6.296,
+      "winRate": 0.4359,
+      "buyTrades": 20,
+      "sellTrades": 19,
+      "costSensitivity": null,
+      "funnelFinalSignals": 62
+    },
+    {
+      "variantId": "atr_20_90",
+      "family": "atr_percentile",
+      "changeDescription": "ATR pctl 20–90",
+      "params": {
+        "atrPercentileMin": 0.2,
+        "atrPercentileMax": 0.9
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 38,
+      "expectancyR": 0.0493,
+      "profitFactor": 1.1253,
+      "netR": 1.8753,
+      "maxDrawdownR": 6.2944,
+      "winRate": 0.4474,
+      "buyTrades": 19,
+      "sellTrades": 19,
+      "costSensitivity": null,
+      "funnelFinalSignals": 60
+    },
+    {
+      "variantId": "session_06_18",
+      "family": "session",
+      "changeDescription": "Session 06:00–18:00 UTC",
+      "params": {
+        "sessionStartHourUtc": 6,
+        "sessionEndHourUtc": 18
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 46,
+      "expectancyR": 0.1465,
+      "profitFactor": 1.3324,
+      "netR": 6.7381,
+      "maxDrawdownR": 4.5612,
+      "winRate": 0.5,
+      "buyTrades": 23,
+      "sellTrades": 23,
+      "costSensitivity": null,
+      "funnelFinalSignals": 73
+    },
+    {
+      "variantId": "session_07_18",
+      "family": "session",
+      "changeDescription": "Session 07:00–18:00 UTC",
+      "params": {
+        "sessionStartHourUtc": 7,
+        "sessionEndHourUtc": 18
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 42,
+      "expectancyR": 0.1474,
+      "profitFactor": 1.3758,
+      "netR": 6.1893,
+      "maxDrawdownR": 3.9793,
+      "winRate": 0.4762,
+      "buyTrades": 20,
+      "sellTrades": 22,
+      "costSensitivity": null,
+      "funnelFinalSignals": 64
+    },
+    {
+      "variantId": "max_dist_2_0",
+      "family": "max_ema21_distance",
+      "changeDescription": "Max EMA21 distance 2.0 ATR",
+      "params": {
+        "maxDistanceFromEma21Atr": 2
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 35,
+      "expectancyR": 0.0236,
+      "profitFactor": 1.0734,
+      "netR": 0.8275,
+      "maxDrawdownR": 6.4114,
+      "winRate": 0.4286,
+      "buyTrades": 18,
+      "sellTrades": 17,
+      "costSensitivity": null,
+      "funnelFinalSignals": 55
+    },
+    {
+      "variantId": "max_dist_3_0",
+      "family": "max_ema21_distance",
+      "changeDescription": "Max EMA21 distance 3.0 ATR",
+      "params": {
+        "maxDistanceFromEma21Atr": 3
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 38,
+      "expectancyR": 0.0575,
+      "profitFactor": 1.1254,
+      "netR": 2.1845,
+      "maxDrawdownR": 6.4524,
+      "winRate": 0.4474,
+      "buyTrades": 20,
+      "sellTrades": 18,
+      "costSensitivity": null,
+      "funnelFinalSignals": 60
+    },
+    {
+      "variantId": "slope_2",
+      "family": "h4_slope",
+      "changeDescription": "H4 slope lookback 2",
+      "params": {
+        "h4SlopeLookback": 2
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 34,
+      "expectancyR": 0.1133,
+      "profitFactor": 1.2378,
+      "netR": 3.8534,
+      "maxDrawdownR": 5.4023,
+      "winRate": 0.4706,
+      "buyTrades": 17,
+      "sellTrades": 17,
+      "costSensitivity": null,
+      "funnelFinalSignals": 53
+    },
+    {
+      "variantId": "slope_4",
+      "family": "h4_slope",
+      "changeDescription": "H4 slope lookback 4",
+      "params": {
+        "h4SlopeLookback": 4
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 35,
+      "expectancyR": 0.0664,
+      "profitFactor": 1.1234,
+      "netR": 2.3226,
+      "maxDrawdownR": 6.8984,
+      "winRate": 0.4286,
+      "buyTrades": 19,
+      "sellTrades": 16,
+      "costSensitivity": null,
+      "funnelFinalSignals": 54
+    },
+    {
+      "variantId": "cont_breakout_only",
+      "family": "continuation",
+      "changeDescription": "Structure breakout only",
+      "params": {
+        "continuationMode": "breakout_only"
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 23,
+      "expectancyR": -0.1334,
+      "profitFactor": 0.7741,
+      "netR": -3.0674,
+      "maxDrawdownR": 6.7763,
+      "winRate": 0.3913,
+      "buyTrades": 13,
+      "sellTrades": 10,
+      "costSensitivity": null,
+      "funnelFinalSignals": 29
+    },
+    {
+      "variantId": "cont_reclaim_only",
+      "family": "continuation",
+      "changeDescription": "EMA reclaim only",
+      "params": {
+        "continuationMode": "reclaim_only"
+      },
+      "sampleSizeLabel": "TOO_SPARSE",
+      "developmentTrades": 35,
+      "expectancyR": -0.0372,
+      "profitFactor": 0.9432,
+      "netR": -1.3007,
+      "maxDrawdownR": 5.3461,
+      "winRate": 0.4,
+      "buyTrades": 18,
+      "sellTrades": 17,
+      "costSensitivity": null,
+      "funnelFinalSignals": 48
+    }
+  ],
+  "recommendation": {
+    "recommendedVariantId": null,
+    "change": null,
+    "rationale": [
+      "No single one-at-a-time relaxation reached ≥50 development trades (baseline=37).",
+      "Largest funnel drop at stage: continuation_detected.",
+      "Stacked H4 bias + pullback + continuation filters remain jointly restrictive for this sample."
+    ],
+    "architectureTooRestrictive": true,
+    "note": "At most one modest change; not selected using the consumed prior holdout."
+  },
+  "proposedNewUntouchedHoldout": {
+    "status": "PENDING_ADDITIONAL_HISTORY",
+    "startOpenTime": 1788872460000,
+    "startIso": "2026-09-08T13:01:00.000Z",
+    "rationale": "Chronological period after the consumed prior holdout end. Not evaluated in this diagnostic. Required for eventual revised-strategy validation.",
+    "doNotEvaluateInThisRun": true
+  },
+  "costAssumptions": {
+    "observedSpreadBps": 0.61,
+    "spreadStatus": "PRELIMINARY",
+    "note": "ASSUMED_SLIP_* is modeled/hypothetical — never label as empirical"
+  },
+  "safety": {
+    "nothingDeployed": true,
+    "productionStrategyConfigUnchanged": true,
+    "priorHoldoutNotUsedForSelection": true,
+    "r10Untouched": true
+  }
+}

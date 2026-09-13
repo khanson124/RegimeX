@@ -71,7 +71,7 @@ function trendingSeries(count: number, direction: "up" | "down"): Candle[] {
 describe("mtf as-of resample + no lookahead", () => {
   it("does not widen production intervals", () => {
     assertProductionIntervalsUnchanged();
-    expect(CANDLE_INTERVALS).toEqual(["1m", "5m"]);
+    expect(CANDLE_INTERVALS).toEqual(["1m", "5m", "15m"]);
   });
 
   it("15m context only uses completed bars as-of", () => {

@@ -39,7 +39,7 @@ export function registerMarketDataRoutes(app: FastifyInstance, ctx: AppContext):
 
     const coverage = [];
     for (const s of symbols) {
-      for (const iv of ["1m", "5m"] as CandleInterval[]) {
+      for (const iv of ["1m", "5m", "15m"] as CandleInterval[]) {
         if (interval && iv !== interval) continue;
         const [first, last, count] = await Promise.all([
           ctx.prisma.candle.findFirst({

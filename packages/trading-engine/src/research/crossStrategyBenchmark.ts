@@ -23,6 +23,14 @@ import {
   XauVolatilityExpansionRetestStrategy,
   XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS
 } from "../strategies/xauVolatilityExpansionRetest.js";
+import {
+  XauTrendPullbackStrategy,
+  XAU_TREND_PULLBACK_DEFAULTS
+} from "../strategies/xauTrendPullback.js";
+import {
+  XauTrendBreakoutV2Strategy,
+  XAU_TREND_BREAKOUT_V2_DEFAULTS
+} from "../strategies/xauTrendBreakoutV2.js";
 import { CFD_CAPABLE_STRATEGY_IDS } from "../strategies/cfdCapability.js";
 import { type TradingStrategy } from "../strategies/types.js";
 import {
@@ -104,6 +112,18 @@ export function listBenchmarkStrategies(
       strategy: new XauVolatilityExpansionRetestStrategy(),
       parameters: { ...XAU_VOLATILITY_EXPANSION_RETEST_DEFAULTS },
       family: classifyStrategyFamily("xau-volatility-expansion-retest-v1")
+    },
+    {
+      strategyId: "xau-trend-pullback-v1",
+      strategy: new XauTrendPullbackStrategy(),
+      parameters: { ...XAU_TREND_PULLBACK_DEFAULTS },
+      family: classifyStrategyFamily("xau-trend-pullback-v1")
+    },
+    {
+      strategyId: "xau-trend-breakout-v2",
+      strategy: new XauTrendBreakoutV2Strategy(),
+      parameters: { ...XAU_TREND_BREAKOUT_V2_DEFAULTS },
+      family: classifyStrategyFamily("xau-trend-breakout-v2")
     }
   ];
 

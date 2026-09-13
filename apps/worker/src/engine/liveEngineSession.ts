@@ -76,9 +76,14 @@ import {
 } from "./liveEngineMarketData.js";
 import { Mt5QuotePollInFlightGate } from "./mt5QuotePollInFlight.js";
 import {
-  R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
-  shouldBlockR10SqueezeForwardTrialSell
+  R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+  shouldBlockR10SqueezeForwardTrial
 } from "./r10SqueezeForwardTrialGuard.js";
+import {
+  XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+  isXauTrendPullbackForwardTrialExecutable,
+  shouldBlockXauUsdForwardTrialExecution
+} from "./xauTrendPullbackForwardTrialGuard.js";
 
 export interface SessionDeps {
   prisma: PrismaClient;
@@ -907,9 +912,9 @@ export class LiveEngineSession {
     }
 
     if (this.executionBackend === "broker_demo_mt5") {
-      // Temporary DEMO forward-trial guard: R_10 1m squeeze-breakout-v1 SELL is research-only.
+      // Temporary DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY.
       if (
-        shouldBlockR10SqueezeForwardTrialSell({
+        shouldBlockR10SqueezeForwardTrial({
           executionBackend: this.executionBackend,
           symbol: this.symbol,
           interval: this.interval,
@@ -920,17 +925,17 @@ export class LiveEngineSession {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
         await this.recordCandidate(latest, correlationId, {
           decisionCode: "REJECT_STRATEGY",
-          rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
+          rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
           reasons: [
-            R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
-            "DEMO forward-trial directional guard: R_10 1m squeeze-breakout-v1 SELL persisted but not executed on MT5"
+            R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+            "DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY may execute on MT5"
           ],
           strategyId: chosen.strategy.id,
           direction: decision.action
         });
         await this.logAutonomousDecision("NO_TRADE", [
-          R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON,
-          "DEMO forward-trial directional guard — SELL not submitted to MT5"
+          R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+          "DEMO forward-trial guard — not 1m BUY; not submitted to MT5"
         ], {
           strategyId: chosen.strategy.id,
           action: decision.action,
@@ -941,7 +946,48 @@ export class LiveEngineSession {
             interval: this.interval,
             internalSymbol: this.symbol,
             forwardTrialDirectionalGuard: true,
-            reason: R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON
+            reason: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON
+          }
+        });
+        return;
+      }
+
+      // Temporary DEMO forward-trial guard: XAUUSD only 15m xau-trend-pullback-v1 BUY|SELL.
+      if (
+        shouldBlockXauUsdForwardTrialExecution({
+          executionBackend: this.executionBackend,
+          symbol: this.symbol,
+          interval: this.interval,
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          realMoneyEnabled: config.REAL_MONEY_ENABLED === true
+        })
+      ) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        await this.recordCandidate(latest, correlationId, {
+          decisionCode: "REJECT_STRATEGY",
+          rejectionCode: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+          reasons: [
+            XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+            "DEMO forward-trial guard: XAUUSD only 15m xau-trend-pullback-v1 BUY|SELL may execute on MT5"
+          ],
+          strategyId: chosen.strategy.id,
+          direction: decision.action
+        });
+        await this.logAutonomousDecision("NO_TRADE", [
+          XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+          "DEMO forward-trial guard — XAUUSD combo rejected; not submitted to MT5"
+        ], {
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          correlationId,
+          regime: regime.regime,
+          regimeConfidence: regime.confidence,
+          featureSummary: {
+            interval: this.interval,
+            internalSymbol: this.symbol,
+            xauForwardTrialExperimental: true,
+            reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON
           }
         });
         return;
@@ -997,6 +1043,20 @@ export class LiveEngineSession {
       if (shouldConsumeStrategySignalCooldown({ opened: result.opened, decisionCode: result.decisionCode })) {
         this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);
       }
+      const xauTrialTag = isXauTrendPullbackForwardTrialExecutable({
+        executionBackend: this.executionBackend,
+        symbol: this.symbol,
+        interval: this.interval,
+        strategyId: chosen.strategy.id,
+        action: decision.action,
+        realMoneyEnabled: config.REAL_MONEY_ENABLED === true
+      })
+        ? {
+            xauForwardTrialExperimental: true,
+            reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+            forwardTrialSeparateFromR10: true
+          }
+        : {};
       await this.recordCandidate(latest, correlationId, {
         decisionCode:
           result.decisionCode === "RISK_BLOCKED"
@@ -1009,7 +1069,9 @@ export class LiveEngineSession {
                   ? "TRADE"
                   : "NO_SIGNAL",
         rejectionCode: result.opened ? null : result.decisionCode,
-        reasons: result.reasons,
+        reasons: result.opened
+          ? [...result.reasons, ...(xauTrialTag.reason ? [xauTrialTag.reason] : [])]
+          : result.reasons,
         strategyId: chosen.strategy.id,
         direction: decision.action
       });
@@ -1041,6 +1103,7 @@ export class LiveEngineSession {
             strategyDecision: decision.action,
             volumePreflight: result.preflight ?? null,
             entryFeatureTelemetry: result.entryFeatureTelemetry ?? null,
+            ...xauTrialTag,
             ...(result.preflight ?? {}),
             ...(this.mt5Cfd?.getHealthSnapshot() ?? {})
           }
@@ -1062,6 +1125,7 @@ export class LiveEngineSession {
             strategyDecision: decision.action,
             volumePreflight: result.preflight ?? null,
             entryFeatureTelemetry: result.entryFeatureTelemetry ?? null,
+            ...xauTrialTag,
             ...(result.preflight ?? {})
           }
         });

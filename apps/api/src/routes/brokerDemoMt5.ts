@@ -184,7 +184,7 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
         displayName: live.description || live.name,
         enabled: true,
         pricePrecision: live.digits,
-        candleIntervals: ["1m", "5m"]
+        candleIntervals: ["1m", "5m", "15m"]
       },
       update: {
         displayName: live.description || live.name,

@@ -154,7 +154,7 @@ describe("proposeSqueezeBreakoutStopTarget", () => {
       }).success
     ).toBe(false);
 
-    expect(CFD_CAPABLE_STRATEGY_IDS).toHaveLength(8);
+    expect(CFD_CAPABLE_STRATEGY_IDS).toHaveLength(10);
     expect(isCfdCapableStrategy("squeeze-breakout-v1")).toBe(true);
     expect(new SqueezeBreakoutStrategy().supportedRegimes).not.toContain("STRONG_UPTREND");
   });

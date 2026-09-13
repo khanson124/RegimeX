@@ -1,10 +1,11 @@
 /** Supported candle intervals. Extend cautiously — aggregation must stay deterministic. */
-export const CANDLE_INTERVALS = ["1m", "5m"] as const;
+export const CANDLE_INTERVALS = ["1m", "5m", "15m"] as const;
 export type CandleInterval = (typeof CANDLE_INTERVALS)[number];
 
 export const CANDLE_INTERVAL_SECONDS: Record<CandleInterval, number> = {
   "1m": 60,
-  "5m": 300
+  "5m": 300,
+  "15m": 900
 };
 
 export type CandleSource =

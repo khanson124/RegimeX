@@ -6,7 +6,7 @@ import { useCreateBacktest, useSymbols } from "../../src/api/hooks";
 import { Button, Card, Input, Row, SectionTitle } from "../../src/components/ui";
 import { colors, font, spacing } from "../../src/theme";
 
-const INTERVALS = ["1m", "5m"] as const;
+const INTERVALS = ["1m", "5m", "15m"] as const;
 const MODES = ["AUTO", "ENSEMBLE"] as const;
 const EXEC_MODELS = [
   { value: "cfd_v1" as const, label: "CFD (cfd_v1)" },

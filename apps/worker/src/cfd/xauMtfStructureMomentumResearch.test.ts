@@ -90,7 +90,7 @@ describe("xau-mtf-structure-momentum-v1 research", () => {
     "runs development / sensitivity / WF / holdout vs baselines without enabling XAUUSD",
     async () => {
       assertProductionIntervalsUnchanged();
-      expect(CANDLE_INTERVALS).toEqual(["1m", "5m"]);
+      expect(CANDLE_INTERVALS).toEqual(["1m", "5m", "15m"]);
       // Existing strategy defaults untouched
       expect(SQUEEZE_BREAKOUT_DEFAULTS).toBeTruthy();
       expect(BREAKOUT_MOMENTUM_DEFAULTS).toBeTruthy();
