@@ -44,9 +44,9 @@ import {
   countMt5ProvenanceSources,
   assembleMt5HistoricalWarmup,
   planMt5HistoricalWarmup,
-  mergeMtfWarmupSpecs,
   mtfWarmupReadiness,
-  resolveStrategyMtfWarmupSpec,
+  resolveSessionMtfWarmupSpec,
+  filterStrategiesForSessionWarmup,
   isMt5WarmupTimeframe,
   type Mt5WarmupRequirement,
   type MultiTimeframeWarmupSpec,
@@ -372,10 +372,16 @@ export class LiveEngineSession {
     });
     this.candles = restored.candles;
     if (this.executionBackend === "broker_demo_mt5") {
+      // Warm-up eligibility is scoped to strategies that can run on THIS
+      // session's symbol + interval — not the global MT5 allowlist alone.
+      const sessionScopedStrategies = filterStrategiesForSessionWarmup(
+        this.strategies.map((s) => s.strategy),
+        { symbol: this.symbol, interval: this.interval }
+      );
       this.mt5WarmupRequirement = resolveMt5WarmupRequirement({
-        strategies: this.strategies.map((s) => ({
-          strategyId: s.strategy.id,
-          minimumHistory: s.strategy.minimumHistory
+        strategies: sessionScopedStrategies.map((s) => ({
+          strategyId: s.id,
+          minimumHistory: s.minimumHistory
         })),
         executionBackend: this.executionBackend,
         config,
@@ -385,12 +391,14 @@ export class LiveEngineSession {
 
       const eligibleIds =
         this.mt5WarmupRequirement.status === "REQUIRES_BARS"
-          ? new Set(this.mt5WarmupRequirement.eligibleStrategyIds)
-          : new Set<string>();
-      const mtfSpecs = this.strategies
-        .filter((s) => eligibleIds.has(s.strategy.id))
-        .map((s) => resolveStrategyMtfWarmupSpec(s.strategy));
-      this.mt5MtfSpec = mergeMtfWarmupSpecs(mtfSpecs, this.interval);
+          ? this.mt5WarmupRequirement.eligibleStrategyIds
+          : [];
+      this.mt5MtfSpec = resolveSessionMtfWarmupSpec({
+        strategies: sessionScopedStrategies,
+        eligibleStrategyIds: eligibleIds,
+        symbol: this.symbol,
+        interval: this.interval
+      });
 
       // Restore context intervals (e.g. 4h) separately — never into M15 buffer.
       this.mt5ContextCandles.clear();
@@ -432,6 +440,10 @@ export class LiveEngineSession {
           persistedMt5History: sourceMixRestored.history,
           persistedMt5LiveTicks: sourceMixRestored.liveTicks,
           restoredBars: this.candles.length,
+          sessionSymbol: this.symbol,
+          sessionInterval: this.interval,
+          sessionScopedStrategyIds: sessionScopedStrategies.map((s) => s.id),
+          mtfRequirements: this.mt5MtfSpec?.requirements ?? [],
           contextIntervals: [...this.mt5ContextCandles.entries()].map(([iv, bars]) => ({
             interval: iv,
             bars: bars.length

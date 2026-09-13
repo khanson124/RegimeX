@@ -2,6 +2,9 @@
  * Multi-timeframe warm-up requirements for broker_demo_mt5 strategies.
  * Execution candles stay on the engine interval; context intervals (e.g. 4h)
  * are fetched/persisted separately and never mixed into the live M15 buffer.
+ *
+ * Specs MUST be scoped per LiveEngineSession (symbol + interval + allowlist).
+ * Never merge global allowlist strategies that cannot execute on this session.
  */
 import { type Candle } from "@regimex/shared";
 import { DEFAULT_FEATURE_CONFIG, minimumCandlesForFeatures } from "../features/featureExtractor.js";
@@ -25,6 +28,7 @@ export interface MultiTimeframeWarmupSpec {
 /** Strategies may declare explicit MTF warm-up; otherwise minimumHistory alone applies. */
 export type StrategyWithOptionalMtfWarmup = TradingStrategy & {
   multiTimeframeWarmup?: MultiTimeframeWarmupSpec;
+  allowedIntervals?: readonly string[];
 };
 
 export function isMt5WarmupTimeframe(interval: string): interval is Mt5BarTimeframe {
@@ -44,18 +48,58 @@ export function completedContextBarsAsOf(
     .sort((a, b) => a.openTime - b.openTime);
 }
 
+/**
+ * True when the strategy could evaluate/execute on this session's symbol + interval.
+ * Empty allowedSymbols / allowedIntervals means unrestricted on that axis.
+ */
+export function strategyAppliesToSession(
+  strategy: StrategyWithOptionalMtfWarmup,
+  session: { symbol: string; interval: string }
+): boolean {
+  const eligibilityIntervals = (strategy.eligibility.allowedIntervals ?? []).map(String);
+  const classIntervals = (strategy.allowedIntervals ?? []).map(String);
+  const intervals =
+    eligibilityIntervals.length > 0
+      ? eligibilityIntervals
+      : classIntervals.length > 0
+        ? classIntervals
+        : [];
+  if (intervals.length > 0 && !intervals.includes(session.interval)) {
+    return false;
+  }
+
+  if (
+    strategy.multiTimeframeWarmup &&
+    strategy.multiTimeframeWarmup.executionInterval !== session.interval
+  ) {
+    return false;
+  }
+
+  const symbols = strategy.eligibility.allowedSymbols ?? [];
+  if (symbols.length > 0 && !symbols.includes(session.symbol)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function resolveStrategyMtfWarmupSpec(
-  strategy: StrategyWithOptionalMtfWarmup
+  strategy: StrategyWithOptionalMtfWarmup,
+  engineInterval?: string
 ): MultiTimeframeWarmupSpec {
   if (strategy.multiTimeframeWarmup) {
     return strategy.multiTimeframeWarmup;
   }
-  const executionInterval = strategy.eligibility.allowedIntervals[0] ?? "1m";
+  const allowed = (strategy.eligibility.allowedIntervals ?? []).map(String);
+  const executionInterval =
+    engineInterval && (allowed.length === 0 || allowed.includes(engineInterval))
+      ? engineInterval
+      : (allowed[0] ?? engineInterval ?? "1m");
   return {
-    executionInterval: String(executionInterval),
+    executionInterval,
     requirements: [
       {
-        interval: String(executionInterval),
+        interval: executionInterval,
         minimumBars: strategy.minimumHistory,
         role: "execution"
       }
@@ -64,16 +108,18 @@ export function resolveStrategyMtfWarmupSpec(
 }
 
 /**
- * Aggregate MTF specs across eligible strategies for a session.
- * Execution interval must match the engine interval; context intervals are unioned (max bars).
+ * Aggregate MTF specs for one session.
+ * Only specs whose executionInterval matches the engine interval are merged;
+ * foreign MTF strategies (e.g. XAU 15m/4h) cannot contaminate R_10 1m.
  */
 export function mergeMtfWarmupSpecs(
   specs: readonly MultiTimeframeWarmupSpec[],
   engineInterval: string
 ): MultiTimeframeWarmupSpec | null {
-  if (specs.length === 0) return null;
+  const scoped = specs.filter((s) => s.executionInterval === engineInterval);
+  if (scoped.length === 0) return null;
   const byInterval = new Map<string, StrategyIntervalWarmupRequirement>();
-  for (const spec of specs) {
+  for (const spec of scoped) {
     for (const req of spec.requirements) {
       const existing = byInterval.get(req.interval);
       if (!existing || req.minimumBars > existing.minimumBars) {
@@ -85,11 +131,10 @@ export function mergeMtfWarmupSpecs(
       }
     }
   }
-  // Ensure execution requirement exists for engine interval
   if (!byInterval.has(engineInterval)) {
     const maxExec = Math.max(
-      ...specs.map((s) =>
-        s.requirements.find((r) => r.role === "execution")?.minimumBars ?? 0
+      ...scoped.map(
+        (s) => s.requirements.find((r) => r.role === "execution")?.minimumBars ?? 0
       ),
       0
     );
@@ -103,6 +148,37 @@ export function mergeMtfWarmupSpecs(
     executionInterval: engineInterval,
     requirements: [...byInterval.values()]
   };
+}
+
+/**
+ * Session-scoped MTF warm-up: allowlist ∩ symbol/interval applicability.
+ */
+export function resolveSessionMtfWarmupSpec(input: {
+  strategies: readonly StrategyWithOptionalMtfWarmup[];
+  eligibleStrategyIds: ReadonlySet<string> | readonly string[];
+  symbol: string;
+  interval: string;
+}): MultiTimeframeWarmupSpec | null {
+  const eligible =
+    input.eligibleStrategyIds instanceof Set
+      ? input.eligibleStrategyIds
+      : new Set(input.eligibleStrategyIds);
+  const specs = input.strategies
+    .filter((s) => eligible.has(s.id))
+    .filter((s) => strategyAppliesToSession(s, { symbol: input.symbol, interval: input.interval }))
+    .map((s) => resolveStrategyMtfWarmupSpec(s, input.interval));
+  return mergeMtfWarmupSpecs(specs, input.interval);
+}
+
+/**
+ * Strategies that may contribute warm-up bars for this session
+ * (before / after allowlist gating by caller).
+ */
+export function filterStrategiesForSessionWarmup<T extends StrategyWithOptionalMtfWarmup>(
+  strategies: readonly T[],
+  session: { symbol: string; interval: string }
+): T[] {
+  return strategies.filter((s) => strategyAppliesToSession(s, session));
 }
 
 export function mtfWarmupReadiness(input: {

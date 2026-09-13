@@ -12,13 +12,17 @@ import { type StrategyContext } from "../strategies/types.js";
 import {
   completedContextBarsAsOf,
   deriveXauTrendPullbackM15MinimumBars,
+  filterStrategiesForSessionWarmup,
   mergeMtfWarmupSpecs,
   mtfWarmupReadiness,
+  resolveSessionMtfWarmupSpec,
+  strategyAppliesToSession,
   XAU_TREND_PULLBACK_H4_MINIMUM_BARS,
   XAU_TREND_PULLBACK_M15_MINIMUM_BARS
 } from "./mt5MtfWarmup.js";
 import { candleIntervalToMt5BarTimeframe } from "./mt5HistoricalWarmup.js";
 import { SqueezeBreakoutStrategy } from "../strategies/squeezeBreakout.js";
+import { isMt5MarketDataReady, resolveMt5WarmupRequirement } from "./mt5MarketData.js";
 
 function m15(
   i: number,
@@ -245,6 +249,208 @@ describe("mergeMtfWarmupSpecs", () => {
     expect(merged?.requirements.some((r) => r.interval === "15m" && r.minimumBars === 120)).toBe(
       true
     );
+  });
+
+  it("drops foreign executionInterval specs (XAU cannot contaminate R_10)", () => {
+    const xau = new XauTrendPullbackStrategy().multiTimeframeWarmup!;
+    const squeeze = {
+      executionInterval: "1m",
+      requirements: [{ interval: "1m", minimumBars: 80, role: "execution" as const }]
+    };
+    const merged = mergeMtfWarmupSpecs([squeeze, xau], "1m");
+    expect(merged?.requirements.map((r) => r.interval).sort()).toEqual(["1m"]);
+    expect(merged?.requirements.some((r) => r.interval === "15m" || r.interval === "4h")).toBe(
+      false
+    );
+  });
+});
+
+describe("session-scoped MTF warm-up", () => {
+  const demoConfig = {
+    EXECUTION_MODE: "broker_demo_mt5",
+    REAL_MONEY_ENABLED: false,
+    MT5_ENGINE_ENABLED: true,
+    MT5_ENGINE_STRATEGY_ALLOWLIST: "squeeze-breakout-v1,xau-trend-pullback-v1"
+  };
+
+  it("XAU strategy does not apply to R_10/1m", () => {
+    const xau = new XauTrendPullbackStrategy();
+    const squeeze = new SqueezeBreakoutStrategy();
+    expect(strategyAppliesToSession(xau, { symbol: "R_10", interval: "1m" })).toBe(false);
+    expect(strategyAppliesToSession(squeeze, { symbol: "R_10", interval: "1m" })).toBe(true);
+    expect(strategyAppliesToSession(xau, { symbol: "XAUUSD", interval: "15m" })).toBe(true);
+    expect(strategyAppliesToSession(squeeze, { symbol: "XAUUSD", interval: "15m" })).toBe(false);
+  });
+
+  it("R_10 / 1m / AUTO / global allowlist with squeeze+xau → only 1m warm-up", () => {
+    const strategies = [new SqueezeBreakoutStrategy(), new XauTrendPullbackStrategy()];
+    const sessionScoped = filterStrategiesForSessionWarmup(strategies, {
+      symbol: "R_10",
+      interval: "1m"
+    });
+    expect(sessionScoped.map((s) => s.id)).toEqual(["squeeze-breakout-v1"]);
+
+    const requirement = resolveMt5WarmupRequirement({
+      strategies: sessionScoped.map((s) => ({
+        strategyId: s.id,
+        minimumHistory: s.minimumHistory
+      })),
+      executionBackend: "broker_demo_mt5",
+      config: demoConfig,
+      selectionMode: "AUTO",
+      fixedStrategyId: null
+    });
+    expect(requirement).toMatchObject({
+      status: "REQUIRES_BARS",
+      requiredBars: 80,
+      eligibleStrategyIds: ["squeeze-breakout-v1"]
+    });
+
+    const spec = resolveSessionMtfWarmupSpec({
+      strategies: sessionScoped,
+      eligibleStrategyIds:
+        requirement.status === "REQUIRES_BARS" ? requirement.eligibleStrategyIds : [],
+      symbol: "R_10",
+      interval: "1m"
+    });
+    expect(spec?.requirements.map((r) => r.interval)).toEqual(["1m"]);
+    expect(spec?.requirements.some((r) => r.interval === "15m" || r.interval === "4h")).toBe(
+      false
+    );
+
+    const bars1m = Array.from({ length: 80 }, (_, i) => ({
+      symbol: "R_10",
+      interval: "1m" as const,
+      openTime: i * 60_000,
+      closeTime: (i + 1) * 60_000,
+      open: 4780,
+      high: 4781,
+      low: 4779,
+      close: 4780 + i * 0.01,
+      tickCount: 2,
+      isComplete: true,
+      source: "MT5_LIVE_TICKS" as const
+    }));
+    const ready = mtfWarmupReadiness({
+      spec: spec!,
+      candlesByInterval: { "1m": bars1m }
+    });
+    expect(ready.ready).toBe(true);
+    expect(ready.perInterval.map((p) => p.interval)).toEqual(["1m"]);
+    expect(isMt5MarketDataReady(bars1m, requirement).ready).toBe(true);
+  });
+
+  it("R_10 with 1500 1m bars is READY without 15m/4h", () => {
+    const strategies = [new SqueezeBreakoutStrategy(), new XauTrendPullbackStrategy()];
+    const sessionScoped = filterStrategiesForSessionWarmup(strategies, {
+      symbol: "R_10",
+      interval: "1m"
+    });
+    const requirement = resolveMt5WarmupRequirement({
+      strategies: sessionScoped.map((s) => ({
+        strategyId: s.id,
+        minimumHistory: s.minimumHistory
+      })),
+      executionBackend: "broker_demo_mt5",
+      config: demoConfig,
+      selectionMode: "AUTO",
+      fixedStrategyId: null
+    });
+    const spec = resolveSessionMtfWarmupSpec({
+      strategies: sessionScoped,
+      eligibleStrategyIds:
+        requirement.status === "REQUIRES_BARS" ? requirement.eligibleStrategyIds : [],
+      symbol: "R_10",
+      interval: "1m"
+    });
+    const bars = Array.from({ length: 1500 }, (_, i) => ({
+      symbol: "R_10",
+      interval: "1m" as const,
+      openTime: i * 60_000,
+      closeTime: (i + 1) * 60_000,
+      open: 4780,
+      high: 4781,
+      low: 4779,
+      close: 4780,
+      tickCount: 1,
+      isComplete: true,
+      source: "MT5_LIVE_TICKS" as const
+    }));
+    expect(mtfWarmupReadiness({ spec: spec!, candlesByInterval: { "1m": bars } }).ready).toBe(
+      true
+    );
+    expect(spec!.requirements).toHaveLength(1);
+  });
+
+  it("XAUUSD / 15m / SINGLE / xau-trend-pullback-v1 → 15m + 4h", () => {
+    const strategies = [new SqueezeBreakoutStrategy(), new XauTrendPullbackStrategy()];
+    const sessionScoped = filterStrategiesForSessionWarmup(strategies, {
+      symbol: "XAUUSD",
+      interval: "15m"
+    });
+    expect(sessionScoped.map((s) => s.id)).toEqual(["xau-trend-pullback-v1"]);
+
+    const requirement = resolveMt5WarmupRequirement({
+      strategies: sessionScoped.map((s) => ({
+        strategyId: s.id,
+        minimumHistory: s.minimumHistory
+      })),
+      executionBackend: "broker_demo_mt5",
+      config: demoConfig,
+      selectionMode: "SINGLE",
+      fixedStrategyId: "xau-trend-pullback-v1"
+    });
+    expect(requirement).toMatchObject({
+      status: "REQUIRES_BARS",
+      requiredBars: 120,
+      eligibleStrategyIds: ["xau-trend-pullback-v1"]
+    });
+
+    const spec = resolveSessionMtfWarmupSpec({
+      strategies: sessionScoped,
+      eligibleStrategyIds:
+        requirement.status === "REQUIRES_BARS" ? requirement.eligibleStrategyIds : [],
+      symbol: "XAUUSD",
+      interval: "15m"
+    });
+    const intervals = spec!.requirements.map((r) => r.interval).sort();
+    expect(intervals).toEqual(["15m", "4h"]);
+    expect(spec!.requirements.find((r) => r.interval === "15m")?.minimumBars).toBe(120);
+    expect(spec!.requirements.find((r) => r.interval === "4h")?.minimumBars).toBe(80);
+
+    const m15Bars = Array.from({ length: 120 }, (_, i) => m15(i));
+    const h4Bars = Array.from({ length: 80 }, (_, i) => h4(i));
+    expect(
+      mtfWarmupReadiness({
+        spec: spec!,
+        candlesByInterval: { "15m": m15Bars, "4h": h4Bars }
+      }).ready
+    ).toBe(true);
+    expect(
+      mtfWarmupReadiness({
+        spec: spec!,
+        candlesByInterval: { "15m": m15Bars, "4h": h4Bars.slice(0, 79) }
+      }).ready
+    ).toBe(false);
+  });
+
+  it("unrelated symbol-specific MTF strategies do not contaminate another session", () => {
+    const strategies = [new SqueezeBreakoutStrategy(), new XauTrendPullbackStrategy()];
+    const r10 = resolveSessionMtfWarmupSpec({
+      strategies,
+      eligibleStrategyIds: ["squeeze-breakout-v1", "xau-trend-pullback-v1"],
+      symbol: "R_10",
+      interval: "1m"
+    });
+    expect(r10?.requirements.map((r) => r.interval)).toEqual(["1m"]);
+
+    const xau = resolveSessionMtfWarmupSpec({
+      strategies,
+      eligibleStrategyIds: ["squeeze-breakout-v1", "xau-trend-pullback-v1"],
+      symbol: "XAUUSD",
+      interval: "15m"
+    });
+    expect(xau?.requirements.map((r) => r.interval).sort()).toEqual(["15m", "4h"]);
   });
 });
 
