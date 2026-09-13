@@ -21,6 +21,7 @@ import {
   autonomousDecisionFromGate,
   buildAutonomousExecutionPreflight,
   estimateMarginRequired,
+  fetchRecentMt5Bars,
   gateMt5EngineSubmission,
   getSharedMt5BridgeCircuit,
   isCfdCapableStrategy,
@@ -1941,6 +1942,76 @@ export class Mt5CfdRuntime {
     const resolved = resolveBrokerSymbolMapping(engineSymbol, mapping);
     if (!resolved.ok || !resolved.brokerSymbol) return null;
     return this.adapter.getQuote(resolved.brokerSymbol);
+  }
+
+  /**
+   * Read-only historical OHLC for broker_demo_mt5 warm-up.
+   * Requires verified BrokerSymbolMapping + DEMO account. Never tags bars as MT5_LIVE_TICKS.
+   */
+  async getHistoricalBarsForWarmup(input: {
+    engineSymbol: string;
+    timeframe: "1m" | "5m" | "15m";
+    count: number;
+  }): Promise<
+    | {
+        ok: true;
+        brokerSymbol: string;
+        isDemo: true;
+        bars: Awaited<ReturnType<DerivMT5BrokerAdapter["getBars"]>>["bars"];
+        requestedCount: number;
+      }
+    | { ok: false; reason: string }
+  > {
+    if (getSharedMt5BridgeCircuit().snapshot().circuitState === "OPEN") {
+      return { ok: false, reason: "MT5_BRIDGE_UNHEALTHY" };
+    }
+    if (!this.adapter) this.adapter = await getOrConnectMt5Adapter(this.deps.config);
+    await this.adapter.getAccount();
+    const status = this.adapter.getStatus();
+    if (!status.isDemo) {
+      return { ok: false, reason: "MT5_WARMUP_DEMO_REQUIRED" };
+    }
+    const mapping = await this.loadMapping(input.engineSymbol);
+    const resolved = resolveBrokerSymbolMapping(input.engineSymbol, mapping);
+    if (!mapping) {
+      return { ok: false, reason: "BROKER_SYMBOL_MAPPING_MISSING" };
+    }
+    if (!resolved.ok || !resolved.brokerSymbol) {
+      return { ok: false, reason: resolved.reasonCode ?? "BROKER_SYMBOL_MAPPING_UNVERIFIED" };
+    }
+    const result = await fetchRecentMt5Bars(this.adapter, {
+      symbol: resolved.brokerSymbol,
+      timeframe: input.timeframe,
+      count: input.count,
+      completedBarsOnly: true
+    });
+    return {
+      ok: true,
+      brokerSymbol: resolved.brokerSymbol,
+      isDemo: true,
+      bars: result.bars,
+      requestedCount: input.count
+    };
+  }
+
+  async loadVerifiedMappingForWarmup(engineSymbol: string) {
+    if (!this.adapter) {
+      try {
+        this.adapter = await getOrConnectMt5Adapter(this.deps.config);
+      } catch {
+        return { mapping: await this.loadMapping(engineSymbol), isDemo: false };
+      }
+    }
+    const mapping = await this.loadMapping(engineSymbol);
+    try {
+      await this.adapter.getAccount();
+      return {
+        mapping,
+        isDemo: this.adapter.getStatus().isDemo === true
+      };
+    } catch {
+      return { mapping, isDemo: false };
+    }
   }
 
   getHealthSnapshot(): {

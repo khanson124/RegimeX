@@ -108,6 +108,39 @@ describe("CandleAggregator", () => {
     agg.processTick({ symbol: "R_10", epochMs: T0 + 61_000, quote: 104 });
     expect(closed).toHaveLength(1);
   });
+
+  it("propagates MT5_LIVE_TICKS source on closed candles", () => {
+    const closed: Candle[] = [];
+    const agg = new CandleAggregator({
+      symbol: "R_10",
+      interval: "1m",
+      pricePrecision: 3,
+      source: "MT5_LIVE_TICKS",
+      onCandleClosed: (c) => closed.push(c)
+    });
+    agg.processTick({ symbol: "R_10", epochMs: T0 + 1000, quote: 100 });
+    agg.processTick({ symbol: "R_10", epochMs: T0 + 61_000, quote: 105 });
+    expect(closed[0]!.source).toBe("MT5_LIVE_TICKS");
+  });
+
+  it("markCompletedThrough prevents re-emitting historical buckets", () => {
+    const closed: Candle[] = [];
+    const agg = new CandleAggregator({
+      symbol: "XAUUSD",
+      interval: "15m",
+      pricePrecision: 2,
+      source: "MT5_LIVE_TICKS",
+      onCandleClosed: (c) => closed.push(c)
+    });
+    const histClose = T0 + 900_000;
+    agg.markCompletedThrough(histClose);
+    agg.processTick({ symbol: "XAUUSD", epochMs: histClose - 1000, quote: 2000 });
+    expect(agg.currentCandle).toBeNull();
+    agg.processTick({ symbol: "XAUUSD", epochMs: histClose + 1000, quote: 2001 });
+    expect(agg.currentCandle?.source).toBe("MT5_LIVE_TICKS");
+    expect(agg.currentCandle?.openTime).toBe(histClose);
+    expect(closed).toHaveLength(0);
+  });
 });
 
 describe("detectMissingBuckets", () => {

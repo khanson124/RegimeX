@@ -21,12 +21,12 @@ const rolloutStrategies = [
   { strategyId: "squeeze-breakout-v1", minimumHistory: 80 }
 ];
 
-function mt5Candle(close: number, source: Candle["source"] = "MT5_LIVE_TICKS"): Candle {
+function mt5Candle(close: number, source: Candle["source"] = "MT5_LIVE_TICKS", openTime = 0): Candle {
   return {
     symbol: "R_10",
     interval: "1m",
-    openTime: 0,
-    closeTime: 60_000,
+    openTime,
+    closeTime: openTime + 60_000,
     open: close - 1,
     high: close + 1,
     low: close - 2,
@@ -136,15 +136,37 @@ describe("filterRestorableMt5Candles", () => {
   });
 
   it("G: rejects contaminated MT5 rows with cross-domain jumps", () => {
-    const result = filterRestorableMt5Candles([mt5Candle(4783), mt5Candle(9790)]);
+    const result = filterRestorableMt5Candles([
+      mt5Candle(4783, "MT5_LIVE_TICKS", 0),
+      mt5Candle(9790, "MT5_LIVE_TICKS", 60_000)
+    ]);
     expect(result.candles).toEqual([]);
     expect(result.rejected).toBe(true);
   });
 
   it("accepts consistent MT5-only history", () => {
-    const result = filterRestorableMt5Candles([mt5Candle(4783), mt5Candle(4784), mt5Candle(4785)]);
+    const result = filterRestorableMt5Candles([
+      mt5Candle(4783, "MT5_LIVE_TICKS", 0),
+      mt5Candle(4784, "MT5_LIVE_TICKS", 60_000),
+      mt5Candle(4785, "MT5_LIVE_TICKS", 120_000)
+    ]);
     expect(result.rejected).toBe(false);
     expect(result.candles).toHaveLength(3);
+  });
+
+  it("accepts MT5_HISTORY restore provenance", () => {
+    const result = filterRestorableMt5Candles([
+      mt5Candle(4783, "MT5_HISTORY", 0),
+      mt5Candle(4784, "MT5_HISTORY", 60_000),
+      mt5Candle(4785, "MT5_LIVE_TICKS", 120_000)
+    ]);
+    expect(result.rejected).toBe(false);
+    expect(result.candles).toHaveLength(3);
+  });
+
+  it("rejects research-only MT5 CopyRates tag as live Candle.source", () => {
+    const result = filterRestorableMt5Candles([mt5Candle(4783, "MT5", 0)]);
+    expect(result.rejected).toBe(true);
   });
 });
 

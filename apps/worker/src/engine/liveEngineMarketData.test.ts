@@ -19,8 +19,11 @@ describe("liveEngineMarketData routing", () => {
     expect(shouldSubscribeDerivTicks("paper_cfd")).toBe(true);
   });
 
-  it("D: MT5 restore only queries MT5 provenance sources", () => {
-    expect(resolvePersistedCandleSources("broker_demo_mt5")).toEqual(["MT5_LIVE_TICKS"]);
+  it("D: MT5 restore queries MT5_HISTORY and MT5_LIVE_TICKS", () => {
+    expect(resolvePersistedCandleSources("broker_demo_mt5")).toEqual([
+      "MT5_HISTORY",
+      "MT5_LIVE_TICKS"
+    ]);
     expect(resolvePersistedCandleSources("paper_cfd")).toBeNull();
   });
 

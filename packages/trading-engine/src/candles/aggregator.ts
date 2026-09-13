@@ -56,6 +56,15 @@ export class CandleAggregator {
     return this.gaps.splice(0);
   }
 
+  /**
+   * After loading completed historical bars, ignore ticks at or before `epochMs`
+   * and clear any forming candle so the next tick opens a fresh live bucket.
+   */
+  markCompletedThrough(epochMs: number): void {
+    this.current = null;
+    this.lastTickEpoch = epochMs;
+  }
+
   processTick(tick: Tick): void {
     if (tick.symbol !== this.options.symbol) return;
     if (tick.epochMs <= this.lastTickEpoch) return; // duplicate or out-of-order

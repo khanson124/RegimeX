@@ -41,6 +41,9 @@ import {
   resolveMt5WarmupRequirement,
   shouldIngestMt5ClosedCandle,
   validateIncomingMt5Candle,
+  countMt5ProvenanceSources,
+  assembleMt5HistoricalWarmup,
+  planMt5HistoricalWarmup,
   type Mt5WarmupRequirement,
   rankEvidenceScore,
   type RegimeThresholds,
@@ -101,7 +104,8 @@ interface LoadedStrategy {
   parameters: Record<string, number | boolean | string>;
 }
 
-const CANDLE_BUFFER = 400;
+/** Must hold XAU 15m warm-up (≥1000) with headroom for ongoing live bars. */
+const CANDLE_BUFFER = 1500;
 const STALE_DATA_MS = 45_000;
 
 /**
@@ -370,25 +374,31 @@ export class LiveEngineSession {
         selectionMode: this.engineSelectionMode,
         fixedStrategyId: this.fixedStrategyId
       });
+      const sourceMixRestored = countMt5ProvenanceSources(this.candles);
+      this.log.info(
+        {
+          event: "MT5_WARMUP_RESTORE",
+          persistedMt5History: sourceMixRestored.history,
+          persistedMt5LiveTicks: sourceMixRestored.liveTicks,
+          restoredBars: this.candles.length,
+          rejected: restored.rejected,
+          reason: restored.reason
+        },
+        "MT5_WARMUP_RESTORE"
+      );
       if (restored.rejected) {
         this.log.warn(
           { reason: restored.reason, persistedRows: history.length },
           "Rejected incompatible persisted candles for broker_demo_mt5 — starting MT5 warm-up from empty buffer"
         );
-      } else {
-        this.log.info(
-          {
-            restoredBars: this.candles.length,
-            mt5WarmupRequirement: this.mt5WarmupRequirement
-          },
-          "Restored MT5-provenance candle buffer"
-        );
       }
       if (this.mt5WarmupRequirement.status === "NO_ELIGIBLE_STRATEGIES") {
         this.log.warn(
-          { reason: this.mt5WarmupRequirement.reason },
-          "broker_demo_mt5 has no rollout-eligible strategies — market data and autonomous execution remain blocked"
+          { event: "MT5_WARMUP_BLOCKED", reason: this.mt5WarmupRequirement.reason },
+          "MT5_WARMUP_BLOCKED"
         );
+      } else if (this.mt5Cfd) {
+        await this.bootstrapMt5HistoricalWarmup(symbolRow.id);
       }
     }
     this.candleIndex = this.candles.length;
@@ -402,6 +412,10 @@ export class LiveEngineSession {
       onCandleUpdated: (candle) =>
         void publish(this.userId, "market.tick", { symbol: candle.symbol, price: candle.close, time: this.lastTickAt })
     });
+    if (this.executionBackend === "broker_demo_mt5" && this.candles.length > 0) {
+      const last = this.candles[this.candles.length - 1]!;
+      this.aggregator.markCompletedThrough(last.closeTime);
+    }
 
     if (shouldSubscribeDerivTicks(this.executionBackend)) {
       await this.client.subscribeTicks(this.symbol, (tick) => {
@@ -534,6 +548,183 @@ export class LiveEngineSession {
 
   // ── candle pipeline ──────────────────────────────────────────
 
+  /**
+   * Fetch completed MT5 getBars history when persisted trusted bars are below
+   * strategy minimumHistory. Persists as MT5_HISTORY; never as MT5_LIVE_TICKS.
+   */
+  private async bootstrapMt5HistoricalWarmup(symbolId: string): Promise<void> {
+    const requirement = this.mt5WarmupRequirement;
+    if (!this.mt5Cfd || !requirement || requirement.status !== "REQUIRES_BARS") return;
+
+    const { mapping, isDemo } = await this.mt5Cfd.loadVerifiedMappingForWarmup(this.symbol);
+    const plan = planMt5HistoricalWarmup({
+      requirement,
+      persistedCandles: this.candles,
+      interval: this.interval,
+      engineSymbol: this.symbol,
+      mapping,
+      isDemoAccount: isDemo
+    });
+
+    if (plan.status === "BLOCKED") {
+      this.log.warn(
+        {
+          event: "MT5_WARMUP_BLOCKED",
+          reason: plan.reason,
+          requiredBars: plan.requiredBars,
+          persistedTrustedBars: plan.persistedTrustedBars
+        },
+        "MT5_WARMUP_BLOCKED"
+      );
+      return;
+    }
+
+    if (plan.status === "SKIP") {
+      const mix = countMt5ProvenanceSources(this.candles);
+      this.log.info(
+        {
+          event: "MT5_WARMUP_READY",
+          finalTrustedBarCount: this.candles.length,
+          firstOpenTime: this.candles[0]?.openTime ?? null,
+          lastCloseTime: this.candles.at(-1)?.closeTime ?? null,
+          sourceMix: mix,
+          strategyIds:
+            requirement.status === "REQUIRES_BARS" ? requirement.eligibleStrategyIds : []
+        },
+        "MT5_WARMUP_READY"
+      );
+      return;
+    }
+
+    this.log.info(
+      {
+        event: "MT5_WARMUP_FETCH",
+        requiredBars: plan.requiredBars,
+        missingBars: plan.missing,
+        requestedBars: plan.fetchCount,
+        brokerSymbol: plan.brokerSymbol,
+        interval: this.interval
+      },
+      "MT5_WARMUP_FETCH"
+    );
+
+    const fetch = await this.mt5Cfd.getHistoricalBarsForWarmup({
+      engineSymbol: this.symbol,
+      timeframe: plan.timeframe!,
+      count: plan.fetchCount
+    });
+
+    if (!fetch.ok) {
+      this.log.warn(
+        { event: "MT5_WARMUP_BLOCKED", reason: fetch.reason },
+        "MT5_WARMUP_BLOCKED"
+      );
+      return;
+    }
+
+    const assembled = assembleMt5HistoricalWarmup({
+      plan: { ...plan, brokerSymbol: fetch.brokerSymbol },
+      requirement,
+      persistedCandles: this.candles,
+      fetchedBars: fetch.bars,
+      engineSymbol: this.symbol,
+      interval: this.interval
+    });
+
+    this.log.info(
+      {
+        event: "MT5_WARMUP_FETCH",
+        requiredBars: plan.requiredBars,
+        missingBars: plan.missing,
+        requestedBars: fetch.requestedCount,
+        returnedBars: assembled.fetchedBars,
+        brokerSymbol: fetch.brokerSymbol,
+        interval: this.interval
+      },
+      "MT5_WARMUP_FETCH"
+    );
+
+    if (assembled.status !== "READY") {
+      this.log.warn(
+        {
+          event: "MT5_WARMUP_BLOCKED",
+          reason: assembled.reason,
+          finalTrustedBarCount: assembled.candles.length,
+          requiredBars: plan.requiredBars
+        },
+        "MT5_WARMUP_BLOCKED"
+      );
+      // Keep best-effort buffer for continued live accumulation
+      if (assembled.candles.length > this.candles.length) {
+        this.candles = assembled.candles.slice(-CANDLE_BUFFER);
+      }
+      return;
+    }
+
+    const { prisma } = this.deps;
+    for (const candle of assembled.historyCandlesToPersist) {
+      const existing = await prisma.candle.findUnique({
+        where: {
+          symbolId_interval_openTime: {
+            symbolId,
+            interval: candle.interval,
+            openTime: new Date(candle.openTime)
+          }
+        }
+      });
+      if (existing?.source === "MT5_LIVE_TICKS") continue;
+      if (existing && existing.source !== "MT5_HISTORY" && existing.source !== "MT5_LIVE_TICKS") {
+        continue;
+      }
+      await prisma.candle.upsert({
+        where: {
+          symbolId_interval_openTime: {
+            symbolId,
+            interval: candle.interval,
+            openTime: new Date(candle.openTime)
+          }
+        },
+        create: {
+          symbolId,
+          interval: candle.interval,
+          openTime: new Date(candle.openTime),
+          closeTime: new Date(candle.closeTime),
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          tickCount: candle.tickCount,
+          isComplete: true,
+          source: "MT5_HISTORY"
+        },
+        update: {
+          closeTime: new Date(candle.closeTime),
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          tickCount: candle.tickCount,
+          isComplete: true,
+          source: "MT5_HISTORY"
+        }
+      });
+    }
+
+    this.candles = assembled.candles.slice(-CANDLE_BUFFER);
+    this.log.info(
+      {
+        event: "MT5_WARMUP_READY",
+        finalTrustedBarCount: this.candles.length,
+        firstOpenTime: assembled.firstOpenTime,
+        lastCloseTime: assembled.lastCloseTime,
+        sourceMix: assembled.sourceMix,
+        strategyIds: requirement.eligibleStrategyIds,
+        persistedHistoryBars: assembled.historyCandlesToPersist.length
+      },
+      "MT5_WARMUP_READY"
+    );
+  }
+
   private async onCandleClosed(candle: Candle, symbolId: string): Promise<void> {
     const { prisma, publish } = this.deps;
     try {
@@ -547,6 +738,7 @@ export class LiveEngineSession {
       }
 
       // Persist (idempotent thanks to the unique constraint).
+      // Live quote candles may upgrade an MT5_HISTORY row for the same openTime.
       await prisma.candle.upsert({
         where: {
           symbolId_interval_openTime: {
@@ -573,13 +765,19 @@ export class LiveEngineSession {
           low: candle.low,
           close: candle.close,
           tickCount: candle.tickCount,
-          isComplete: true
+          isComplete: true,
+          ...(candle.source === "MT5_LIVE_TICKS" ? { source: "MT5_LIVE_TICKS" } : {})
         }
       });
 
-      this.candles.push(candle);
-      if (this.candles.length > CANDLE_BUFFER) this.candles.shift();
-      this.candleIndex++;
+      const existingIdx = this.candles.findIndex((c) => c.openTime === candle.openTime);
+      if (existingIdx >= 0) {
+        this.candles[existingIdx] = candle;
+      } else {
+        this.candles.push(candle);
+        if (this.candles.length > CANDLE_BUFFER) this.candles.shift();
+        this.candleIndex++;
+      }
 
       await prisma.liveEngine.update({
         where: { id: this.engineId! },
