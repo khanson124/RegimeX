@@ -47,6 +47,7 @@ import {
   mtfWarmupReadiness,
   resolveSessionMtfWarmupSpec,
   filterStrategiesForSessionWarmup,
+  strategyAppliesToSession,
   isMt5WarmupTimeframe,
   type Mt5WarmupRequirement,
   type MultiTimeframeWarmupSpec,
@@ -1060,11 +1061,29 @@ export class LiveEngineSession {
         this.candles.length >= s.strategy.minimumHistory &&
         (!cfdVenue || isCfdCapableStrategy(s.strategy.id))
     );
+    // Same applicability rules as MTF warm-up — never select/evaluate a strategy
+    // that cannot run on this session's symbol + interval.
+    eligible = eligible.filter((s) =>
+      strategyAppliesToSession(s.strategy, { symbol: this.symbol, interval: this.interval })
+    );
     eligible = applyMt5StrategySelectionAllowlist(
       eligible,
       (s) => s.strategy.id,
       this.executionBackend,
       config
+    );
+
+    const sessionEligibleStrategyIds = eligible.map((s) => s.strategy.id);
+    this.log.info(
+      {
+        event: "SESSION_STRATEGY_ELIGIBILITY",
+        symbol: this.symbol,
+        interval: this.interval,
+        selectionMode: this.engineSelectionMode,
+        fixedStrategyId: this.fixedStrategyId,
+        sessionEligibleStrategyIds
+      },
+      "SESSION_STRATEGY_ELIGIBILITY"
     );
 
     if (
@@ -1083,6 +1102,20 @@ export class LiveEngineSession {
             : (fixedGate.reason ?? "Fixed strategy blocked by MT5 rollout")
         ];
         await this.recordNoStrategySelection(latest, regime, correlationId, reasons);
+        return;
+      }
+
+      const fixedDefinition = this.strategies.find((s) => s.strategy.id === this.fixedStrategyId);
+      if (
+        fixedDefinition &&
+        !strategyAppliesToSession(fixedDefinition.strategy, {
+          symbol: this.symbol,
+          interval: this.interval
+        })
+      ) {
+        await this.recordNoStrategySelection(latest, regime, correlationId, [
+          `Fixed strategy ${this.fixedStrategyId} does not apply to session ${this.symbol}/${this.interval}`
+        ]);
         return;
       }
     }
@@ -1114,27 +1147,38 @@ export class LiveEngineSession {
     ) {
       const fixed = eligible.find((s) => s.strategy.id === this.fixedStrategyId);
       if (!fixed) {
-        selectionResult = this.selection.select(regime.regime, regime.confidence, []);
-      } else {
-        selectionResult = {
-          selectedStrategyId: fixed.strategy.id,
-          regime: regime.regime,
-          selectionScore: null,
-          confidence: null,
-          alternatives: [],
-          reasons: [`Fixed strategy: ${this.fixedStrategyId}`],
-          selectionMode:
-            this.deps.config.STRATEGY_SELECTION_MODE === "validated" ? "VALIDATED" : "BOOTSTRAP",
-          componentScores: null,
-          eligibilityRejections: []
-        };
+        // Fail closed — never fall back to another strategy in SINGLE mode.
+        await this.recordNoStrategySelection(latest, regime, correlationId, [
+          `Fixed strategy ${this.fixedStrategyId} is not eligible for session ${this.symbol}/${this.interval}`
+        ]);
+        return;
       }
+      selectionResult = {
+        selectedStrategyId: fixed.strategy.id,
+        regime: regime.regime,
+        selectionScore: null,
+        confidence: null,
+        alternatives: [],
+        reasons: [`Fixed strategy: ${this.fixedStrategyId}`],
+        selectionMode:
+          this.deps.config.STRATEGY_SELECTION_MODE === "validated" ? "VALIDATED" : "BOOTSTRAP",
+        componentScores: null,
+        eligibilityRejections: []
+      };
     } else {
       selectionResult = this.selection.select(regime.regime, regime.confidence, candidates);
     }
 
     if (!selectionResult.selectedStrategyId) {
       await this.recordNoStrategySelection(latest, regime, correlationId, selectionResult.reasons);
+      return;
+    }
+
+    // Defense in depth: never evaluate a strategy outside session eligibility.
+    if (!sessionEligibleStrategyIds.includes(selectionResult.selectedStrategyId)) {
+      await this.recordNoStrategySelection(latest, regime, correlationId, [
+        `Selected strategy ${selectionResult.selectedStrategyId} is not session-eligible for ${this.symbol}/${this.interval}`
+      ]);
       return;
     }
 
@@ -1197,7 +1241,12 @@ export class LiveEngineSession {
         selectionScore: selectionResult.selectionScore,
         componentScores: selectionResult.componentScores,
         eligibilityRejections: selectionResult.eligibilityRejections?.slice(0, 8),
-        evidence: evidenceSummary
+        evidence: evidenceSummary,
+        symbol: this.symbol,
+        interval: this.interval,
+        engineSelectionMode: this.engineSelectionMode,
+        fixedStrategyId: this.fixedStrategyId,
+        sessionEligibleStrategyIds
       }
     });
 
