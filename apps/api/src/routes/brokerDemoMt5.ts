@@ -14,6 +14,7 @@ import {
   isMt5RealPath,
   probeMt5BridgeLive,
   REAL_MT5_NOT_IMPLEMENTED,
+  resolveLiveTradingCapability,
   type Mt5LinkHealth
 } from "@regimex/trading-engine";
 import { upsertInternalInstrumentMetadataFromMt5 } from "../lib/mt5InstrumentMetadata.js";
@@ -38,10 +39,11 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
 
   app.get("/broker-demo/mt5/status", { preHandler: auth }, async () => {
     const mappings = await loadMt5BrokerMappings(ctx.prisma);
-    if (isMt5RealPath(ctx.config)) {
+    const liveCap = resolveLiveTradingCapability(ctx.config);
+    if (isMt5RealPath(ctx.config) && !liveCap.liveTradingSupported) {
       return buildMt5StatusEnvelope(ctx.config, null, REAL_MT5_NOT_IMPLEMENTED, mappings);
     }
-    if (!isMt5DemoApiEnabled(ctx.config)) {
+    if (!isMt5DemoApiEnabled(ctx.config) && !(isMt5RealPath(ctx.config) && liveCap.liveTradingSupported)) {
       return buildMt5StatusEnvelope(ctx.config, null, null, mappings);
     }
     try {
@@ -547,20 +549,27 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
 }
 
 export async function connectMt5Adapter(ctx: AppContext): Promise<DerivMT5BrokerAdapter> {
-  assertMt5DemoAdapterAllowed(ctx.config);
+  const liveCap = resolveLiveTradingCapability(ctx.config);
+  const live = isMt5RealPath(ctx.config) && liveCap.liveTradingSupported;
+  if (!live) {
+    assertMt5DemoAdapterAllowed(ctx.config);
+  }
   const adapter = new DerivMT5BrokerAdapter({
-    requireDemoAccount: true,
+    requireDemoAccount: !live,
+    executionEnvironment: live ? "live" : "demo",
     bridgeUrl: resolveMt5BridgeUrl(ctx.config),
     bridgeSecret: ctx.config.MT5_BRIDGE_SECRET ?? "",
     timeoutMs: ctx.config.MT5_COMMAND_TIMEOUT_MS,
     maxQuoteAgeMs: ctx.config.MAX_EXECUTION_QUOTE_AGE_MS,
-    maxTestVolume: ctx.config.MT5_MAX_TEST_VOLUME,
-    maxTestRiskPercent: ctx.config.MT5_MAX_TEST_RISK_PERCENT,
+    maxTestVolume: live ? ctx.config.LIVE_MAX_LOT_SIZE : ctx.config.MT5_MAX_TEST_VOLUME,
+    maxTestRiskPercent: live
+      ? ctx.config.LIVE_MAX_RISK_PER_TRADE_PERCENT
+      : ctx.config.MT5_MAX_TEST_RISK_PERCENT,
     magic: ctx.config.MT5_MAGIC_NUMBER,
     expectedBroker: ctx.config.MT5_EXPECTED_BROKER,
     expectedServer: ctx.config.MT5_EXPECTED_SERVER,
     expectedLogin: ctx.config.MT5_EXPECTED_LOGIN,
-    expectedEnvironment: ctx.config.MT5_EXPECTED_ENVIRONMENT
+    expectedEnvironment: live ? "live" : "demo"
   });
   await adapter.connect();
   return adapter;

@@ -23,6 +23,11 @@ import {
   estimateMarginRequired,
   fetchRecentMt5Bars,
   gateMt5EngineSubmission,
+  evaluateLiveOrderPolicy,
+  resolveLiveExecutionPolicy,
+  LIVE_ORDER_BLOCKED,
+  LIVE_POLICY_REJECTED,
+  LIVE_TRADING_DISARMED,
   getSharedMt5BridgeCircuit,
   isCfdCapableStrategy,
   mappingRecordFromRow,
@@ -35,6 +40,8 @@ import {
   resolveMt5BridgeUrl,
   resolveMt5EffectiveMaxConcurrentPositions,
   resolveMt5EngineVolume,
+  resolveMt5FixedVolumeOverride,
+  applyStopLossDistanceOverride,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
   finalizeMt5StopsForSubmit,
@@ -275,6 +282,8 @@ export class Mt5CfdRuntime {
     const profile = await this.deps.prisma.riskProfile.findFirst({
       where: { userId: this.userId, isActive: true }
     });
+    const volumeOverrideLots =
+      profile?.volumeOverrideLots != null ? Number(profile.volumeOverrideLots) : null;
     const effectiveMaxConcurrentPositions = resolveMt5EffectiveMaxConcurrentPositions(
       profile?.maxConcurrentPositions,
       this.deps.config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS
@@ -388,6 +397,30 @@ export class Mt5CfdRuntime {
         reasons: ["Could not derive a valid stop-loss / take-profit for CFD entry"],
         decisionCode: "STOP_INVALID"
       };
+    }
+
+    const stopDistanceOverride =
+      profile?.stopLossDistanceOverride != null ? Number(profile.stopLossDistanceOverride) : null;
+    const stopOverride = applyStopLossDistanceOverride({
+      direction: proposal.direction,
+      entryPrice,
+      stopLoss: proposal.stopLoss,
+      stopLossDistanceOverride: stopDistanceOverride
+    });
+    if (stopOverride.applied && stopOverride.distance != null) {
+      proposal = {
+        ...proposal,
+        stopLoss: stopOverride.stopLoss,
+        stopDistance: stopOverride.distance
+      };
+      this.log.info(
+        {
+          symbol: input.symbol,
+          stopLossDistanceOverride: stopOverride.distance,
+          stopLoss: stopOverride.stopLoss
+        },
+        "MT5 trader stop-distance override applied"
+      );
     }
 
     const existingSignal = await this.deps.prisma.signal.findUnique({ where: { id: input.signalId } });
@@ -565,16 +598,36 @@ export class Mt5CfdRuntime {
       return { opened: false, reasons: rawSizing.rejectionReasons, decisionCode };
     }
 
-    const volumeDecision = resolveMt5EngineVolume({
-      equity: account.equity,
-      riskPerTradePercent: limits.riskPerTradePercent,
-      riskSizedVolume: rawSizing.rawVolume,
-      direction: proposal.direction,
-      entryPrice: fillPrice,
-      stopLoss: proposal.stopLoss,
-      instrument,
-      engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
-    });
+    const volumeOverrideLotsEarly =
+      volumeOverrideLots != null && volumeOverrideLots > 0 ? volumeOverrideLots : null;
+    const volumeDecision =
+      volumeOverrideLotsEarly != null
+        ? resolveMt5FixedVolumeOverride({
+            overrideLots: volumeOverrideLotsEarly,
+            equity: account.equity,
+            riskPerTradePercent: limits.riskPerTradePercent,
+            direction: proposal.direction,
+            entryPrice: fillPrice,
+            stopLoss: proposal.stopLoss,
+            instrument,
+            engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+          })
+        : resolveMt5EngineVolume({
+            equity: account.equity,
+            riskPerTradePercent: limits.riskPerTradePercent,
+            riskSizedVolume: rawSizing.rawVolume,
+            direction: proposal.direction,
+            entryPrice: fillPrice,
+            stopLoss: proposal.stopLoss,
+            instrument,
+            engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+          });
+    if (volumeOverrideLotsEarly != null) {
+      this.log.info(
+        { volumeOverrideLots: volumeOverrideLotsEarly, finalVolume: volumeDecision.finalVolume },
+        "MT5 trader volume override applied"
+      );
+    }
     const stopLevelCheck = adaptation.validation;
     const preflight = buildAutonomousExecutionPreflight({
       internalSymbol: input.symbol,
@@ -764,10 +817,61 @@ export class Mt5CfdRuntime {
     });
     const engine = await this.deps.prisma.liveEngine.findUnique({ where: { userId: this.userId } });
 
+    if (this.deps.config.EXECUTION_MODE === "broker_real_mt5") {
+      const liveGate = gateMt5EngineSubmission({
+        config: this.deps.config,
+        symbol: input.symbol,
+        strategyId: input.strategyId,
+        openOwnedCount: gateOwnedCount,
+        lifecycle,
+        mapping,
+        effectiveMaxConcurrentPositions,
+        liveTradingArmed: engine?.liveTradingArmed === true,
+        liveOrder: {
+          volume,
+          riskPercent: riskPct,
+          dailyLossAbs: dailyRealized < 0 ? Math.abs(dailyRealized) : 0,
+          equity: account.equity,
+          balance: account.balance,
+          emergencyStop: engine?.emergencyStop ?? false
+        }
+      });
+      if (!liveGate.allowed) {
+        const decisionCode = autonomousDecisionFromGate(input.decision.action, liveGate.decisionCode);
+        const logCode =
+          liveGate.decisionCode === "LIVE_ORDER_BLOCKED"
+            ? LIVE_ORDER_BLOCKED
+            : liveGate.decisionCode === "LIVE_POLICY_REJECTED"
+              ? LIVE_POLICY_REJECTED
+              : liveGate.decisionCode;
+        this.log.warn(
+          {
+            reason: liveGate.reason,
+            decisionCode: liveGate.decisionCode,
+            strategyId: input.strategyId,
+            symbol: input.symbol,
+            volume,
+            riskPercent: riskPct
+          },
+          logCode
+        );
+        return {
+          opened: false,
+          reasons: [liveGate.reason ?? LIVE_POLICY_REJECTED],
+          decisionCode,
+          requestedVolume: volumeDecision.riskSizedVolume,
+          preflight
+        };
+      }
+    }
+
     const riskDecision = this.cfdRisk.evaluate({
       limits,
       emergencyStop: engine?.emergencyStop ?? false,
-      tradingEnabled: this.deps.config.DEMO_TRADING_ENABLED,
+      tradingEnabled:
+        this.deps.config.EXECUTION_MODE === "broker_real_mt5"
+          ? engine?.liveTradingArmed === true
+          : this.deps.config.DEMO_TRADING_ENABLED,
       marketDataFresh: true,
       instrument,
       equity: account.equity,
@@ -966,8 +1070,11 @@ export class Mt5CfdRuntime {
             volumePreflight: preflight
           },
           metadata: {
-            executionModel: "broker_demo_mt5",
-            venue: "MT5_DEMO",
+            executionModel:
+              this.deps.config.EXECUTION_MODE === "broker_real_mt5"
+                ? "broker_real_mt5"
+                : "broker_demo_mt5",
+            venue: this.deps.config.EXECUTION_MODE === "broker_real_mt5" ? "MT5_LIVE" : "MT5_DEMO",
             ownedByRegimeX: true,
             engineSymbol: input.symbol,
             ...symbolAudit,
@@ -1159,16 +1266,28 @@ export class Mt5CfdRuntime {
         };
       }
 
-      const finalVolumeDecision = resolveMt5EngineVolume({
-        equity: account.equity,
-        riskPerTradePercent: limits.riskPerTradePercent,
-        riskSizedVolume: finalRawSizing.rawVolume,
-        direction: submitDirection,
-        entryPrice: finalFillPrice,
-        stopLoss: submitStopLoss,
-        instrument,
-        engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
-      });
+      const finalVolumeDecision =
+        volumeOverrideLots != null && volumeOverrideLots > 0
+          ? resolveMt5FixedVolumeOverride({
+              overrideLots: volumeOverrideLots,
+              equity: account.equity,
+              riskPerTradePercent: limits.riskPerTradePercent,
+              direction: submitDirection,
+              entryPrice: finalFillPrice,
+              stopLoss: submitStopLoss,
+              instrument,
+              engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+            })
+          : resolveMt5EngineVolume({
+              equity: account.equity,
+              riskPerTradePercent: limits.riskPerTradePercent,
+              riskSizedVolume: finalRawSizing.rawVolume,
+              direction: submitDirection,
+              entryPrice: finalFillPrice,
+              stopLoss: submitStopLoss,
+              instrument,
+              engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+            });
       submitRequestedVolume = finalVolumeDecision.riskSizedVolume;
       if (!finalVolumeDecision.wouldSubmit || finalVolumeDecision.finalVolume == null) {
         const code =
@@ -1391,6 +1510,75 @@ export class Mt5CfdRuntime {
       }
     };
     };
+
+    if (this.deps.config.EXECUTION_MODE === "broker_real_mt5") {
+      try {
+        const liveEngineNow = await this.deps.prisma.liveEngine.findUnique({
+          where: { userId: this.userId }
+        });
+        const policy = resolveLiveExecutionPolicy(this.deps.config);
+        const orderGate = evaluateLiveOrderPolicy(policy, {
+          symbol: input.symbol,
+          volume: submitVolume,
+          riskPercent: submitRiskPercent,
+          openLivePositions: gateOwnedCount,
+          dailyLossAbs: dailyRealized < 0 ? Math.abs(dailyRealized) : 0,
+          equity: account.equity,
+          balance: account.balance,
+          emergencyStop: liveEngineNow?.emergencyStop ?? false,
+          liveTradingSupported: true,
+          liveTradingArmed: liveEngineNow?.liveTradingArmed === true
+        });
+        if (!orderGate.allowed) {
+          const code = orderGate.code ?? LIVE_POLICY_REJECTED;
+          this.log.warn(
+            { reasons: orderGate.reasons, code, symbol: input.symbol, volume: submitVolume },
+            code === LIVE_TRADING_DISARMED
+              ? LIVE_TRADING_DISARMED
+              : code === LIVE_POLICY_REJECTED
+                ? LIVE_POLICY_REJECTED
+                : LIVE_ORDER_BLOCKED
+          );
+          await failClosedPendingExecution({
+            prisma: this.deps.prisma,
+            positionId: pending.id,
+            executionIntentId: executionIntent.id,
+            code: code === LIVE_TRADING_DISARMED ? LIVE_TRADING_DISARMED : LIVE_ORDER_BLOCKED,
+            message: orderGate.reasons.join("; "),
+            logger: this.log
+          });
+          await recordPositionEvent(this.deps.prisma, pending.id, "REJECTED", {
+            reasons: orderGate.reasons,
+            code
+          });
+          return {
+            opened: false,
+            reasons: orderGate.reasons,
+            decisionCode: "RISK_BLOCKED",
+            requestedVolume: submitRequestedVolume,
+            preflight: submitPreflight
+          };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : LIVE_POLICY_REJECTED;
+        this.log.warn({ err, message }, LIVE_POLICY_REJECTED);
+        await failClosedPendingExecution({
+          prisma: this.deps.prisma,
+          positionId: pending.id,
+          executionIntentId: executionIntent.id,
+          code: LIVE_POLICY_REJECTED,
+          message,
+          logger: this.log
+        });
+        return {
+          opened: false,
+          reasons: [message],
+          decisionCode: "RISK_BLOCKED",
+          requestedVolume: submitRequestedVolume,
+          preflight: submitPreflight
+        };
+      }
+    }
 
     let invalidStopsResubmits = 0;
     let result: Awaited<ReturnType<DerivMT5BrokerAdapter["openMarketPosition"]>> | null = null;
@@ -1665,16 +1853,28 @@ export class Mt5CfdRuntime {
         };
       }
 
-      const retryVolumeDecision = resolveMt5EngineVolume({
-        equity: account.equity,
-        riskPerTradePercent: limits.riskPerTradePercent,
-        riskSizedVolume: retryRawSizing.rawVolume,
-        direction: submitDirection,
-        entryPrice: retryFillPrice,
-        stopLoss: retryFinalized.stopLoss,
-        instrument,
-        engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
-      });
+      const retryVolumeDecision =
+        volumeOverrideLots != null && volumeOverrideLots > 0
+          ? resolveMt5FixedVolumeOverride({
+              overrideLots: volumeOverrideLots,
+              equity: account.equity,
+              riskPerTradePercent: limits.riskPerTradePercent,
+              direction: submitDirection,
+              entryPrice: retryFillPrice,
+              stopLoss: retryFinalized.stopLoss,
+              instrument,
+              engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+            })
+          : resolveMt5EngineVolume({
+              equity: account.equity,
+              riskPerTradePercent: limits.riskPerTradePercent,
+              riskSizedVolume: retryRawSizing.rawVolume,
+              direction: submitDirection,
+              entryPrice: retryFillPrice,
+              stopLoss: retryFinalized.stopLoss,
+              instrument,
+              engineMaxVolume: this.deps.config.MT5_ENGINE_MAX_VOLUME
+            });
       if (!retryVolumeDecision.wouldSubmit || retryVolumeDecision.finalVolume == null) {
         const code =
           retryFinalized.adaptation.brokerAdjusted &&

@@ -1,17 +1,19 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ApiError } from "../../src/api/client";
 import { useCreateBacktest, useSymbols } from "../../src/api/hooks";
-import { Button, Card, Input, Row, SectionTitle } from "../../src/components/ui";
+import {
+  PrimaryButton,
+  SectionHeader,
+  SegmentedChips,
+  SoftCard,
+  TicketField
+} from "../../src/components/design";
 import { colors, font, spacing } from "../../src/theme";
 
 const INTERVALS = ["1m", "5m", "15m"] as const;
 const MODES = ["AUTO", "ENSEMBLE"] as const;
-const EXEC_MODELS = [
-  { value: "cfd_v1" as const, label: "CFD (cfd_v1)" },
-  { value: "rise_fall_v1" as const, label: "Legacy binary" }
-];
 
 function isoDaysAgo(days: number): string {
   const d = new Date(Date.now() - days * 86_400_000);
@@ -69,71 +71,92 @@ export default function NewBacktestScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 48 }}>
-      <SectionTitle>Symbol</SectionTitle>
-      <Row style={{ marginBottom: spacing.sm }}>
-        {enabledSymbols.map((sym) => (
-          <Pressable key={sym.id} onPress={() => setSymbol(sym.derivSymbol)}>
-            <Text style={[styles.selector, activeSymbol === sym.derivSymbol && styles.selectorActive]}>
-              {sym.derivSymbol}
-            </Text>
-          </Pressable>
-        ))}
-      </Row>
+    <ScrollView style={styles.container} contentContainerStyle={styles.pad}>
+      <SectionHeader title="Symbol" />
+      <SoftCard>
+        <SegmentedChips
+          options={enabledSymbols.map((s) => ({ id: s.derivSymbol, label: s.derivSymbol }))}
+          value={activeSymbol}
+          onChange={setSymbol}
+        />
+      </SoftCard>
 
-      <SectionTitle>Interval & selection mode</SectionTitle>
-      <Row style={{ marginBottom: spacing.sm }}>
-        {INTERVALS.map((iv) => (
-          <Pressable key={iv} onPress={() => setInterval(iv)}>
-            <Text style={[styles.selector, interval === iv && styles.selectorActive]}>{iv}</Text>
-          </Pressable>
-        ))}
-        {MODES.map((m) => (
-          <Pressable key={m} onPress={() => setMode(m)}>
-            <Text style={[styles.selector, mode === m && styles.selectorActive]}>{m}</Text>
-          </Pressable>
-        ))}
-      </Row>
-      <Text style={styles.hint}>
-        AUTO picks the best eligible strategy per regime, candle by candle. ENSEMBLE aggregates weighted votes.
-      </Text>
+      <SectionHeader title="Interval & selection" />
+      <SoftCard>
+        <SegmentedChips
+          options={INTERVALS.map((iv) => ({ id: iv, label: iv }))}
+          value={interval}
+          onChange={(id) => setInterval(id as (typeof INTERVALS)[number])}
+        />
+        <View style={{ height: spacing.md }} />
+        <SegmentedChips
+          options={MODES.map((m) => ({ id: m, label: m }))}
+          value={mode}
+          onChange={(id) => setMode(id as (typeof MODES)[number])}
+        />
+        <Text style={styles.hint}>
+          AUTO picks the best eligible strategy per regime. ENSEMBLE aggregates weighted votes.
+        </Text>
+      </SoftCard>
 
-      <SectionTitle>Execution model</SectionTitle>
-      <Row style={{ marginBottom: spacing.sm }}>
-        {EXEC_MODELS.map((m) => (
-          <Pressable key={m.value} onPress={() => setExecutionModel(m.value)}>
-            <Text style={[styles.selector, executionModel === m.value && styles.selectorActive]}>{m.label}</Text>
-          </Pressable>
-        ))}
-      </Row>
-      <Text style={styles.hint}>
-        CFD uses SL/TP, lot sizing, and variable hold time (cfd_v1) — this is the live model. Legacy binary is
-        historical comparison only.
-      </Text>
+      <SectionHeader title="Execution model" />
+      <SoftCard>
+        <SegmentedChips
+          options={[
+            { id: "cfd_v1", label: "CFD" },
+            { id: "rise_fall_v1", label: "Legacy binary" }
+          ]}
+          value={executionModel}
+          onChange={(id) => setExecutionModel(id as "cfd_v1" | "rise_fall_v1")}
+        />
+        <Text style={styles.hint}>
+          CFD uses SL/TP and lot sizing (live model). Legacy binary is historical comparison only.
+        </Text>
+      </SoftCard>
 
-      <SectionTitle>Configuration</SectionTitle>
-      <Card>
-        <Input label="From (YYYY-MM-DD)" value={from} onChangeText={setFrom} placeholder="2026-06-01" />
-        <Input label="To (YYYY-MM-DD)" value={to} onChangeText={setTo} placeholder="2026-07-01" />
-        <Input label="Starting balance" value={balance} onChangeText={setBalance} keyboardType="numeric" />
+      <SectionHeader title="Configuration" />
+      <SoftCard>
+        <View style={styles.fieldRow}>
+          <TicketField label="From" value={from} onChangeText={setFrom} keyboardType="default" />
+          <TicketField label="To" value={to} onChangeText={setTo} keyboardType="default" />
+        </View>
+        <TicketField
+          label="Starting balance"
+          value={balance}
+          onChangeText={setBalance}
+        />
         {executionModel === "cfd_v1" ? (
-          <>
-            <Input label="Risk per trade (%)" value={riskPct} onChangeText={setRiskPct} keyboardType="numeric" />
-            <Input label="Max hold (bars)" value={maxHold} onChangeText={setMaxHold} keyboardType="numeric" />
-          </>
+          <View style={styles.fieldRow}>
+            <TicketField label="Risk per trade %" value={riskPct} onChangeText={setRiskPct} />
+            <TicketField
+              label="Max hold bars"
+              value={maxHold}
+              onChangeText={setMaxHold}
+              keyboardType="number-pad"
+            />
+          </View>
         ) : (
-          <>
-            <Input label="Fixed stake per trade" value={stake} onChangeText={setStake} keyboardType="numeric" />
-            <Input label="Contract duration (candles)" value={duration} onChangeText={setDuration} keyboardType="numeric" />
-          </>
+          <View style={styles.fieldRow}>
+            <TicketField label="Fixed stake" value={stake} onChangeText={setStake} />
+            <TicketField
+              label="Duration (candles)"
+              value={duration}
+              onChangeText={setDuration}
+              keyboardType="number-pad"
+            />
+          </View>
         )}
-      </Card>
+      </SoftCard>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Button title="Run backtest" onPress={submit} loading={createBacktest.isPending} disabled={!activeSymbol} />
+      <PrimaryButton
+        title="Run backtest"
+        onPress={submit}
+        loading={createBacktest.isPending}
+        disabled={!activeSymbol}
+      />
       <Text style={styles.hint}>
-        The final 30% of the range is reserved as out-of-sample test data. Make sure historical candles are
-        downloaded for this range first (Settings → Market data).
+        Final 30% of the range is out-of-sample. Download candles first (Settings → Data management).
       </Text>
     </ScrollView>
   );
@@ -141,19 +164,8 @@ export default function NewBacktestScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  selector: {
-    color: colors.textDim,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: font.caption,
-    fontWeight: "700",
-    overflow: "hidden"
-  },
-  selectorActive: { color: colors.text, borderColor: colors.accent, backgroundColor: "#12283F" },
+  pad: { padding: spacing.lg, paddingBottom: 48 },
+  fieldRow: { flexDirection: "row", gap: spacing.md, flexWrap: "wrap" },
   hint: { color: colors.textFaint, fontSize: font.caption, marginTop: spacing.sm, lineHeight: 18 },
   error: { color: colors.down, fontSize: font.body, marginBottom: spacing.sm }
 });

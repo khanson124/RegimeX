@@ -1,42 +1,66 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text } from "react-native";
 import { useRouter, type Href } from "expo-router";
+import type { ComponentProps } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Card } from "../../src/components/ui";
+import { NavGroup, NavListItem } from "../../src/components/design";
 import { colors, font, spacing } from "../../src/theme";
 
-const LINKS: Array<{ href: Href; icon: keyof typeof Ionicons.glyphMap; label: string; hint: string }> = [
-  { href: "/engine", icon: "play-circle-outline", label: "Live Engine", hint: "Start, pause, analysis or CFD demo trading" },
-  { href: "/positions", icon: "layers-outline", label: "Positions", hint: "MT5 DEMO / paper CFD positions, floating P/L, close" },
-  { href: "/risk", icon: "shield-checkmark-outline", label: "Risk Settings", hint: "Risk % of equity, loss limits, cooldowns" },
-  { href: "/settings", icon: "settings-outline", label: "Settings", hint: "Market data (Deriv API), execution venue, account" },
-  { href: "/decisions", icon: "document-text-outline", label: "Decision Log", hint: "Why the engine traded or did not trade" },
-  { href: "/research", icon: "analytics-outline", label: "Research", hint: "Walk-forward validation, holdout, confidence scores" },
-  { href: "/optimizer", icon: "options-outline", label: "Optimizer", hint: "Grid-search strategy parameters" },
-  { href: "/trades", icon: "swap-horizontal-outline", label: "Legacy Demo Trades", hint: "Archived binary options contracts (read-only)" }
+type IconName = ComponentProps<typeof Ionicons>["name"];
+
+type LinkItem = {
+  href: Href;
+  icon: IconName;
+  label: string;
+  hint: string;
+};
+
+const TRADING: LinkItem[] = [
+  { href: "/engine", icon: "play-circle-outline", label: "Live Engine", hint: "Start, pause, symbol & mode" },
+  { href: "/positions", icon: "layers-outline", label: "Positions", hint: "Open & closed · edit stop · close" },
+  { href: "/risk", icon: "shield-checkmark-outline", label: "Risk Settings", hint: "Risk %, limits, lot & stop overrides" }
+];
+
+const RESEARCH: LinkItem[] = [
+  { href: "/(tabs)/strategies", icon: "git-branch-outline", label: "Strategies", hint: "Library · enable / disable" },
+  { href: "/(tabs)/backtests", icon: "flask-outline", label: "Backtests", hint: "Historical simulations" },
+  { href: "/research", icon: "analytics-outline", label: "Research", hint: "Walk-forward · confidence" },
+  { href: "/optimizer", icon: "options-outline", label: "Optimizer", hint: "Parameter grid search" }
+];
+
+const SYSTEM: LinkItem[] = [
+  { href: "/settings", icon: "settings-outline", label: "Settings", hint: "Deriv market data · venue · logout" },
+  { href: "/decisions", icon: "document-text-outline", label: "Decision Log", hint: "Why trades fired or blocked" },
+  { href: "/trades", icon: "swap-horizontal-outline", label: "Legacy Demo Trades", hint: "Archived binary contracts" }
 ];
 
 export default function MoreScreen() {
   const router = useRouter();
+
+  function renderGroup(title: string, items: LinkItem[]) {
+    return (
+      <NavGroup title={title}>
+        {items.map((link) => (
+          <NavListItem
+            key={link.label}
+            icon={link.icon}
+            label={link.label}
+            hint={link.hint}
+            onPress={() => router.push(link.href)}
+          />
+        ))}
+      </NavGroup>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg }}>
-      {LINKS.map((link) => (
-        <Pressable key={link.label} onPress={() => router.push(link.href)}>
-          <Card>
-            <View style={styles.row}>
-              <Ionicons name={link.icon} size={22} color={colors.accent} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.label}>{link.label}</Text>
-                <Text style={styles.hint}>{link.hint}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-            </View>
-          </Card>
-        </Pressable>
-      ))}
+    <ScrollView style={styles.container} contentContainerStyle={styles.pad}>
+      <Text style={styles.lead}>Trading, research, and system</Text>
+      {renderGroup("Trading", TRADING)}
+      {renderGroup("Research", RESEARCH)}
+      {renderGroup("System", SYSTEM)}
       <Text style={styles.disclaimer}>
-        RegimeX is an experimental CFD research tool. Primary forward path is MT5 DEMO; paper CFD is fallback.
-        Live-money trading is disabled. Past performance does not guarantee future results.
+        RegimeX is experimental CFD research. MT5 DEMO is primary; paper is fallback. Live money is disabled.
       </Text>
     </ScrollView>
   );
@@ -44,8 +68,18 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  label: { color: colors.text, fontSize: font.body, fontWeight: "700" },
-  hint: { color: colors.textDim, fontSize: font.caption, marginTop: 2 },
-  disclaimer: { color: colors.textFaint, fontSize: font.caption, textAlign: "center", marginTop: spacing.lg, lineHeight: 18 }
+  pad: { padding: spacing.lg, paddingBottom: 56 },
+  lead: {
+    color: colors.textDim,
+    fontSize: font.body,
+    marginBottom: spacing.xl,
+    marginTop: spacing.sm
+  },
+  disclaimer: {
+    color: colors.textFaint,
+    fontSize: font.micro,
+    textAlign: "center",
+    marginTop: spacing.md,
+    lineHeight: 16
+  }
 });

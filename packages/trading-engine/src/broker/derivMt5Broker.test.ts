@@ -211,14 +211,17 @@ describe("MT5 demo / real / netting guards", () => {
     expect(() => assertMt5HedgingMode("EXCHANGE")).toThrow(/MT5_NETTING_MODE_NOT_SUPPORTED/);
   });
 
-  it("broker_real_mt5 is unimplemented even with REAL_MONEY_ENABLED", () => {
+  it("broker_real_mt5 remains blocked without LIVE_MT5_ENABLED", () => {
     expect(() =>
       resolveExecutionBackend({
         EXECUTION_MODE: "broker_real_mt5",
         LEGACY_BINARY_ENABLED: false,
-        REAL_MONEY_ENABLED: true
+        REAL_MONEY_ENABLED: true,
+        LIVE_MT5_ENABLED: false,
+        MT5_BRIDGE_SECRET: "test-secret-value-32chars-long!",
+        MT5_BRIDGE_URL: "http://mt5-bridge:8765"
       })
-    ).toThrow(/REAL_MT5_EXECUTION_NOT_IMPLEMENTED/);
+    ).toThrow(/LIVE_TRADING_DISABLED/);
   });
 
   it("fail-closed for broker_demo_mt5 without secret", () => {
@@ -241,11 +244,12 @@ describe("MT5 demo / real / netting guards", () => {
     ).toBe("paper_cfd");
   });
 
-  it("constructor refuses requireDemoAccount=false", () => {
+  it("constructor refuses requireDemoAccount=false with demo environment", () => {
     expect(
       () =>
         new DerivMT5BrokerAdapter({
           requireDemoAccount: false,
+          executionEnvironment: "demo",
           bridgeUrl: "http://mt5-bridge:8765",
           bridgeSecret: "test-secret-value-32chars-long!",
           timeoutMs: 1000,
@@ -255,6 +259,23 @@ describe("MT5 demo / real / netting guards", () => {
           magic: DEFAULT_MT5_MAGIC
         })
     ).toThrow(/REAL_MT5_EXECUTION_NOT_IMPLEMENTED/);
+  });
+
+  it("constructor allows explicit live environment when requireDemoAccount=false", () => {
+    const adapter = new DerivMT5BrokerAdapter({
+      requireDemoAccount: false,
+      executionEnvironment: "live",
+      expectedEnvironment: "live",
+      bridgeUrl: "http://mt5-bridge:8765",
+      bridgeSecret: "test-secret-value-32chars-long!",
+      timeoutMs: 1000,
+      maxQuoteAgeMs: 1000,
+      maxTestVolume: 0.01,
+      maxTestRiskPercent: 0.1,
+      magic: DEFAULT_MT5_MAGIC
+    });
+    expect(adapter.name).toBe("deriv_mt5_live");
+    expect(adapter.getExecutionEnvironment()).toBe("live");
   });
 });
 
@@ -274,6 +295,54 @@ describe("DerivMT5BrokerAdapter mocked transport", () => {
       transport: mock
     });
     await expect(adapter.connect()).rejects.toThrow(/MT5_ACCOUNT_IS_REAL/);
+  });
+
+  it("live adapter accepts REAL and rejects DEMO on connect", async () => {
+    const liveOk = new MockMt5BridgeTransport({
+      account: {
+        tradeMode: "REAL",
+        company: "Deriv Limited",
+        server: "Deriv-Server",
+        login: "999"
+      }
+    });
+    const liveAdapter = new DerivMT5BrokerAdapter({
+      requireDemoAccount: false,
+      executionEnvironment: "live",
+      expectedEnvironment: "live",
+      expectedBroker: "Deriv",
+      expectedServer: "Deriv-Server",
+      expectedLogin: "999",
+      bridgeUrl: "http://mt5-bridge:8765",
+      bridgeSecret: "test-secret-value-32chars-long!",
+      timeoutMs: 1000,
+      maxQuoteAgeMs: 30_000,
+      maxTestVolume: 0.01,
+      maxTestRiskPercent: 0.25,
+      magic: DEFAULT_MT5_MAGIC,
+      transport: liveOk
+    });
+    await liveAdapter.connect();
+    expect(liveAdapter.getStatus().tradeMode).toBe("REAL");
+    expect(liveAdapter.getStatus().isDemo).toBe(false);
+    await liveAdapter.disconnect();
+
+    const demoOnLive = new MockMt5BridgeTransport({ account: { tradeMode: "DEMO" } });
+    const rejectDemo = new DerivMT5BrokerAdapter({
+      requireDemoAccount: false,
+      executionEnvironment: "live",
+      expectedEnvironment: "live",
+      expectedBroker: "Deriv",
+      bridgeUrl: "http://mt5-bridge:8765",
+      bridgeSecret: "test-secret-value-32chars-long!",
+      timeoutMs: 1000,
+      maxQuoteAgeMs: 30_000,
+      maxTestVolume: 0.01,
+      maxTestRiskPercent: 0.25,
+      magic: DEFAULT_MT5_MAGIC,
+      transport: demoOnLive
+    });
+    await expect(rejectDemo.connect()).rejects.toThrow(/MT5_ACCOUNT_IS_DEMO/);
   });
 
   it("rejects NETTING on connect", async () => {

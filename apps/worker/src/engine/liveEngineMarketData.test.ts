@@ -24,7 +24,16 @@ describe("liveEngineMarketData routing", () => {
       "MT5_HISTORY",
       "MT5_LIVE_TICKS"
     ]);
+    expect(resolvePersistedCandleSources("broker_real_mt5")).toEqual([
+      "MT5_HISTORY",
+      "MT5_LIVE_TICKS"
+    ]);
     expect(resolvePersistedCandleSources("paper_cfd")).toBeNull();
+  });
+
+  it("broker_real_mt5 does not feed Deriv ticks to CandleAggregator", () => {
+    expect(shouldFeedDerivTicksToAggregator("broker_real_mt5")).toBe(false);
+    expect(shouldSubscribeDerivTicks("broker_real_mt5")).toBe(false);
   });
 
   it("G: restart cannot mix persisted Deriv history with MT5 session buffer", () => {

@@ -1,3 +1,10 @@
+import {
+  assertLiveMt5Capable,
+  resolveLiveTradingCapability,
+  LIVE_TRADING_DISABLED,
+  type LiveMt5CapabilityConfig
+} from "../broker/mt5/liveMt5Policy.js";
+
 export type ExecutionBackend =
   | "paper_cfd"
   | "broker_demo_cfd"
@@ -6,10 +13,11 @@ export type ExecutionBackend =
   | "broker_real_mt5"
   | "legacy_binary";
 
-export interface ExecutionModeConfig {
+export interface ExecutionModeConfig extends LiveMt5CapabilityConfig {
   EXECUTION_MODE: ExecutionBackend;
   LEGACY_BINARY_ENABLED: boolean;
   REAL_MONEY_ENABLED: boolean;
+  LIVE_MT5_ENABLED?: boolean;
   BROKER_REAL_ACK?: string | null;
   BROKER_REAL_ACCOUNT_ID?: string | null;
   CTRADER_CLIENT_ID?: string | null;
@@ -28,32 +36,33 @@ export interface ExecutionModeConfig {
  * Authoritative execution backend resolution.
  *
  * Fail-closed rules:
- * - broker_real_cfd → REAL_CFD_EXECUTION_NOT_IMPLEMENTED (even with REAL_MONEY_ENABLED)
- * - broker_real_mt5 → REAL_MT5_EXECUTION_NOT_IMPLEMENTED (even with REAL_MONEY_ENABLED)
- * - REAL_MONEY_ENABLED=true is refused for every implemented mode
- * - broker_demo_cfd requires credentials + CTRADER_ENVIRONMENT=demo
- * - broker_demo_mt5 is the primary DEMO forward path (bridge URL/secret + demo env)
- * - paper_cfd remains a supported local/dev/fallback backend
+ * - broker_real_cfd → still unimplemented
+ * - broker_real_mt5 → only when REAL_MONEY_ENABLED && LIVE_MT5_ENABLED (+ bridge config)
+ * - REAL_MONEY_ENABLED alone does NOT unlock live and does NOT disable demo/paper
+ * - broker_demo_* / paper_cfd unchanged when live gates are off
  */
 export function resolveExecutionBackend(config: ExecutionModeConfig): ExecutionBackend {
-  // Real-money modes are architecture-only. Check these FIRST so
-  // REAL_MONEY_ENABLED=true cannot unlock a funded path by flipping one flag.
-  if (config.EXECUTION_MODE === "broker_real_mt5") {
-    throw new Error(
-      "REAL_MT5_EXECUTION_NOT_IMPLEMENTED: broker_real_mt5 is architecture-only. Refusing to start."
-    );
-  }
-
   if (config.EXECUTION_MODE === "broker_real_cfd") {
     throw new Error(
       "REAL_CFD_EXECUTION_NOT_IMPLEMENTED: broker_real_cfd is architecture-only. Refusing to start."
     );
   }
 
-  if (config.REAL_MONEY_ENABLED) {
-    throw new Error(
-      "REAL_MONEY_ENABLED=true is refused. Real CFD/MT5 execution is not implemented. Refusing unsafe config."
-    );
+  if (config.EXECUTION_MODE === "broker_real_mt5") {
+    try {
+      assertLiveMt5Capable({
+        ...config,
+        LIVE_MT5_ENABLED: Boolean(config.LIVE_MT5_ENABLED),
+        REAL_MONEY_ENABLED: Boolean(config.REAL_MONEY_ENABLED)
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes(LIVE_TRADING_DISABLED)) throw err;
+      throw new Error(
+        `REAL_MT5_EXECUTION_NOT_IMPLEMENTED: ${msg}`
+      );
+    }
+    return "broker_real_mt5";
   }
 
   if (config.EXECUTION_MODE === "legacy_binary") {
@@ -116,6 +125,10 @@ export function isBrokerDemoMt5Execution(config: ExecutionModeConfig): boolean {
   return resolveExecutionBackend(config) === "broker_demo_mt5";
 }
 
+export function isBrokerRealMt5Execution(config: ExecutionModeConfig): boolean {
+  return resolveExecutionBackend(config) === "broker_real_mt5";
+}
+
 /** Docker DNS URL for the mt5-bridge service. Never use 127.0.0.1 from a container. */
 export function resolveMt5BridgeUrl(config: ExecutionModeConfig): string {
   if (config.MT5_BRIDGE_URL) return config.MT5_BRIDGE_URL;
@@ -125,26 +138,31 @@ export function resolveMt5BridgeUrl(config: ExecutionModeConfig): string {
 }
 
 /**
- * CFD BUY/SELL path (paper, MT5 DEMO, cTrader DEMO).
+ * CFD BUY/SELL path (paper, MT5 DEMO, MT5 LIVE when gated, cTrader DEMO).
  * Never used by legacy binary proposal/buy.
  */
 export function assertCfdExecutionReachable(config: ExecutionModeConfig): void {
-  if (config.REAL_MONEY_ENABLED) {
-    throw new Error(
-      "REAL_MONEY_ENABLED=true is refused. Real CFD/MT5 execution is not implemented. Refusing unsafe config."
-    );
-  }
-  if (config.EXECUTION_MODE === "broker_real_mt5") {
-    throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
-  }
   if (config.EXECUTION_MODE === "broker_real_cfd") {
     throw new Error("REAL_CFD_EXECUTION_NOT_IMPLEMENTED");
   }
   if (config.EXECUTION_MODE === "legacy_binary") {
     throw new Error("CFD execution is blocked while EXECUTION_MODE is legacy_binary");
   }
+  if (config.EXECUTION_MODE === "broker_real_mt5") {
+    assertLiveMt5Capable({
+      ...config,
+      LIVE_MT5_ENABLED: Boolean(config.LIVE_MT5_ENABLED),
+      REAL_MONEY_ENABLED: Boolean(config.REAL_MONEY_ENABLED)
+    });
+    return;
+  }
   const mode = resolveExecutionBackend(config);
-  if (mode !== "paper_cfd" && mode !== "broker_demo_cfd" && mode !== "broker_demo_mt5") {
+  if (
+    mode !== "paper_cfd" &&
+    mode !== "broker_demo_cfd" &&
+    mode !== "broker_demo_mt5" &&
+    mode !== "broker_real_mt5"
+  ) {
     throw new Error(`CFD execution is not reachable for EXECUTION_MODE=${mode}`);
   }
 }
@@ -156,7 +174,7 @@ export function assertCfdExecutionReachable(config: ExecutionModeConfig): void {
 export function assertLegacyBinaryReachable(config: ExecutionModeConfig): void {
   if (config.REAL_MONEY_ENABLED) {
     throw new Error(
-      "REAL_MONEY_ENABLED=true is refused. Real CFD/MT5 execution is not implemented. Refusing unsafe config."
+      "REAL_MONEY_ENABLED=true refuses legacy binary path. Use CFD execution modes only."
     );
   }
   if (
@@ -174,3 +192,5 @@ export function assertLegacyBinaryReachable(config: ExecutionModeConfig): void {
     throw new Error("Legacy binary execution is not reachable");
   }
 }
+
+export { resolveLiveTradingCapability, LIVE_TRADING_DISABLED };

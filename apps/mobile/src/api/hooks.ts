@@ -13,9 +13,11 @@ export interface DashboardSummary {
   interval: string | null;
   mode: string | null;
   execution?: {
-    source: "PAPER_CFD" | "MT5_DEMO" | "CTRADER_DEMO" | string;
+    source: "PAPER_CFD" | "MT5_DEMO" | "MT5_LIVE" | "CTRADER_DEMO" | string;
     executionMode: string;
     realMoneyEnabled: boolean;
+    liveTradingSupported?: boolean;
+    liveTradingEnabled?: boolean;
     mt5EngineAutomationEnabled: boolean;
     mt5TestMode: boolean;
     paperIsFallback: boolean;
@@ -283,6 +285,10 @@ export const useEngine = () =>
           lastTickAt: string | null;
           configuration: Record<string, unknown> | null;
           demoTradingGloballyEnabled: boolean;
+          liveTradingGloballyEnabled?: boolean;
+          liveTradingSupported?: boolean;
+          liveTradingArmed?: boolean;
+          realMoneyEnabled?: boolean;
         } | null;
       }>("/engine"),
     refetchInterval: 5_000
@@ -357,6 +363,22 @@ export const useClosePosition = () => {
       void qc.invalidateQueries({ queryKey: ["positions"] });
       void qc.invalidateQueries({ queryKey: ["paper-account"] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    }
+  });
+};
+
+export const useModifyPosition = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; stopLoss: number; takeProfit?: number | null }) =>
+      api<{ success: boolean; message?: string }>(`/positions/${input.id}/modify`, {
+        method: "POST",
+        body: { stopLoss: input.stopLoss, takeProfit: input.takeProfit }
+      }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["positions"] });
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      void qc.invalidateQueries({ queryKey: ["mt5-status"] });
     }
   });
 };
@@ -772,3 +794,58 @@ export const useMt5Status = () =>
       }>("/broker-demo/mt5/status"),
     refetchInterval: 15_000
   });
+
+export interface LiveTradingStatus {
+  liveTradingSupported: boolean;
+  liveTradingArmed: boolean;
+  realMoneyEnabled: boolean;
+  liveMt5Enabled: boolean;
+  accountEnvironmentValid: boolean;
+  accountEnvironmentReasons: string[];
+  allowedSymbols: string[];
+  maxConcurrentLivePositions: number;
+  maxRiskPerTradePercent: number;
+  maxDailyLoss: number;
+  maxLotSize: number;
+  smokeTestMode: boolean;
+  emergencyStop: boolean;
+  executionMode: string;
+  mt5: {
+    tradeMode: string | null;
+    company: string | null;
+    server: string | null;
+    loginMasked: string | null;
+  };
+  capabilityReasons: string[];
+}
+
+export const useLiveTradingStatus = () =>
+  useQuery({
+    queryKey: ["live-trading-status"],
+    queryFn: () => api<{ status: LiveTradingStatus }>("/live-trading/status"),
+    refetchInterval: 15_000
+  });
+
+export const useArmLiveTrading = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ status: LiveTradingStatus }>("/live-trading/arm", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["live-trading-status"] });
+      void qc.invalidateQueries({ queryKey: ["engine"] });
+      void qc.invalidateQueries({ queryKey: ["broker-demo-mt5-status"] });
+    }
+  });
+};
+
+export const useDisarmLiveTrading = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ status: LiveTradingStatus }>("/live-trading/disarm", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["live-trading-status"] });
+      void qc.invalidateQueries({ queryKey: ["engine"] });
+      void qc.invalidateQueries({ queryKey: ["broker-demo-mt5-status"] });
+    }
+  });
+};

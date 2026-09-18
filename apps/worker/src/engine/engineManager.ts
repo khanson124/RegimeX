@@ -96,6 +96,7 @@ export class EngineManager {
       "SYNCING_DATA",
       "RUNNING_ANALYSIS_ONLY",
       "RUNNING_DEMO_TRADING",
+      "RUNNING_LIVE_TRADING",
       "DEGRADED"
     ];
     const engines = await this.prisma.liveEngine.findMany({
@@ -171,7 +172,10 @@ export class EngineManager {
           await runtime.init(open?.symbol ?? "R_10");
           const result = await runtime.liquidateAllOpen("RISK_SHUTDOWN");
           this.logger.info({ userId, result }, "Emergency liquidation without live session");
-        } else if (this.config.EXECUTION_MODE === "broker_demo_mt5") {
+        } else if (
+          this.config.EXECUTION_MODE === "broker_demo_mt5" ||
+          this.config.EXECUTION_MODE === "broker_real_mt5"
+        ) {
           const { emergencyCloseOwnedMt5Positions } = await import("../cfd/mt5CloseRuntime.js");
           const result = await emergencyCloseOwnedMt5Positions({
             prisma: this.prisma,
@@ -197,7 +201,10 @@ export class EngineManager {
         if (session) {
           const result = await session.closePaperPosition(positionId);
           this.logger.info({ userId, positionId, symbol: pos?.symbol, result }, "Manual close via session");
-        } else if (this.config.EXECUTION_MODE === "broker_demo_mt5") {
+        } else if (
+          this.config.EXECUTION_MODE === "broker_demo_mt5" ||
+          this.config.EXECUTION_MODE === "broker_real_mt5"
+        ) {
           const { closeMt5LocalPosition } = await import("../cfd/mt5CloseRuntime.js");
           const result = await closeMt5LocalPosition({
             prisma: this.prisma,
@@ -217,6 +224,43 @@ export class EngineManager {
           await runtime.init(pos?.symbol ?? "R_10");
           const result = await runtime.manualClose(positionId);
           this.logger.info({ userId, positionId, result }, "Manual close via ephemeral runtime");
+        }
+        break;
+      }
+      case "MODIFY_POSITION": {
+        const positionId = message.positionId;
+        const stopLoss = message.stopLoss;
+        if (!positionId || stopLoss == null || !Number.isFinite(stopLoss)) {
+          this.logger.warn({ message }, "MODIFY_POSITION missing positionId/stopLoss");
+          break;
+        }
+        if (
+          this.config.EXECUTION_MODE === "broker_demo_mt5" ||
+          this.config.EXECUTION_MODE === "broker_real_mt5"
+        ) {
+          const { modifyMt5LocalPosition } = await import("../cfd/mt5ModifyRuntime.js");
+          const result = await modifyMt5LocalPosition({
+            prisma: this.prisma,
+            config: this.config,
+            userId,
+            positionId,
+            stopLoss,
+            takeProfit: message.takeProfit,
+            logger: this.logger
+          });
+          this.logger.info({ userId, positionId, result }, "MT5 manual modify");
+        } else {
+          const { modifyPaperLocalPosition } = await import("../cfd/paperModifyRuntime.js");
+          const result = await modifyPaperLocalPosition({
+            prisma: this.prisma,
+            config: this.config,
+            userId,
+            positionId,
+            stopLoss,
+            takeProfit: message.takeProfit,
+            logger: this.logger
+          });
+          this.logger.info({ userId, positionId, result }, "Paper manual modify");
         }
         break;
       }

@@ -140,6 +140,100 @@ export function resolveMt5EngineVolume(input: Mt5EngineVolumeInput): Mt5EngineVo
   });
 }
 
+export const VOLUME_OVERRIDE_APPLIED = "VOLUME_OVERRIDE_APPLIED";
+export const VOLUME_OVERRIDE_INVALID = "VOLUME_OVERRIDE_INVALID";
+
+/**
+ * Trader-selected fixed lot size. Still normalized to broker step and capped by
+ * engine/broker max — does not re-block via risk%-based MIN_VOLUME_EXCEEDS_RISK.
+ */
+export function resolveMt5FixedVolumeOverride(input: {
+  overrideLots: number;
+  equity: number;
+  riskPerTradePercent: number;
+  direction: PositionDirection;
+  entryPrice: number;
+  stopLoss: number;
+  instrument: InstrumentMetadata;
+  engineMaxVolume: number;
+}): Mt5EngineVolumeDecision {
+  const brokerMinVolume = input.instrument.minVolume;
+  const brokerMaxVolume = input.instrument.maxVolume;
+  const brokerVolumeStep = input.instrument.volumeStep;
+  const engineMaxVolume = input.engineMaxVolume;
+  const allowedRiskPercent = input.riskPerTradePercent;
+  const allowedRiskAmount = roundMoney((input.equity * allowedRiskPercent) / 100);
+  const perUnit = lossAtStopPerUnitVolume(
+    input.direction,
+    input.entryPrice,
+    input.stopLoss,
+    input.instrument
+  );
+  const riskAtBrokerMinVolume = roundMoney(perUnit * brokerMinVolume);
+
+  const base = {
+    requestedVolume: input.overrideLots,
+    riskSizedVolume: input.overrideLots,
+    normalizedVolume: 0,
+    brokerMinVolume,
+    brokerMaxVolume,
+    brokerVolumeStep,
+    engineMaxVolume,
+    allowedRiskPercent,
+    allowedRiskAmount,
+    riskAtBrokerMinVolume,
+    raisedToBrokerMin: false
+  };
+
+  if (!(input.overrideLots > 0) || !Number.isFinite(input.overrideLots)) {
+    return {
+      ...base,
+      wouldSubmit: false,
+      reasonCode: VOLUME_OVERRIDE_INVALID,
+      finalVolume: null,
+      decision: VOLUME_OVERRIDE_INVALID
+    };
+  }
+
+  if (!(engineMaxVolume > 0) || !(brokerMinVolume > 0)) {
+    return {
+      ...base,
+      wouldSubmit: false,
+      reasonCode: BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME,
+      finalVolume: null,
+      decision: BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME
+    };
+  }
+
+  const stepped = normalizeLotsToMt5Step(input.overrideLots, {
+    volumeMin: brokerMinVolume,
+    volumeMax: Math.min(brokerMaxVolume, engineMaxVolume),
+    volumeStep: brokerVolumeStep
+  });
+  const finalVolume = stepped.lots;
+
+  if (!(finalVolume > 0) || finalVolume + 1e-12 < brokerMinVolume) {
+    return {
+      ...base,
+      normalizedVolume: finalVolume,
+      wouldSubmit: false,
+      reasonCode: VOLUME_OVERRIDE_INVALID,
+      finalVolume: null,
+      decision: VOLUME_OVERRIDE_INVALID
+    };
+  }
+
+  return {
+    ...base,
+    normalizedVolume: finalVolume,
+    wouldSubmit: true,
+    reasonCode: VOLUME_OVERRIDE_APPLIED,
+    finalVolume,
+    decision: VOLUME_OVERRIDE_APPLIED,
+    raisedToBrokerMin: false
+  };
+}
+
 export interface AutonomousExecutionPreflight {
   internalSymbol: string;
   brokerSymbol: string | null;

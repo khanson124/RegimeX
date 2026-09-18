@@ -83,16 +83,16 @@ describe("MT5 engine rollout gates", () => {
     expect(gate.decisionCode).toBe("PAPER_MODE");
   });
 
-  it("keeps real-money paths impossible", () => {
+  it("blocks live without capability gates; demo still works with REAL_MONEY alone", () => {
     expect(
       gateMt5EngineSubmission({
-        config: { ...demoBase, EXECUTION_MODE: "broker_real_mt5", REAL_MONEY_ENABLED: true },
+        config: { ...demoBase, EXECUTION_MODE: "broker_real_mt5", REAL_MONEY_ENABLED: true, LIVE_MT5_ENABLED: false },
         symbol: "R_10",
         strategyId: "ema-pullback-v1",
         openOwnedCount: 0,
         mapping: v10Mapping
       }).decisionCode
-    ).toBe("REAL_MONEY_BLOCKED");
+    ).toBe("LIVE_TRADING_DISABLED");
     expect(
       gateMt5EngineSubmission({
         config: { ...demoBase, REAL_MONEY_ENABLED: true },
@@ -100,8 +100,63 @@ describe("MT5 engine rollout gates", () => {
         strategyId: "ema-pullback-v1",
         openOwnedCount: 0,
         mapping: v10Mapping
-      }).reason
-    ).toBe("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
+      }).allowed
+    ).toBe(true);
+  });
+
+  it("allows live submissions when capability + armed + LIVE_ALLOWED_SYMBOLS are configured", () => {
+    const liveConfig = {
+      ...demoBase,
+      EXECUTION_MODE: "broker_real_mt5",
+      REAL_MONEY_ENABLED: true,
+      LIVE_MT5_ENABLED: true,
+      LIVE_ALLOWED_SYMBOLS: "R_10",
+      LIVE_MAX_CONCURRENT_POSITIONS: 1,
+      LIVE_MAX_LOT_SIZE: 0.5,
+      MT5_BRIDGE_SECRET: "secret",
+      MT5_BRIDGE_URL: "http://mt5-bridge:8765",
+      MT5_EXPECTED_ENVIRONMENT: "live" as const
+    };
+    expect(
+      gateMt5EngineSubmission({
+        config: liveConfig,
+        symbol: "R_10",
+        strategyId: "ema-pullback-v1",
+        openOwnedCount: 0,
+        mapping: v10Mapping,
+        liveTradingArmed: false
+      }).decisionCode
+    ).toBe("LIVE_TRADING_DISARMED");
+    expect(
+      gateMt5EngineSubmission({
+        config: liveConfig,
+        symbol: "R_10",
+        strategyId: "ema-pullback-v1",
+        openOwnedCount: 0,
+        mapping: v10Mapping,
+        liveTradingArmed: true
+      }).allowed
+    ).toBe(true);
+    expect(
+      gateMt5EngineSubmission({
+        config: liveConfig,
+        symbol: "R_10",
+        strategyId: "ema-pullback-v1",
+        openOwnedCount: 1,
+        mapping: v10Mapping,
+        liveTradingArmed: true
+      }).decisionCode
+    ).toBe("MAX_CONCURRENT_POSITIONS");
+    expect(
+      gateMt5EngineSubmission({
+        config: liveConfig,
+        symbol: "XAUUSD",
+        strategyId: "ema-pullback-v1",
+        openOwnedCount: 0,
+        mapping: v10Mapping,
+        liveTradingArmed: true
+      }).decisionCode
+    ).toBe("LIVE_POLICY_REJECTED");
   });
 
   it("fail-closes on empty symbol or strategy allowlists", () => {

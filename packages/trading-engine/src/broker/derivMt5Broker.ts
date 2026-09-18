@@ -17,7 +17,9 @@ import { isQuoteFresh, lossAtStopPerUnitVolume } from "../execution/cfdMath.js";
 import { HttpMt5BridgeClient } from "./mt5/bridgeClient.js";
 import { isMt5BridgeFailureCode } from "./mt5/bridgeCircuit.js";
 import { Mt5BrokerError } from "./mt5/mt5BrokerError.js";
-import { assertMt5DemoAccount, assertMt5HedgingMode } from "./mt5/demoGuard.js";
+import { assertMt5HedgingMode } from "./mt5/demoGuard.js";
+import { assertMt5EnvironmentOrThrow, validateMt5ExecutionEnvironment } from "./mt5/mt5EnvironmentGuard.js";
+import { type Mt5ExecutionEnvironment } from "./mt5/liveMt5Policy.js";
 import { FILLING_MODE_UNSUPPORTED, selectFillingMode, parseSupportedFillingModes } from "./mt5/fillingMode.js";
 import { reconstructClosedPositionFromDeals, type Mt5ClosedPositionEvidence } from "./mt5/history.js";
 import { todayRealizedPnlFromMt5Deals } from "./mt5/todayRealizedPnl.js";
@@ -47,7 +49,13 @@ import {
 import { assertMt5VolumeValid, normalizeLotsToMt5Step } from "./mt5/volume.js";
 
 export interface DerivMt5BrokerConfig {
+  /**
+   * Demo path: true (default). Live path: false — only after server capability +
+   * live account validation + live policy are wired by the factory.
+   */
   requireDemoAccount: boolean;
+  /** Explicit environment. Defaults from requireDemoAccount when omitted. */
+  executionEnvironment?: Mt5ExecutionEnvironment;
   bridgeUrl: string;
   bridgeSecret: string;
   timeoutMs: number;
@@ -111,7 +119,8 @@ export interface Mt5BrokerStatus {
 }
 
 export class DerivMT5BrokerAdapter implements BrokerAdapter {
-  readonly name = "deriv_mt5_demo";
+  readonly name: string;
+  private readonly executionEnvironment: Mt5ExecutionEnvironment;
   private transport: Mt5BridgeTransport | null = null;
   private account: Mt5AccountInfo | null = null;
   private lastError: string | null = null;
@@ -126,9 +135,31 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   } | null = null;
 
   constructor(private readonly config: DerivMt5BrokerConfig) {
-    if (!config.requireDemoAccount) {
+    const env =
+      config.executionEnvironment ??
+      (config.requireDemoAccount === false || config.expectedEnvironment === "live" ? "live" : "demo");
+    /**
+     * Live construction is allowed only when explicitly requested.
+     * requireDemoAccount=false without live environment remains blocked.
+     */
+    if (!config.requireDemoAccount && env !== "live") {
       throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
     }
+    if (config.requireDemoAccount && env === "live") {
+      throw new Error("MT5_ENVIRONMENT_MISMATCH: requireDemoAccount=true cannot use live environment");
+    }
+    if (env === "live" && config.expectedEnvironment === "demo") {
+      throw new Error("MT5_ENVIRONMENT_MISMATCH: live adapter cannot expect demo environment");
+    }
+    if (env === "demo" && config.expectedEnvironment === "live") {
+      throw new Error("MT5_ENVIRONMENT_MISMATCH: demo adapter cannot expect live environment");
+    }
+    this.executionEnvironment = env;
+    this.name = env === "live" ? "deriv_mt5_live" : "deriv_mt5_demo";
+  }
+
+  getExecutionEnvironment(): Mt5ExecutionEnvironment {
+    return this.executionEnvironment;
   }
 
   getStatus(): Mt5BrokerStatus {
@@ -163,31 +194,28 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       throw new Mt5BrokerError(ping.errorCode ?? "MT5_BRIDGE_UNAVAILABLE", this.lastError);
     }
     const account = await this.fetchAccount();
-    const demo = assertMt5DemoAccount({
-      account,
-      expectedBroker: this.config.expectedBroker,
-      expectedServer: this.config.expectedServer,
-      expectedLogin: this.config.expectedLogin,
-      expectedEnvironment: this.config.expectedEnvironment ?? "demo"
-    });
-    if (!demo.ok) {
+    try {
+      this.assertAccountEnvironment(account);
+    } catch (err) {
       this.connected = false;
-      this.lastError = demo.reasons.join("; ");
-      throw new Error(this.lastError);
+      this.lastError = err instanceof Error ? err.message : String(err);
+      throw err;
     }
-    assertMt5HedgingMode(account.marginMode);
     this.account = account;
     this.connected = true;
     this.lastError = null;
     this.config.logger?.info(
       {
+        environment: this.executionEnvironment,
         tradeMode: account.tradeMode,
         marginMode: account.marginMode,
         company: account.company,
         server: account.server,
         login: account.login
       },
-      "DerivMT5BrokerAdapter connected (DEMO)"
+      this.executionEnvironment === "live"
+        ? "DerivMT5BrokerAdapter connected (LIVE)"
+        : "DerivMT5BrokerAdapter connected (DEMO)"
     );
   }
 
@@ -201,14 +229,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   async getAccount(): Promise<BrokerAccountSnapshot> {
     const account = await this.fetchAccount();
     this.account = account;
-    const demo = assertMt5DemoAccount({
-      account,
-      expectedBroker: this.config.expectedBroker,
-      expectedServer: this.config.expectedServer,
-      expectedLogin: this.config.expectedLogin,
-      expectedEnvironment: this.config.expectedEnvironment ?? "demo"
-    });
-    if (!demo.ok) throw new Error(demo.reasons.join("; "));
+    this.assertAccountEnvironment(account);
     await this.refreshTodayRealizedPnl();
     return this.mapAccount(account);
   }
@@ -281,7 +302,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
     takeProfit: number;
     volumeLots?: number;
   }): Promise<Mt5PreflightResult> {
-    this.assertDemoHedging();
+    this.assertEnvironmentHedging();
     const reasons: string[] = [];
     const live = await this.getLiveSymbol(input.symbol);
     const mapped = live ? mapMt5SymbolToInstrument(live, this.account?.currency ?? "USD") : null;
@@ -368,7 +389,19 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   }
 
   async openMarketPosition(request: OpenMarketPositionRequest): Promise<OpenMarketPositionResult> {
-    this.assertDemoHedging();
+    this.assertEnvironmentHedging();
+    this.config.logger?.info(
+      {
+        event: this.executionEnvironment === "live" ? "LIVE_ORDER_SUBMITTED" : "DEMO_ORDER_SUBMITTED",
+        environment: this.executionEnvironment,
+        symbol: request.symbol,
+        volume: request.volume,
+        stopLoss: request.stopLoss,
+        takeProfit: request.takeProfit,
+        idempotencyKey: request.idempotencyKey
+      },
+      this.executionEnvironment === "live" ? "LIVE_ORDER_SUBMITTED" : "DEMO_ORDER_SUBMITTED"
+    );
     const cached = this.completedOpens.get(request.idempotencyKey);
     if (cached) return cached;
 
@@ -548,6 +581,19 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
         position
       };
       this.completedOpens.set(request.idempotencyKey, result);
+      this.config.logger?.info(
+        {
+          event: this.executionEnvironment === "live" ? "LIVE_ORDER_CONFIRMED" : "DEMO_ORDER_CONFIRMED",
+          environment: this.executionEnvironment,
+          symbol: request.symbol,
+          brokerPositionId: result.brokerPositionId,
+          volume: request.volume,
+          entryPrice: fill.fillPrice,
+          stopLoss: fill.stopLoss,
+          takeProfit: fill.takeProfit
+        },
+        this.executionEnvironment === "live" ? "LIVE_ORDER_CONFIRMED" : "DEMO_ORDER_CONFIRMED"
+      );
       return result;
     } finally {
       this.inFlightOpens.delete(request.idempotencyKey);
@@ -555,7 +601,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   }
 
   async modifyPosition(request: ModifyPositionRequest): Promise<BrokerOpenPosition> {
-    this.assertDemoHedging();
+    this.assertEnvironmentHedging();
     const ticket = Number(request.brokerPositionId);
     const open = await this.getOpenPositions();
     const current = open.find((p) => p.brokerPositionId === request.brokerPositionId);
@@ -589,11 +635,21 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
     if (!reply.ok || !reply.result) {
       throw new Error(reply.errorMessage ?? "modifyPosition failed");
     }
+    this.config.logger?.info(
+      {
+        event: this.executionEnvironment === "live" ? "LIVE_POSITION_MODIFIED" : "DEMO_POSITION_MODIFIED",
+        environment: this.executionEnvironment,
+        brokerPositionId: request.brokerPositionId,
+        stopLoss: request.stopLoss,
+        takeProfit: request.takeProfit
+      },
+      this.executionEnvironment === "live" ? "LIVE_POSITION_MODIFIED" : "DEMO_POSITION_MODIFIED"
+    );
     return this.bridgePosToOpen(reply.result);
   }
 
   async closePosition(request: ClosePositionRequest): Promise<ClosedPositionResult> {
-    this.assertDemoHedging();
+    this.assertEnvironmentHedging();
     const cached = this.closedResults.get(request.brokerPositionId);
     if (cached) return cached;
     const ticket = Number(request.brokerPositionId);
@@ -617,6 +673,16 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
       closedAt: reply.result.closedAt
     };
     this.closedResults.set(request.brokerPositionId, result);
+    this.config.logger?.info(
+      {
+        event: this.executionEnvironment === "live" ? "LIVE_POSITION_CLOSED" : "DEMO_POSITION_CLOSED",
+        environment: this.executionEnvironment,
+        brokerPositionId: result.brokerPositionId,
+        closeReason: request.reason,
+        realizedPnl: result.realizedPnl
+      },
+      this.executionEnvironment === "live" ? "LIVE_POSITION_CLOSED" : "DEMO_POSITION_CLOSED"
+    );
     return result;
   }
 
@@ -796,16 +862,26 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
     return this.transport;
   }
 
-  private assertDemoHedging(): void {
-    if (!this.connected || !this.account) throw new Error("DerivMT5BrokerAdapter not connected");
-    const demo = assertMt5DemoAccount({
-      account: this.account,
+  private assertAccountEnvironment(account: Mt5AccountInfo): void {
+    assertMt5EnvironmentOrThrow({
+      account,
+      expectedEnvironment: this.executionEnvironment,
       expectedBroker: this.config.expectedBroker,
       expectedServer: this.config.expectedServer,
-      expectedLogin: this.config.expectedLogin,
-      expectedEnvironment: this.config.expectedEnvironment ?? "demo"
+      expectedLogin: this.config.expectedLogin
     });
-    if (!demo.ok) throw new Error(demo.reasons.join("; "));
+  }
+
+  private assertEnvironmentHedging(): void {
+    if (!this.connected || !this.account) throw new Error("DerivMT5BrokerAdapter not connected");
+    const result = validateMt5ExecutionEnvironment({
+      account: this.account,
+      expectedEnvironment: this.executionEnvironment,
+      expectedBroker: this.config.expectedBroker,
+      expectedServer: this.config.expectedServer,
+      expectedLogin: this.config.expectedLogin
+    });
+    if (!result.ok) throw new Error(result.reasons.join("; "));
     assertMt5HedgingMode(this.account.marginMode);
   }
 

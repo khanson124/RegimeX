@@ -67,14 +67,17 @@ describe("executionMode", () => {
     ).toThrow(/CTRADER_CLIENT_ID/);
   });
 
-  it("fail-closed for broker_real_mt5 with REAL_MT5_EXECUTION_NOT_IMPLEMENTED", () => {
+  it("fail-closed for broker_real_mt5 without LIVE_MT5_ENABLED", () => {
     expect(() =>
       resolveExecutionBackend({
         EXECUTION_MODE: "broker_real_mt5",
         LEGACY_BINARY_ENABLED: false,
-        REAL_MONEY_ENABLED: true
+        REAL_MONEY_ENABLED: true,
+        LIVE_MT5_ENABLED: false,
+        MT5_BRIDGE_SECRET: "test-secret-value-32chars-long!",
+        MT5_BRIDGE_URL: "http://mt5-bridge:8765"
       })
-    ).toThrow(/REAL_MT5_EXECUTION_NOT_IMPLEMENTED/);
+    ).toThrow(/LIVE_TRADING_DISABLED/);
   });
 
   it("fail-closed for broker_demo_mt5 without credentials", () => {
@@ -99,29 +102,49 @@ describe("executionMode", () => {
     expect(() => assertCfdExecutionReachable(mt5Demo)).not.toThrow();
   });
 
-  it("broker_real_mt5 remains impossible on the CFD guard", () => {
+  it("broker_real_mt5 remains impossible on the CFD guard without live gates", () => {
     expect(() =>
       assertCfdExecutionReachable({
         EXECUTION_MODE: "broker_real_mt5",
         LEGACY_BINARY_ENABLED: false,
-        REAL_MONEY_ENABLED: false
+        REAL_MONEY_ENABLED: false,
+        LIVE_MT5_ENABLED: false
       })
-    ).toThrow(/REAL_MT5_EXECUTION_NOT_IMPLEMENTED/);
+    ).toThrow(/LIVE_TRADING_DISABLED/);
   });
 
-  it("REAL_MONEY_ENABLED=true still does not create a funded path", () => {
+  it("allows broker_real_mt5 when both live gates and bridge/config are set", () => {
+    const live = {
+      EXECUTION_MODE: "broker_real_mt5" as const,
+      LEGACY_BINARY_ENABLED: false,
+      REAL_MONEY_ENABLED: true,
+      LIVE_MT5_ENABLED: true,
+      MT5_BRIDGE_SECRET: "test-secret-value-32chars-long!",
+      MT5_BRIDGE_URL: "http://mt5-bridge:8765",
+      MT5_EXPECTED_ENVIRONMENT: "live" as const,
+      LIVE_ALLOWED_SYMBOLS: "R_10"
+    };
+    expect(resolveExecutionBackend(live)).toBe("broker_real_mt5");
+    expect(() => assertCfdExecutionReachable(live)).not.toThrow();
+  });
+
+  it("REAL_MONEY_ENABLED alone does not unlock broker_real_mt5 or break demo", () => {
     expect(() =>
-      assertCfdExecutionReachable({
-        ...mt5Demo,
-        REAL_MONEY_ENABLED: true
+      resolveExecutionBackend({
+        EXECUTION_MODE: "broker_real_mt5",
+        LEGACY_BINARY_ENABLED: false,
+        REAL_MONEY_ENABLED: true,
+        LIVE_MT5_ENABLED: false,
+        MT5_BRIDGE_SECRET: "test-secret-value-32chars-long!",
+        MT5_BRIDGE_URL: "http://mt5-bridge:8765"
       })
-    ).toThrow(/REAL_MONEY_ENABLED/);
-    expect(() =>
+    ).toThrow(/LIVE_TRADING_DISABLED/);
+    expect(
       resolveExecutionBackend({
         ...mt5Demo,
         REAL_MONEY_ENABLED: true
       })
-    ).toThrow(/REAL_MONEY_ENABLED/);
+    ).toBe("broker_demo_mt5");
   });
 
   it("legacy binary remains isolated to LEGACY_BINARY_ENABLED", () => {

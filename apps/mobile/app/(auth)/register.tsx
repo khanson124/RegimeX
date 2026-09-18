@@ -4,8 +4,8 @@ import { Link } from "expo-router";
 import { api, ApiError } from "../../src/api/client";
 import { WebShell } from "../../src/components/WebShell";
 import { useAuthStore } from "../../src/stores/auth";
-import { Button, Card, Input } from "../../src/components/ui";
-import { webStyle } from "../../src/lib/webStyles";
+import { Input } from "../../src/components/ui";
+import { PrimaryButton, SoftCard } from "../../src/components/design";
 import { colors, font, spacing } from "../../src/theme";
 
 export default function RegisterScreen() {
@@ -39,7 +39,7 @@ export default function RegisterScreen() {
   const form = (
     <>
       <Text style={styles.logo}>Create account</Text>
-      <Card style={styles.card}>
+      <SoftCard>
         <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" placeholder="you@example.com" />
         <Input
           label="Password (10+ chars, upper/lower/digit)"
@@ -50,11 +50,11 @@ export default function RegisterScreen() {
         />
         <Input label="Confirm password" value={confirm} onChangeText={setConfirm} secureTextEntry placeholder="••••••••••" />
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Button title="Register" onPress={() => void onSubmit()} loading={loading} disabled={!email || !password} />
+        <PrimaryButton title="Register" onPress={() => void onSubmit()} loading={loading} disabled={!email || !password} />
         <Link href="/(auth)/login" style={styles.link}>
           Back to login
         </Link>
-      </Card>
+      </SoftCard>
     </>
   );
 
@@ -73,7 +73,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, justifyContent: "center" },
   inner: { padding: spacing.xl },
   logo: { color: colors.text, fontSize: 26, fontWeight: "800", textAlign: "center", marginBottom: spacing.lg },
-  card: webStyle({ marginBottom: 0, boxShadow: "0 8px 32px rgba(0, 0, 0, 0.35)" }),
   error: { color: colors.down, marginBottom: spacing.sm },
   link: { color: colors.accent, textAlign: "center", marginTop: spacing.md, fontSize: font.body, fontWeight: "600" }
 });

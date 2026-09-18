@@ -17,6 +17,8 @@ export * from "./mt5/fillingMode.js";
 export * from "./mt5/history.js";
 export * from "./mt5/demoAccess.js";
 export * from "./mt5/engineRollout.js";
+export * from "./mt5/liveMt5Policy.js";
+export * from "./mt5/mt5EnvironmentGuard.js";
 export * from "./mt5/brokerSymbolMapping.js";
 export * from "./mt5/goldSymbolDiscovery.js";
 export * from "./mt5/engineVolume.js";

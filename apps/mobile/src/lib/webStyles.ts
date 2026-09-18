@@ -59,6 +59,6 @@ export function injectWebGlobalStyles(): void {
 }
 
 /** Merge web-only style objects without affecting native builds. */
-export function webStyle<T extends Record<string, unknown>>(style: T): T | undefined {
+export function webStyle<T extends Record<string, unknown>>(style: T): object | undefined {
   return Platform.OS === "web" ? style : undefined;
 }

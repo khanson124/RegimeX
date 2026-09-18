@@ -34,6 +34,7 @@ import {
   computeStrategyConfigHash,
   aggregatePaperForwardPerformance,
   gateMt5EngineOrders,
+  resolveLiveTradingCapability,
   applyMt5StrategySelectionAllowlist,
   gateMt5FixedStrategySelection,
   resolveMt5EngineStrategyAllowlist,
@@ -140,7 +141,7 @@ export class LiveEngineSession {
   private mt5PassiveSpreadSampler: Mt5PassiveSpreadSampler | null = null;
   private lastDegradedReasonCode: string | null = null;
   private paused = false;
-  private mode: "ANALYSIS_ONLY" | "DEMO_TRADING" = "ANALYSIS_ONLY";
+  private mode: "ANALYSIS_ONLY" | "DEMO_TRADING" | "LIVE_TRADING" = "ANALYSIS_ONLY";
   private symbol = "";
   private interval: CandleInterval = "1m";
   private engineId: string | null = null;
@@ -195,11 +196,10 @@ export class LiveEngineSession {
     const { prisma, config, publish } = this.deps;
 
     this.executionBackend = resolveExecutionBackend(config);
+    const isMt5Backend =
+      this.executionBackend === "broker_demo_mt5" || this.executionBackend === "broker_real_mt5";
     if (this.executionBackend === "broker_real_cfd") {
       throw new Error("REAL_CFD_EXECUTION_NOT_IMPLEMENTED");
-    }
-    if (this.executionBackend === "broker_real_mt5") {
-      throw new Error("REAL_MT5_EXECUTION_NOT_IMPLEMENTED");
     }
     if (this.executionBackend === "broker_demo_cfd" && !config.BROKER_DEMO_ENGINE_ENABLED) {
       this.log.warn(
@@ -207,14 +207,15 @@ export class LiveEngineSession {
       );
     }
     const mt5EngineGate = gateMt5EngineOrders(config);
-    if (this.executionBackend === "broker_demo_mt5" && !mt5EngineGate.allowed) {
+    if (isMt5Backend && !mt5EngineGate.allowed) {
       this.log.warn(
         {
           reason: mt5EngineGate.reason,
+          executionBackend: this.executionBackend,
           mt5EngineEnabled: config.MT5_ENGINE_ENABLED === true,
           mt5TestMode: config.MT5_TEST_MODE === true
         },
-        "broker_demo_mt5 active but automated MT5 engine orders are gated off — status/preflight/TEST only"
+        `${this.executionBackend} active but automated MT5 engine orders are gated off — status/preflight/TEST only`
       );
     }
 
@@ -245,11 +246,31 @@ export class LiveEngineSession {
     this.fixedStrategyId = configuration.fixedStrategyId;
 
     // After a restart, default to analysis-only unless explicitly configured.
-    const wantsTrading = configuration.mode === "DEMO_TRADING" && config.DEMO_TRADING_ENABLED;
-    const tradingAllowed = wantsTrading && (options.allowTradingResume || configuration.resumeTradingAfterRestart);
-    this.mode = tradingAllowed ? "DEMO_TRADING" : "ANALYSIS_ONLY";
+    // Live never uses resumeTradingAfterRestart — only an explicit START (allowTradingResume).
+    // Runtime arm (DB) is required in addition to hard env capability.
+    const liveCap = resolveLiveTradingCapability(config);
+    const liveArmed = engine.liveTradingArmed === true && liveCap.liveTradingSupported;
+    const wantsLive =
+      configuration.mode === "LIVE_TRADING" &&
+      liveArmed &&
+      this.executionBackend === "broker_real_mt5";
+    const wantsDemo = configuration.mode === "DEMO_TRADING" && config.DEMO_TRADING_ENABLED;
+    if (wantsLive && options.allowTradingResume) {
+      this.mode = "LIVE_TRADING";
+    } else if (wantsDemo && (options.allowTradingResume || configuration.resumeTradingAfterRestart)) {
+      this.mode = "DEMO_TRADING";
+    } else {
+      this.mode = "ANALYSIS_ONLY";
+    }
 
     await this.setState("STARTING", "Engine starting");
+    if (configuration.mode === "LIVE_TRADING" && this.mode !== "LIVE_TRADING") {
+      await this.logDecision("LIVE_TRADING_DISABLED", [
+        "LIVE_TRADING requested but not supported/armed or execution backend is not broker_real_mt5; falling back to analysis-only",
+        ...liveCap.reasons,
+        liveArmed ? null : "liveTradingArmed=false"
+      ].filter(Boolean) as string[]);
+    }
 
     // Load regime thresholds.
     const regimeConfig = await prisma.regimeConfiguration.findFirst({ where: { isActive: true } });
@@ -331,7 +352,7 @@ export class LiveEngineSession {
       await this.paperCfd.init(this.symbol);
     }
 
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (isMt5Backend) {
       resetSharedMt5BridgeCircuit(
         new Mt5BridgeCircuitBreaker({
           onTransition: (from, to, snapshot) => {
@@ -372,7 +393,7 @@ export class LiveEngineSession {
       rows: history
     });
     this.candles = restored.candles;
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (isMt5Backend) {
       // Warm-up eligibility is scoped to strategies that can run on THIS
       // session's symbol + interval — not the global MT5 allowlist alone.
       const sessionScopedStrategies = filterStrategiesForSessionWarmup(
@@ -456,8 +477,8 @@ export class LiveEngineSession {
       );
       if (restored.rejected) {
         this.log.warn(
-          { reason: restored.reason, persistedRows: history.length },
-          "Rejected incompatible persisted candles for broker_demo_mt5 — starting MT5 warm-up from empty buffer"
+          { reason: restored.reason, persistedRows: history.length, executionBackend: this.executionBackend },
+          "Rejected incompatible persisted candles for MT5 backend — starting MT5 warm-up from empty buffer"
         );
       }
       if (this.mt5WarmupRequirement.status === "NO_ELIGIBLE_STRATEGIES") {
@@ -475,12 +496,12 @@ export class LiveEngineSession {
       symbol: this.symbol,
       interval: this.interval,
       pricePrecision: symbolRow.pricePrecision,
-      source: this.executionBackend === "broker_demo_mt5" ? "MT5_LIVE_TICKS" : "LIVE_TICKS",
+      source: isMt5Backend ? "MT5_LIVE_TICKS" : "LIVE_TICKS",
       onCandleClosed: (candle) => void this.onCandleClosed(candle, symbolRow.id),
       onCandleUpdated: (candle) =>
         void publish(this.userId, "market.tick", { symbol: candle.symbol, price: candle.close, time: this.lastTickAt })
     });
-    if (this.executionBackend === "broker_demo_mt5" && this.candles.length > 0) {
+    if (isMt5Backend && this.candles.length > 0) {
       const last = this.candles[this.candles.length - 1]!;
       this.aggregator.markCompletedThrough(last.closeTime);
     }
@@ -494,10 +515,13 @@ export class LiveEngineSession {
         }
       });
     } else {
-      this.log.info("broker_demo_mt5: skipping Deriv tick subscription — MT5 quotes drive candles");
+      this.log.info(
+        { executionBackend: this.executionBackend },
+        "MT5 backend: skipping Deriv tick subscription — MT5 quotes drive candles"
+      );
     }
 
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (isMt5Backend) {
       this.log.info(
         { mt5StrategySelectionAllowlist: resolveMt5EngineStrategyAllowlist(config) },
         "MT5 strategy selection allowlist resolved"
@@ -515,7 +539,7 @@ export class LiveEngineSession {
     this.flushTimer = setInterval(() => this.aggregator?.flushIfExpired(Date.now()), 5_000);
     this.heartbeatTimer = setInterval(() => void this.heartbeat(), 15_000);
 
-    const runningState: EngineState = this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
+    const runningState = this.runningStateForMode();
     await this.setState(runningState, `Engine running (${this.mode})`);
     await this.logDecision("ENGINE_STARTED", [`Engine started in ${this.mode} mode for ${this.symbol} ${this.interval}`]);
     this.log.info({ mode: this.mode }, "Live engine started");
@@ -529,7 +553,7 @@ export class LiveEngineSession {
 
   async resume(): Promise<void> {
     this.paused = false;
-    const state: EngineState = this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
+    const state = this.runningStateForMode();
     await this.setState(state, "Resumed by user");
     await this.logDecision("ENGINE_RESUMED", ["Engine resumed by user"]);
   }
@@ -560,7 +584,7 @@ export class LiveEngineSession {
       ]);
     }
 
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (this.isMt5Backend()) {
       const result = await emergencyCloseOwnedMt5Positions({
         prisma: this.deps.prisma,
         config: this.deps.config,
@@ -586,7 +610,7 @@ export class LiveEngineSession {
   }
 
   async closePaperPosition(positionId: string): Promise<{ closed: boolean; reasons: string[] }> {
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (this.isMt5Backend()) {
       return closeMt5LocalPosition({
         prisma: this.deps.prisma,
         config: this.deps.config,
@@ -596,7 +620,7 @@ export class LiveEngineSession {
       });
     }
     if (this.executionBackend !== "paper_cfd") {
-      return { closed: false, reasons: ["Manual CFD close requires EXECUTION_MODE=paper_cfd or broker_demo_mt5"] };
+      return { closed: false, reasons: ["Manual CFD close requires EXECUTION_MODE=paper_cfd, broker_demo_mt5, or broker_real_mt5"] };
     }
     if (!this.paperCfd) {
       // Session may be analysis-only without runtime; spin up for close.
@@ -904,7 +928,7 @@ export class LiveEngineSession {
   private async onCandleClosed(candle: Candle, symbolId: string): Promise<void> {
     const { prisma, publish } = this.deps;
     try {
-      if (this.executionBackend === "broker_demo_mt5") {
+      if (this.isMt5Backend()) {
         const previousClose = this.candles[this.candles.length - 1]?.close ?? null;
         if (!shouldIngestMt5ClosedCandle(candle, previousClose)) {
           const accepted = validateIncomingMt5Candle(candle, previousClose);
@@ -983,7 +1007,7 @@ export class LiveEngineSession {
       direction: null
     });
     const regimeIncompatible = reasons.some((r) => r.includes("regime-incompatible"));
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (this.isMt5Backend()) {
       await this.logAutonomousDecision(regimeIncompatible ? "REGIME_INCOMPATIBLE" : "NO_TRADE", reasons, {
         regime: regime.regime,
         regimeConfidence: regime.confidence,
@@ -1003,12 +1027,15 @@ export class LiveEngineSession {
     const { publish, config } = this.deps;
     const correlationId = randomUUID();
 
-    if (this.executionBackend === "broker_demo_mt5") {
+    if (this.isMt5Backend()) {
       const readiness = this.mt5MtfReadyOrNull();
       if (!readiness.ready) {
         if (!this.mt5WarmupLogged) {
           this.mt5WarmupLogged = true;
-          this.log.info({ reason: readiness.reason }, "broker_demo_mt5 market-data warm-up in progress");
+          this.log.info(
+            { reason: readiness.reason, executionBackend: this.executionBackend },
+            "MT5 market-data warm-up in progress"
+          );
         }
         await this.logAutonomousDecision("NO_TRADE", [readiness.reason ?? "MT5 market data not ready"], {
           regime: this.lastRegime?.regime ?? "UNKNOWN",
@@ -1052,7 +1079,7 @@ export class LiveEngineSession {
 
     // Strategy selection.
     const paperCfd = isPaperCfdExecution(config);
-    const cfdVenue = paperCfd || this.executionBackend === "broker_demo_mt5";
+    const cfdVenue = paperCfd || this.isMt5Backend();
     let eligible = this.strategies.filter(
       (s) =>
         s.enabled &&
@@ -1087,7 +1114,7 @@ export class LiveEngineSession {
     );
 
     if (
-      this.executionBackend === "broker_demo_mt5" &&
+      this.isMt5Backend() &&
       this.engineSelectionMode === "SINGLE" &&
       this.fixedStrategyId
     ) {
@@ -1141,7 +1168,7 @@ export class LiveEngineSession {
 
     let selectionResult: StrategySelectionResult;
     if (
-      this.executionBackend === "broker_demo_mt5" &&
+      this.isMt5Backend() &&
       this.engineSelectionMode === "SINGLE" &&
       this.fixedStrategyId
     ) {
@@ -1272,7 +1299,7 @@ export class LiveEngineSession {
         strategyId: chosen.strategy.id,
         direction: null
       });
-      if (this.executionBackend === "broker_demo_mt5") {
+      if (this.isMt5Backend()) {
         await this.logAutonomousDecision("STRATEGY_HOLD", decision.invalidationReason, {
           regime: regime.regime,
           regimeConfidence: regime.confidence,
@@ -1336,7 +1363,13 @@ export class LiveEngineSession {
       correlationId
     });
 
-    if (this.mode !== "DEMO_TRADING" || !config.DEMO_TRADING_ENABLED) {
+    const demoOk = this.mode === "DEMO_TRADING" && config.DEMO_TRADING_ENABLED;
+    const liveOk =
+      this.mode === "LIVE_TRADING" &&
+      resolveLiveTradingCapability(config).liveTradingSupported &&
+      (await this.deps.prisma.liveEngine.findUnique({ where: { userId: this.userId } }))?.liveTradingArmed ===
+        true;
+    if (!demoOk && !liveOk) {
       await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
       return;
     }
@@ -1877,7 +1910,11 @@ export class LiveEngineSession {
       openContracts: openCount,
       peakBalance: this.peakBalance,
       emergencyStop: engine?.emergencyStop ?? false,
-      tradingEnabled: this.deps.config.DEMO_TRADING_ENABLED && this.mode === "DEMO_TRADING",
+      tradingEnabled:
+        (this.deps.config.DEMO_TRADING_ENABLED && this.mode === "DEMO_TRADING") ||
+        (this.mode === "LIVE_TRADING" &&
+          resolveLiveTradingCapability(this.deps.config).liveTradingSupported &&
+          engine?.liveTradingArmed === true),
       recentApiErrors: this.recentApiErrors,
       recentDisconnects: this.recentDisconnects
     };
@@ -1919,7 +1956,7 @@ export class LiveEngineSession {
       const engine = await prisma.liveEngine.findUnique({ where: { id: this.engineId } });
       if (!engine) return;
 
-      if (this.executionBackend === "broker_demo_mt5") {
+      if (this.isMt5Backend()) {
         const circuit = getSharedMt5BridgeCircuit().snapshot();
         const watchdog = evaluateMt5QuoteWatchdog({
           now: Date.now(),
@@ -1930,7 +1967,9 @@ export class LiveEngineSession {
           lastTickAt: this.lastTickAt
         });
         const running =
-          engine.state === "RUNNING_ANALYSIS_ONLY" || engine.state === "RUNNING_DEMO_TRADING";
+          engine.state === "RUNNING_ANALYSIS_ONLY" ||
+          engine.state === "RUNNING_DEMO_TRADING" ||
+          engine.state === "RUNNING_LIVE_TRADING";
         if (watchdog.shouldDegrade && running) {
           await this.setState("DEGRADED", watchdog.stateReason ?? "Market data unavailable");
           if (watchdog.reasonCode !== this.lastDegradedReasonCode) {
@@ -1948,8 +1987,7 @@ export class LiveEngineSession {
             });
           }
         } else if (!watchdog.shouldDegrade && engine.state === "DEGRADED" && !this.paused) {
-          const state: EngineState =
-            this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
+          const state = this.runningStateForMode();
           await this.setState(state, "Market data recovered");
           if (this.lastDegradedReasonCode !== null) {
             await this.logDecision("ENGINE_RECOVERED", ["Trustworthy MT5 quote feed resumed"], {
@@ -1966,7 +2004,9 @@ export class LiveEngineSession {
         // Legacy Deriv tick staleness watchdog.
         const stale = this.lastTickAt !== null && Date.now() - this.lastTickAt > STALE_DATA_MS;
         const running =
-          engine.state === "RUNNING_ANALYSIS_ONLY" || engine.state === "RUNNING_DEMO_TRADING";
+          engine.state === "RUNNING_ANALYSIS_ONLY" ||
+          engine.state === "RUNNING_DEMO_TRADING" ||
+          engine.state === "RUNNING_LIVE_TRADING";
         if (stale && running) {
           await this.setState("DEGRADED", "Market data is stale");
           if (this.lastDegradedReasonCode !== "MARKET_DATA_STALE") {
@@ -1975,8 +2015,7 @@ export class LiveEngineSession {
             await publish(this.userId, "system.warning", { message: "Engine degraded: stale market data" });
           }
         } else if (!stale && engine.state === "DEGRADED" && !this.paused) {
-          const state: EngineState =
-            this.mode === "DEMO_TRADING" ? "RUNNING_DEMO_TRADING" : "RUNNING_ANALYSIS_ONLY";
+          const state = this.runningStateForMode();
           await this.setState(state, "Market data recovered");
           if (this.lastDegradedReasonCode !== null) {
             await this.logDecision("ENGINE_RECOVERED", ["Market data feed resumed"]);
@@ -1992,7 +2031,7 @@ export class LiveEngineSession {
           ...(this.lastTickAt ? { lastTickAt: new Date(this.lastTickAt) } : {})
         }
       });
-      if (this.executionBackend === "broker_demo_mt5" && this.mt5Cfd) {
+      if (this.isMt5Backend() && this.mt5Cfd) {
         await this.heartbeatMt5Reconcile();
       }
     } catch (err) {
@@ -2195,6 +2234,7 @@ export class LiveEngineSession {
           executionVenue: (() => {
             const model = String((p.metadata as { executionModel?: string } | null)?.executionModel ?? "");
             if (model === "broker_demo_mt5") return "MT5_DEMO";
+            if (model === "broker_real_mt5") return "MT5_LIVE";
             if (model === "broker_demo_cfd") return "CTRADER_DEMO";
             return "PAPER";
           })()
@@ -2277,6 +2317,16 @@ export class LiveEngineSession {
       this.log.warn({ err }, "Failed to load CFD selection performance; using bootstrap");
     }
     return map;
+  }
+
+  private isMt5Backend(): boolean {
+    return this.executionBackend === "broker_demo_mt5" || this.executionBackend === "broker_real_mt5";
+  }
+
+  private runningStateForMode(): EngineState {
+    if (this.mode === "LIVE_TRADING") return "RUNNING_LIVE_TRADING";
+    if (this.mode === "DEMO_TRADING") return "RUNNING_DEMO_TRADING";
+    return "RUNNING_ANALYSIS_ONLY";
   }
 
   private async setState(state: EngineState, reason: string): Promise<void> {

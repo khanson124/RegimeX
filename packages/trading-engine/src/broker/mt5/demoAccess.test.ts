@@ -96,10 +96,11 @@ describe("MT5 demo access / status diagnostics", () => {
     expect(status.status.executionBlockReason).toBe("MT5_BRIDGE_TIMEOUT");
   });
 
-  it("broker_real_mt5 is always blocked", () => {
+  it("broker_real_mt5 is blocked without live capability gates", () => {
     const config = {
       EXECUTION_MODE: "broker_real_mt5",
       REAL_MONEY_ENABLED: true,
+      LIVE_MT5_ENABLED: false,
       MT5_ENGINE_ENABLED: true,
       MT5_TEST_MODE: true
     };
@@ -110,6 +111,7 @@ describe("MT5 demo access / status diagnostics", () => {
     const status = buildMt5StatusEnvelope(config);
     expect(status.status.enabled).toBe(false);
     expect(status.status.error).toBe(REAL_MT5_NOT_IMPLEMENTED);
+    expect(status.status.liveTradingSupported).toBe(false);
     expect(() =>
       createBrokerAdapter({
         executionMode: "broker_real_mt5",
@@ -117,6 +119,30 @@ describe("MT5 demo access / status diagnostics", () => {
         paper: paperStub
       })
     ).toThrow(REAL_MT5_NOT_IMPLEMENTED);
+  });
+
+  it("broker_real_mt5 status enables when both live gates and valid live config are set", () => {
+    const config = {
+      EXECUTION_MODE: "broker_real_mt5",
+      REAL_MONEY_ENABLED: true,
+      LIVE_MT5_ENABLED: true,
+      MT5_ENGINE_ENABLED: true,
+      LIVE_ALLOWED_SYMBOLS: "R_10",
+      MT5_BRIDGE_SECRET: "secret",
+      MT5_BRIDGE_URL: "http://mt5-bridge:8765",
+      MT5_EXPECTED_ENVIRONMENT: "live" as const
+    };
+    const status = buildMt5StatusEnvelope(config, {
+      connected: true,
+      eaConnected: true,
+      isDemo: false,
+      tradeMode: "REAL",
+      login: "999"
+    });
+    expect(status.status.enabled).toBe(true);
+    expect(status.status.liveTradingSupported).toBe(true);
+    expect(status.status.environment).toBe("live");
+    expect(gateMt5EngineOrders(config).allowed).toBe(true);
   });
 
   it("paper_cfd status is idle unless MT5_TEST_MODE", () => {

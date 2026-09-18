@@ -4,7 +4,8 @@ import {
   describeMt5AutonomousAvailability,
   gateMt5EngineSubmission,
   parseCsvAllowlist,
-  publicMt5RolloutSnapshot
+  publicMt5RolloutSnapshot,
+  resolveLiveTradingCapability
 } from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
@@ -257,12 +258,15 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       null;
 
     const executionMode = ctx.config.EXECUTION_MODE;
+    const liveCap = resolveLiveTradingCapability(ctx.config);
     const executionSource =
-      executionMode === "broker_demo_mt5"
-        ? "MT5_DEMO"
-        : executionMode === "broker_demo_cfd"
-          ? "CTRADER_DEMO"
-          : "PAPER_CFD";
+      executionMode === "broker_real_mt5"
+        ? "MT5_LIVE"
+        : executionMode === "broker_demo_mt5"
+          ? "MT5_DEMO"
+          : executionMode === "broker_demo_cfd"
+            ? "CTRADER_DEMO"
+            : "PAPER_CFD";
 
     const configAvailability = describeMt5AutonomousAvailability(ctx.config, mt5Mappings);
     const rollout = publicMt5RolloutSnapshot(ctx.config, mt5Mappings);
@@ -371,9 +375,12 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
         execution: {
           source: executionSource,
           executionMode,
-          realMoneyEnabled: ctx.config.REAL_MONEY_ENABLED === true,
+          realMoneyEnabled: liveCap.realMoneyEnabled,
+          liveTradingSupported: liveCap.liveTradingSupported,
+          liveTradingEnabled: liveCap.liveTradingEnabled,
           mt5EngineAutomationEnabled:
-            executionMode === "broker_demo_mt5" && ctx.config.MT5_ENGINE_ENABLED === true,
+            (executionMode === "broker_demo_mt5" || executionMode === "broker_real_mt5") &&
+            ctx.config.MT5_ENGINE_ENABLED === true,
           mt5TestMode: ctx.config.MT5_TEST_MODE === true,
           paperIsFallback: executionSource !== "PAPER_CFD"
         },

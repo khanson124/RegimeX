@@ -37,8 +37,8 @@ export class AuthorizationError extends AppError {
 }
 
 export class ValidationError extends AppError {
-  constructor(message: string, details?: Record<string, unknown>) {
-    super("VALIDATION_ERROR", message, 400, true, details);
+  constructor(message: string, details?: Record<string, unknown>, code = "VALIDATION_ERROR") {
+    super(code, message, 400, true, details);
   }
 }
 

@@ -9,6 +9,17 @@ import {
   resolveBrokerSymbolMapping
 } from "./brokerSymbolMapping.js";
 import { BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME, rolloutBlockedByBrokerMinVolume } from "./engineVolume.js";
+import {
+  LIVE_TRADING_DISABLED,
+  LIVE_TRADING_DISARMED,
+  LIVE_POLICY_REJECTED,
+  LIVE_ORDER_BLOCKED,
+  evaluateLiveOrderPolicy,
+  parseLiveAllowedSymbols,
+  resolveLiveExecutionPolicy,
+  resolveLiveTradingArmState,
+  resolveLiveTradingCapability
+} from "./liveMt5Policy.js";
 
 export const MT5_ENGINE_SYMBOL_ALLOWLIST_EMPTY = "MT5_ENGINE_SYMBOL_ALLOWLIST_EMPTY";
 export const MT5_ENGINE_STRATEGY_ALLOWLIST_EMPTY = "MT5_ENGINE_STRATEGY_ALLOWLIST_EMPTY";
@@ -46,7 +57,7 @@ export function applyMt5StrategySelectionAllowlist<T>(
   executionBackend: ExecutionBackend,
   config: Mt5EngineRolloutConfig
 ): T[] {
-  if (executionBackend !== "broker_demo_mt5") return [...strategies];
+  if (executionBackend !== "broker_demo_mt5" && executionBackend !== "broker_real_mt5") return [...strategies];
   const allowlist = resolveMt5EngineStrategyAllowlist(config);
   if (allowlist.length === 0) return [];
   return strategies.filter((s) => allowlist.includes(getStrategyId(s)));
@@ -111,6 +122,17 @@ export interface Mt5EngineSubmissionInput {
   mapping?: BrokerSymbolMappingRecord | null;
   /** Resolved capacity ceiling (profile ∩ env). When omitted, uses env only. */
   effectiveMaxConcurrentPositions?: number;
+  /** Persisted operator arm — required for live submissions. */
+  liveTradingArmed?: boolean;
+  /** Live-only order-time fields (optional; when present, full live policy is evaluated). */
+  liveOrder?: {
+    volume: number;
+    riskPercent?: number | null;
+    dailyLossAbs?: number | null;
+    equity?: number | null;
+    balance?: number | null;
+    emergencyStop?: boolean;
+  };
 }
 
 export type Mt5EngineSubmissionDecisionCode =
@@ -118,6 +140,10 @@ export type Mt5EngineSubmissionDecisionCode =
   | "MT5_ENGINE_DISABLED"
   | "PAPER_MODE"
   | "REAL_MONEY_BLOCKED"
+  | "LIVE_TRADING_DISABLED"
+  | "LIVE_TRADING_DISARMED"
+  | "LIVE_POLICY_REJECTED"
+  | "LIVE_ORDER_BLOCKED"
   | "ALLOWLIST"
   | "SYMBOL_NOT_ALLOWED"
   | "STRATEGY_NOT_ALLOWED"
@@ -182,15 +208,16 @@ export function gateMt5MappingAndVolume(input: {
 }
 
 /**
- * Fail-closed autonomous MT5 DEMO gate.
+ * Fail-closed autonomous MT5 gate (demo or live).
  * Empty internal-symbol or strategy allowlist blocks all engine orders.
  * MT5_TEST_MODE never enables this path.
+ * REAL_MONEY_ENABLED alone does not block demo — live requires broker_real_mt5 + both gates.
  */
 export function gateMt5EngineSubmission(input: Mt5EngineSubmissionInput): Mt5EngineSubmissionGate {
   const { config, symbol, strategyId, openOwnedCount, lifecycle, mapping } = input;
 
-  if (config.EXECUTION_MODE === "broker_real_mt5" || config.REAL_MONEY_ENABLED === true) {
-    return { allowed: false, reason: "REAL_MT5_EXECUTION_NOT_IMPLEMENTED", decisionCode: "REAL_MONEY_BLOCKED" };
+  if (config.EXECUTION_MODE === "broker_real_mt5") {
+    return gateLiveMt5EngineSubmission(input);
   }
   if (config.EXECUTION_MODE !== "broker_demo_mt5") {
     return { allowed: false, reason: MT5_NOT_ACTIVE_EXECUTION_MODE, decisionCode: "PAPER_MODE" };
@@ -237,6 +264,111 @@ export function gateMt5EngineSubmission(input: Mt5EngineSubmissionInput): Mt5Eng
     input.effectiveMaxConcurrentPositions ?? config.MT5_ENGINE_MAX_CONCURRENT_POSITIONS ?? 1;
   if (openOwnedCount >= maxConcurrent) {
     return { allowed: false, reason: MT5_ENGINE_MAX_CONCURRENT, decisionCode: "MAX_CONCURRENT_POSITIONS" };
+  }
+
+  return { allowed: true, reason: null, decisionCode: "SUBMIT" };
+}
+
+/** Live MT5 autonomous submission — capability + arm + live policy + mapping. */
+export function gateLiveMt5EngineSubmission(input: Mt5EngineSubmissionInput): Mt5EngineSubmissionGate {
+  const { config, symbol, strategyId, openOwnedCount, lifecycle, mapping } = input;
+  const arm = resolveLiveTradingArmState(config, input.liveTradingArmed === true);
+  if (!arm.liveTradingSupported) {
+    return {
+      allowed: false,
+      reason: LIVE_TRADING_DISABLED,
+      decisionCode: "LIVE_TRADING_DISABLED"
+    };
+  }
+  if (!arm.liveTradingArmed) {
+    return {
+      allowed: false,
+      reason: LIVE_TRADING_DISARMED,
+      decisionCode: "LIVE_TRADING_DISARMED"
+    };
+  }
+  if (config.MT5_ENGINE_ENABLED !== true) {
+    return { allowed: false, reason: "MT5_ENGINE_DISABLED", decisionCode: "MT5_ENGINE_DISABLED" };
+  }
+
+  let policy;
+  try {
+    policy = resolveLiveExecutionPolicy(config);
+  } catch (err) {
+    return {
+      allowed: false,
+      reason: err instanceof Error ? err.message : LIVE_TRADING_DISABLED,
+      decisionCode: "LIVE_TRADING_DISABLED"
+    };
+  }
+
+  if (policy.allowedSymbols.length === 0 || !policy.allowedSymbols.includes(symbol)) {
+    return {
+      allowed: false,
+      reason: LIVE_POLICY_REJECTED,
+      decisionCode: "LIVE_POLICY_REJECTED"
+    };
+  }
+
+  const strategies = parseCsvAllowlist(config.MT5_ENGINE_STRATEGY_ALLOWLIST);
+  if (strategies.length === 0) {
+    return {
+      allowed: false,
+      reason: MT5_ENGINE_STRATEGY_ALLOWLIST_EMPTY,
+      decisionCode: "ALLOWLIST"
+    };
+  }
+  if (!strategies.includes(strategyId)) {
+    return { allowed: false, reason: MT5_ENGINE_STRATEGY_NOT_ALLOWED, decisionCode: "STRATEGY_NOT_ALLOWED" };
+  }
+
+  const mappingGate = gateMt5MappingAndVolume({
+    config: {
+      ...config,
+      MT5_ENGINE_MAX_VOLUME: policy.maxLotSize
+    },
+    symbol,
+    mapping: mapping ?? null
+  });
+  if (!mappingGate.allowed) return mappingGate;
+
+  if (lifecycle && BLOCKED_LIFECYCLES.has(lifecycle)) {
+    return {
+      allowed: false,
+      reason: `${MT5_ENGINE_LIFECYCLE_BLOCKED}:${lifecycle}`,
+      decisionCode: "LIFECYCLE_BLOCKED"
+    };
+  }
+
+  const maxConcurrent = Math.min(
+    policy.maxConcurrentPositions,
+    input.effectiveMaxConcurrentPositions ?? policy.maxConcurrentPositions
+  );
+  if (openOwnedCount >= maxConcurrent) {
+    return { allowed: false, reason: MT5_ENGINE_MAX_CONCURRENT, decisionCode: "MAX_CONCURRENT_POSITIONS" };
+  }
+
+  if (input.liveOrder) {
+    const orderGate = evaluateLiveOrderPolicy(policy, {
+      symbol,
+      volume: input.liveOrder.volume,
+      riskPercent: input.liveOrder.riskPercent,
+      openLivePositions: openOwnedCount,
+      dailyLossAbs: input.liveOrder.dailyLossAbs,
+      equity: input.liveOrder.equity,
+      balance: input.liveOrder.balance,
+      emergencyStop: input.liveOrder.emergencyStop,
+      liveTradingSupported: true,
+      liveTradingArmed: true
+    });
+    if (!orderGate.allowed) {
+      return {
+        allowed: false,
+        reason: `${LIVE_ORDER_BLOCKED}: ${orderGate.reasons.join("; ")}`,
+        decisionCode:
+          orderGate.code === LIVE_TRADING_DISARMED ? "LIVE_TRADING_DISARMED" : "LIVE_ORDER_BLOCKED"
+      };
+    }
   }
 
   return { allowed: true, reason: null, decisionCode: "SUBMIT" };
@@ -299,13 +431,34 @@ export function describeMt5AutonomousAvailability(
   reason: string | null;
   decisionCode: Mt5EngineSubmissionGate["decisionCode"] | "SUBMIT";
 } {
-  if (config.EXECUTION_MODE === "broker_real_mt5" || config.REAL_MONEY_ENABLED === true) {
-    return {
-      enabled: false,
-      blocked: true,
-      reason: "REAL_MT5_EXECUTION_NOT_IMPLEMENTED",
-      decisionCode: "REAL_MONEY_BLOCKED"
-    };
+  if (config.EXECUTION_MODE === "broker_real_mt5") {
+    const cap = resolveLiveTradingCapability(config);
+    if (!cap.liveTradingSupported) {
+      return {
+        enabled: false,
+        blocked: true,
+        reason: LIVE_TRADING_DISABLED,
+        decisionCode: "LIVE_TRADING_DISABLED"
+      };
+    }
+    if (config.MT5_ENGINE_ENABLED !== true) {
+      return {
+        enabled: false,
+        blocked: true,
+        reason: "MT5_ENGINE_DISABLED",
+        decisionCode: "MT5_ENGINE_DISABLED"
+      };
+    }
+    const liveSymbols = parseLiveAllowedSymbols(config.LIVE_ALLOWED_SYMBOLS);
+    if (liveSymbols.length === 0) {
+      return {
+        enabled: false,
+        blocked: true,
+        reason: LIVE_POLICY_REJECTED,
+        decisionCode: "LIVE_POLICY_REJECTED"
+      };
+    }
+    return { enabled: true, blocked: false, reason: null, decisionCode: "SUBMIT" };
   }
   if (config.EXECUTION_MODE !== "broker_demo_mt5") {
     return {

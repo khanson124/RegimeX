@@ -2,7 +2,13 @@ import React from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useCloneStrategy, useStrategies, useToggleStrategy } from "../../src/api/hooks";
-import { Badge, Card, EmptyState, ErrorView, Row, Skeleton } from "../../src/components/ui";
+import { EmptyState, ErrorView, Skeleton } from "../../src/components/ui";
+import {
+  ChipRow,
+  PrimaryButton,
+  SoftCard,
+  StatusChip
+} from "../../src/components/design";
 import { colors, font, spacing, REGIME_LABELS } from "../../src/theme";
 
 export default function StrategiesScreen() {
@@ -13,7 +19,7 @@ export default function StrategiesScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { padding: spacing.lg }]}>
+      <View style={[styles.container, styles.pad]}>
         <Skeleton height={110} />
         <Skeleton height={110} />
         <Skeleton height={110} />
@@ -29,41 +35,45 @@ export default function StrategiesScreen() {
   return (
     <FlatList
       style={styles.container}
-      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 48 }}
+      contentContainerStyle={styles.pad}
       data={strategies}
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.accent} />}
       ListEmptyComponent={<EmptyState title="No strategies" hint="Seed the database or create a strategy via the API." />}
       renderItem={({ item }) => (
         <Pressable onPress={() => router.push(`/strategy/${item.id}`)}>
-          <Card>
-            <Row style={{ justifyContent: "space-between" }}>
+          <SoftCard>
+            <View style={styles.header}>
               <Text style={styles.name}>{item.name}</Text>
-              <Badge tone={item.enabled ? "up" : "neutral"} text={item.enabled ? "ENABLED" : "DISABLED"} />
-            </Row>
+              <StatusChip
+                label={item.enabled ? "Enabled" : "Disabled"}
+                tone={item.enabled ? "up" : "neutral"}
+              />
+            </View>
             <Text style={styles.kind}>
               {item.kind} · v{item.version}
+              {item.isSystem ? " · system" : ""}
             </Text>
-            <View style={styles.regimeRow}>
+            <ChipRow>
               {item.supportedRegimes.slice(0, 4).map((r) => (
-                <Text key={r} style={styles.regimeChip}>
-                  {REGIME_LABELS[r] ?? r}
-                </Text>
+                <StatusChip key={r} label={REGIME_LABELS[r] ?? r} tone="accent" />
               ))}
-            </View>
-            <Row style={{ marginTop: spacing.sm }}>
-              <Pressable
-                style={styles.actionBtn}
+            </ChipRow>
+            <View style={styles.actions}>
+              <PrimaryButton
+                title={item.enabled ? "Disable" : "Enable"}
+                variant="secondary"
                 disabled={toggle.isPending}
                 onPress={() => toggle.mutate({ id: item.id, enable: !item.enabled })}
-              >
-                <Text style={styles.actionText}>{item.enabled ? "Disable" : "Enable"}</Text>
-              </Pressable>
-              <Pressable style={styles.actionBtn} disabled={clone.isPending} onPress={() => clone.mutate(item.id)}>
-                <Text style={styles.actionText}>Clone</Text>
-              </Pressable>
-            </Row>
-          </Card>
+              />
+              <PrimaryButton
+                title="Clone"
+                variant="secondary"
+                disabled={clone.isPending}
+                onPress={() => clone.mutate(item.id)}
+              />
+            </View>
+          </SoftCard>
         </Pressable>
       )}
     />
@@ -72,27 +82,9 @@ export default function StrategiesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  name: { color: colors.text, fontSize: font.title, fontWeight: "700", flexShrink: 1 },
-  kind: { color: colors.textDim, fontSize: font.caption, marginTop: 2 },
-  regimeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: spacing.sm },
-  regimeChip: {
-    color: colors.textDim,
-    fontSize: font.caption,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    overflow: "hidden"
-  },
-  actionBtn: {
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8
-  },
-  actionText: { color: colors.accent, fontSize: font.caption, fontWeight: "700" }
+  pad: { padding: spacing.lg, paddingBottom: 48 },
+  header: { flexDirection: "row", justifyContent: "space-between", gap: spacing.sm, alignItems: "flex-start" },
+  name: { color: colors.text, fontSize: font.title, fontWeight: "700", flex: 1 },
+  kind: { color: colors.textDim, fontSize: font.caption, marginTop: 4, marginBottom: spacing.sm },
+  actions: { marginTop: spacing.md, gap: spacing.xs }
 });

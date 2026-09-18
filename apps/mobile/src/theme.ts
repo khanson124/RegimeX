@@ -1,19 +1,31 @@
-/** Dark trading-dashboard theme tokens. */
+/**
+ * RegimeX design tokens — dark fintech product UI.
+ * Inspired by modern finance apps (Pailo-like hierarchy), not a literal clone.
+ * P/L is never color-only — always pair with labels.
+ */
 export const colors = {
-  bg: "#0B0F14",
-  surface: "#121820",
-  surfaceRaised: "#1A222C",
-  border: "#232E3A",
-  text: "#E8EEF4",
-  textDim: "#8B98A5",
-  textFaint: "#5C6873",
-  accent: "#4C9AFF",
-  // Profit/loss are never conveyed by color alone — always pair with labels/icons.
-  up: "#22C55E",
-  down: "#EF4444",
-  warning: "#F59E0B",
-  danger: "#DC2626",
-  neutral: "#64748B"
+  bg: "#070B12",
+  bgElevated: "#0C121C",
+  surface: "#121A26",
+  surfaceRaised: "#182233",
+  surfaceMuted: "#0F1620",
+  border: "#1E2A3A",
+  borderStrong: "#2A3A4F",
+  text: "#F4F6FA",
+  textDim: "#9AA3B5",
+  textFaint: "#667085",
+  accent: "#4DB8D9",
+  accentMuted: "#163644",
+  accentSoft: "#122A36",
+  up: "#3DDC97",
+  upMuted: "#123528",
+  down: "#FF6B7A",
+  downMuted: "#3A1520",
+  warning: "#F5C451",
+  warningMuted: "#3A2E12",
+  danger: "#E5484D",
+  neutral: "#6B7789",
+  overlay: "rgba(7, 11, 18, 0.72)"
 } as const;
 
 export const spacing = {
@@ -22,21 +34,26 @@ export const spacing = {
   md: 12,
   lg: 16,
   xl: 24,
-  xxl: 32
+  xxl: 32,
+  section: 28
 } as const;
 
 export const radius = {
-  sm: 6,
-  md: 10,
-  lg: 16
+  sm: 10,
+  md: 14,
+  lg: 18,
+  xl: 24,
+  pill: 999
 } as const;
 
 export const font = {
+  hero: 40,
   metricLarge: 28,
-  metric: 20,
-  title: 18,
+  metric: 18,
+  title: 17,
   body: 15,
-  caption: 12
+  caption: 12,
+  micro: 11
 } as const;
 
 export const REGIME_LABELS: Record<string, string> = {

@@ -583,6 +583,14 @@ model LiveEngine {
   state           String    @default("STOPPED")
   stateReason     String?
   emergencyStop   Boolean   @default(false)
+  /**
+   * Operator runtime arm for live MT5. Defaults false.
+   * Hard env gates (REAL_MONEY_ENABLED + LIVE_MT5_ENABLED) still required for support.
+   * UI must never rewrite .env — this flag is the runtime toggle.
+   */
+  liveTradingArmed Boolean  @default(false)
+  liveTradingArmedAt DateTime?
+  liveTradingArmedByUserId String?
   lastTickAt      DateTime?
   lastCandleAt    DateTime?
   lastHeartbeatAt DateTime?
@@ -728,6 +736,10 @@ model RiskProfile {
   maxTotalOpenRiskPercent  Decimal? @db.Decimal(6, 4)
   maxConcurrentPositions   Int?
   minRiskRewardRatio       Decimal? @db.Decimal(4, 2)
+  /// Optional fixed lot size for next entries. Null = size from risk %.
+  volumeOverrideLots       Decimal? @db.Decimal(18, 8)
+  /// Optional absolute stop distance (price units) for next entries. Null = strategy SL.
+  stopLossDistanceOverride Decimal? @db.Decimal(18, 5)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 

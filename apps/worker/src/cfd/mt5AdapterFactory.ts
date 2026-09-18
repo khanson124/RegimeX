@@ -2,7 +2,9 @@ import { type AppConfig } from "@regimex/config";
 import {
   DerivMT5BrokerAdapter,
   type DerivMt5BrokerConfig,
+  assertLiveMt5Capable,
   assertMt5DemoAdapterAllowed,
+  resolveLiveExecutionPolicy,
   resolveMt5BridgeUrl
 } from "@regimex/trading-engine";
 
@@ -18,6 +20,7 @@ export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConf
   assertMt5DemoAdapterAllowed(config);
   return {
     requireDemoAccount: true,
+    executionEnvironment: "demo",
     bridgeUrl: resolveMt5BridgeUrl(config),
     bridgeSecret: config.MT5_BRIDGE_SECRET ?? "",
     timeoutMs: config.MT5_COMMAND_TIMEOUT_MS,
@@ -28,8 +31,41 @@ export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConf
     expectedBroker: config.MT5_EXPECTED_BROKER,
     expectedServer: config.MT5_EXPECTED_SERVER,
     expectedLogin: config.MT5_EXPECTED_LOGIN,
-    expectedEnvironment: config.MT5_EXPECTED_ENVIRONMENT
+    expectedEnvironment: "demo"
   };
+}
+
+/**
+ * Live MT5 broker config. Only callable after server capability gates pass.
+ * Uses live volume/risk caps from resolveLiveExecutionPolicy — never demo test caps alone.
+ */
+export function buildLiveMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConfig {
+  assertLiveMt5Capable(config);
+  const policy = resolveLiveExecutionPolicy(config);
+  return {
+    requireDemoAccount: false,
+    executionEnvironment: "live",
+    bridgeUrl: resolveMt5BridgeUrl(config),
+    bridgeSecret: config.MT5_BRIDGE_SECRET ?? "",
+    timeoutMs: config.MT5_COMMAND_TIMEOUT_MS,
+    maxQuoteAgeMs: config.MAX_EXECUTION_QUOTE_AGE_MS,
+    maxTestVolume: policy.maxLotSize,
+    maxTestRiskPercent: policy.maxRiskPerTradePercent,
+    magic: config.MT5_MAGIC_NUMBER,
+    expectedBroker: policy.expectedBroker ?? config.MT5_EXPECTED_BROKER,
+    expectedServer: policy.expectedServer ?? config.MT5_EXPECTED_SERVER,
+    expectedLogin: policy.expectedLogin ?? config.MT5_EXPECTED_LOGIN,
+    expectedEnvironment: "live"
+  };
+}
+
+function adapterMatchesEnvironment(adapter: DerivMT5BrokerAdapter, live: boolean): boolean {
+  const status = adapter.getStatus();
+  if (!status.connected || !status.eaConnected) return false;
+  if (live) {
+    return status.isDemo === false && status.tradeMode === "REAL";
+  }
+  return status.isDemo === true;
 }
 
 /**
@@ -37,11 +73,17 @@ export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConf
  * Same transport: HttpMt5BridgeClient → mt5-bridge → mailbox → EA.
  */
 export async function getOrConnectMt5Adapter(config: AppConfig): Promise<DerivMT5BrokerAdapter> {
-  if (sharedAdapter) {
-    const status = sharedAdapter.getStatus();
-    if (status.connected && status.eaConnected && status.isDemo) return sharedAdapter;
+  const live = config.EXECUTION_MODE === "broker_real_mt5";
+  if (sharedAdapter && adapterMatchesEnvironment(sharedAdapter, live)) {
+    return sharedAdapter;
   }
-  const adapter = new DerivMT5BrokerAdapter(buildDerivMt5BrokerConfig(config));
+  if (sharedAdapter) {
+    await sharedAdapter.disconnect().catch(() => undefined);
+    sharedAdapter = null;
+  }
+  const adapter = new DerivMT5BrokerAdapter(
+    live ? buildLiveMt5BrokerConfig(config) : buildDerivMt5BrokerConfig(config)
+  );
   await adapter.connect();
   sharedAdapter = adapter;
   return adapter;
@@ -52,7 +94,10 @@ export async function getOrConnectMt5Adapter(config: AppConfig): Promise<DerivMT
  * Prefer this for CLI/research so disconnect() does not tear down the engine singleton.
  */
 export async function createConfiguredMt5Adapter(config: AppConfig): Promise<DerivMT5BrokerAdapter> {
-  const adapter = new DerivMT5BrokerAdapter(buildDerivMt5BrokerConfig(config));
+  const live = config.EXECUTION_MODE === "broker_real_mt5";
+  const adapter = new DerivMT5BrokerAdapter(
+    live ? buildLiveMt5BrokerConfig(config) : buildDerivMt5BrokerConfig(config)
+  );
   await adapter.connect();
   return adapter;
 }

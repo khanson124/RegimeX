@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveMt5BridgeUrl } from "@regimex/trading-engine";
-import { buildDerivMt5BrokerConfig } from "./mt5AdapterFactory.js";
+import { buildDerivMt5BrokerConfig, buildLiveMt5BrokerConfig } from "./mt5AdapterFactory.js";
 import { researchDatasetPath, resolveResearchDatasetsDir } from "../lib/researchDatasetsPath.js";
 
 function demoConfig(overrides: Record<string, unknown> = {}) {
@@ -54,6 +54,37 @@ describe("shared MT5 adapter factory (R_10 + XAUUSD tooling)", () => {
     );
     expect(cfg.bridgeUrl).toBe("http://mt5-bridge:8765");
     expect(cfg.requireDemoAccount).toBe(true);
+    expect(cfg.executionEnvironment).toBe("demo");
+  });
+
+  it("buildLiveMt5BrokerConfig requires both live gates and uses live environment", () => {
+    expect(() =>
+      buildLiveMt5BrokerConfig(
+        demoConfig({
+          EXECUTION_MODE: "broker_real_mt5",
+          REAL_MONEY_ENABLED: true,
+          LIVE_MT5_ENABLED: false
+        })
+      )
+    ).toThrow(/LIVE_TRADING_DISABLED/);
+
+    const cfg = buildLiveMt5BrokerConfig(
+      demoConfig({
+        EXECUTION_MODE: "broker_real_mt5",
+        REAL_MONEY_ENABLED: true,
+        LIVE_MT5_ENABLED: true,
+        LIVE_ALLOWED_SYMBOLS: "R_10",
+        LIVE_MAX_LOT_SIZE: 0.01,
+        LIVE_MAX_RISK_PER_TRADE_PERCENT: 0.25,
+        MT5_EXPECTED_ENVIRONMENT: "live",
+        MT5_BRIDGE_HOST: "mt5-bridge",
+        MT5_BRIDGE_PORT: 8765
+      })
+    );
+    expect(cfg.requireDemoAccount).toBe(false);
+    expect(cfg.executionEnvironment).toBe("live");
+    expect(cfg.expectedEnvironment).toBe("live");
+    expect(cfg.maxTestVolume).toBe(0.01);
   });
 
   it("discovery/observe scripts use createConfiguredMt5Client and do not early-gate on MT5_BRIDGE_URL", () => {

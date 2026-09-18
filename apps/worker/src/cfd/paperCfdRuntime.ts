@@ -23,7 +23,10 @@ import {
   proposeCfdStopTarget,
   isCfdCapableStrategy,
   normalizeStopTargetProposal,
-  resolveInstrumentCosts
+  resolveInstrumentCosts,
+  applyStopLossDistanceOverride,
+  normalizeVolumeDown,
+  lossAtStopPerUnitVolume
 } from "@regimex/trading-engine";
 import { type EventPublisher } from "../lib/events.js";
 import {
@@ -369,7 +372,7 @@ export class PaperCfdRuntime {
       metadata: input.decision.metadata,
       tickSize: instrument.tickSize
     });
-    const proposal = rawProposal ? normalizeStopTargetProposal(rawProposal) : null;
+    let proposal = rawProposal ? normalizeStopTargetProposal(rawProposal) : null;
 
     if (!proposal) {
       return { opened: false, reasons: ["Could not derive a valid stop-loss / take-profit for CFD entry"] };
@@ -411,6 +414,29 @@ export class PaperCfdRuntime {
       minRiskRewardRatio: profile?.minRiskRewardRatio !== null && profile ? Number(profile.minRiskRewardRatio) : null
     });
 
+    const stopDistanceOverride =
+      profile?.stopLossDistanceOverride != null ? Number(profile.stopLossDistanceOverride) : null;
+    const stopOverride = applyStopLossDistanceOverride({
+      direction: proposal.direction,
+      entryPrice: proposal.entryPrice,
+      stopLoss: proposal.stopLoss,
+      stopLossDistanceOverride: stopDistanceOverride
+    });
+    if (stopOverride.applied) {
+      proposal = {
+        ...proposal,
+        stopLoss: stopOverride.stopLoss,
+        stopDistance: stopOverride.distance ?? proposal.stopDistance
+      };
+      await this.deps.prisma.signal.update({
+        where: { id: input.signalId },
+        data: {
+          stopLoss: proposal.stopLoss,
+          stopDistance: proposal.stopDistance
+        }
+      });
+    }
+
     const stopCheck = this.stopValidator.validate({
       direction: proposal.direction,
       entryPrice: proposal.entryPrice,
@@ -444,17 +470,43 @@ export class PaperCfdRuntime {
       costs.slippageBps
     );
 
-    const sizing = this.sizing.calculate({
-      equity: account.equity,
-      direction: proposal.direction,
-      entryPrice: entryFill.fillPrice,
-      stopLoss: proposal.stopLoss,
-      riskPerTradePercent: limits.riskPerTradePercent,
-      instrument
-    });
-    if (!sizing.success || sizing.volume === null) {
-      return { opened: false, reasons: sizing.rejectionReasons };
+    const volumeOverrideLots =
+      profile?.volumeOverrideLots != null ? Number(profile.volumeOverrideLots) : null;
+    let sizingVolume: number | null = null;
+    let sizingRiskAmount: number | null = null;
+    let sizingReasons: string[] = [];
+    if (volumeOverrideLots != null && volumeOverrideLots > 0) {
+      sizingVolume = normalizeVolumeDown(volumeOverrideLots, instrument);
+      if (!(sizingVolume > 0)) {
+        sizingReasons = ["Invalid volume override"];
+      } else {
+        const perUnit = lossAtStopPerUnitVolume(
+          proposal.direction,
+          entryFill.fillPrice,
+          proposal.stopLoss,
+          instrument
+        );
+        sizingRiskAmount = roundMoney(perUnit * sizingVolume);
+      }
+    } else {
+      const sizingResult = this.sizing.calculate({
+        equity: account.equity,
+        direction: proposal.direction,
+        entryPrice: entryFill.fillPrice,
+        stopLoss: proposal.stopLoss,
+        riskPerTradePercent: limits.riskPerTradePercent,
+        instrument
+      });
+      if (!sizingResult.success || sizingResult.volume === null || sizingResult.riskAmount == null) {
+        return { opened: false, reasons: sizingResult.rejectionReasons };
+      }
+      sizingVolume = sizingResult.volume;
+      sizingRiskAmount = sizingResult.riskAmount;
     }
+    if (sizingVolume == null || sizingRiskAmount == null || sizingReasons.length > 0) {
+      return { opened: false, reasons: sizingReasons.length ? sizingReasons : ["Volume sizing failed"] };
+    }
+    const sizing = { volume: sizingVolume, riskAmount: sizingRiskAmount, success: true as const };
 
     await this.deps.prisma.signal.update({
       where: { id: input.signalId },
@@ -832,6 +884,70 @@ export class PaperCfdRuntime {
 
     await this.closePosition(row.id, row.brokerPositionId, "MANUAL", mid);
     return { closed: true, reasons: [] };
+  }
+
+  async manualModify(
+    positionId: string,
+    input: { stopLoss: number; takeProfit: number | null }
+  ): Promise<{ modified: boolean; reasons: string[] }> {
+    if (!this.broker) throw new Error("Paper broker not initialized");
+    const row = await this.deps.prisma.position.findFirst({
+      where: { id: positionId, userId: this.userId }
+    });
+    if (!row) return { modified: false, reasons: ["Position not found"] };
+    if (row.status !== "OPEN") {
+      return { modified: false, reasons: [`Cannot modify position in status ${row.status}`] };
+    }
+    if (!row.brokerPositionId) {
+      return { modified: false, reasons: ["No brokerPositionId"] };
+    }
+
+    const mid = this.resolveFreshQuoteMid() ?? (row.currentPrice != null ? Number(row.currentPrice) : null);
+    const instrument =
+      this.registry.get(row.symbol) ?? (await loadInstrumentMetadata(this.deps.prisma, row.symbol));
+    if (instrument && row.entryPrice) {
+      this.registry.register(instrument);
+      const inBroker = await this.broker.getPosition(row.brokerPositionId);
+      if (!inBroker) {
+        this.broker.restorePosition(
+          {
+            brokerPositionId: row.brokerPositionId,
+            idempotencyKey: row.idempotencyKey,
+            symbol: row.symbol,
+            direction: row.direction as "BUY" | "SELL",
+            volume: Number(row.volume),
+            entryPrice: Number(row.entryPrice),
+            stopLoss: Number(row.stopLoss),
+            takeProfit: row.takeProfit !== null ? Number(row.takeProfit) : null,
+            currentPrice: mid ?? Number(row.entryPrice),
+            status: "OPEN",
+            floatingPnl: 0,
+            riskAmount: Number(row.riskAmount ?? 0),
+            riskPercent: Number(row.riskPercent ?? 0),
+            initialRiskReward: row.initialRiskReward !== null ? Number(row.initialRiskReward) : null,
+            appliedSpreadBps: Number(row.appliedEntrySpreadBps ?? 0),
+            appliedSlippageBps: Number(row.appliedEntrySlippageBps ?? 0),
+            marginUsed: Number(row.marginUsed ?? 0),
+            openedAt: row.openedAt?.getTime() ?? Date.now()
+          },
+          instrument
+        );
+      }
+    }
+
+    await this.broker.modifyPosition({
+      brokerPositionId: row.brokerPositionId,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit
+    });
+    await this.deps.prisma.position.update({
+      where: { id: row.id },
+      data: {
+        stopLoss: input.stopLoss,
+        ...(input.takeProfit != null ? { takeProfit: input.takeProfit } : {})
+      }
+    });
+    return { modified: true, reasons: [] };
   }
 
   private async closePosition(

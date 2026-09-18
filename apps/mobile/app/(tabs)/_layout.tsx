@@ -9,11 +9,19 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: colors.surface },
+        headerStyle: {
+          backgroundColor: colors.bgElevated,
+          borderBottomWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0
+        },
+        headerTitleStyle: { fontWeight: "700", fontSize: 17 },
         headerTintColor: colors.text,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: colors.bgElevated,
           borderTopColor: colors.border,
+          height: Platform.OS === "web" ? 64 : undefined,
+          paddingTop: 6,
           ...(Platform.OS === "web"
             ? {
                 maxWidth: webLayout.appMaxWidth,
@@ -27,42 +35,43 @@ export default function TabsLayout() {
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textFaint,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
         sceneStyle: { backgroundColor: colors.bg }
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color, size }) => <Ionicons name="speedometer-outline" color={color} size={size} />
+          title: "Home",
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />
         }}
       />
       <Tabs.Screen
         name="market"
         options={{
-          title: "Market",
+          title: "Trade",
           tabBarIcon: ({ color, size }) => <Ionicons name="pulse-outline" color={color} size={size} />
         }}
       />
       <Tabs.Screen
         name="strategies"
         options={{
-          title: "Strategies",
-          tabBarIcon: ({ color, size }) => <Ionicons name="git-branch-outline" color={color} size={size} />
+          href: null,
+          title: "Strategies"
         }}
       />
       <Tabs.Screen
         name="backtests"
         options={{
-          title: "Backtests",
-          tabBarIcon: ({ color, size }) => <Ionicons name="flask-outline" color={color} size={size} />
+          href: null,
+          title: "Backtests"
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: "More",
-          tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size }) => <Ionicons name="grid-outline" color={color} size={size} />
         }}
       />
     </Tabs>

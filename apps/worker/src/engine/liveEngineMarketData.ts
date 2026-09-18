@@ -5,16 +5,20 @@ import {
   type ExecutionBackend
 } from "@regimex/trading-engine";
 
+function isMt5ExecutionBackend(executionBackend: ExecutionBackend): boolean {
+  return executionBackend === "broker_demo_mt5" || executionBackend === "broker_real_mt5";
+}
+
 export function shouldFeedDerivTicksToAggregator(executionBackend: ExecutionBackend): boolean {
-  return executionBackend !== "broker_demo_mt5";
+  return !isMt5ExecutionBackend(executionBackend);
 }
 
 export function shouldSubscribeDerivTicks(executionBackend: ExecutionBackend): boolean {
-  return executionBackend !== "broker_demo_mt5";
+  return !isMt5ExecutionBackend(executionBackend);
 }
 
 export function resolvePersistedCandleSources(executionBackend: ExecutionBackend): CandleSource[] | null {
-  if (executionBackend === "broker_demo_mt5") {
+  if (isMt5ExecutionBackend(executionBackend)) {
     return [...MT5_RESTORABLE_CANDLE_SOURCES];
   }
   return null;
@@ -51,7 +55,7 @@ export function mapRestoredSessionCandles(input: {
     source: r.source as Candle["source"]
   }));
 
-  if (input.executionBackend !== "broker_demo_mt5") {
+  if (!isMt5ExecutionBackend(input.executionBackend)) {
     return { candles: mapped, rejected: false, reason: null };
   }
 

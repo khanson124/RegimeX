@@ -2,7 +2,18 @@ import React, { useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "../src/api/client";
 import { useCreateOptimization, useOptimizationCandidates, useOptimizations, useSymbols } from "../src/api/hooks";
-import { Badge, Button, Card, EmptyState, ErrorView, Input, Row, SectionTitle, Skeleton } from "../src/components/ui";
+import { EmptyState, ErrorView, Skeleton } from "../src/components/ui";
+import {
+  ChipRow,
+  Collapsible,
+  PrimaryButton,
+  ProgressBar,
+  SectionHeader,
+  SegmentedChips,
+  SoftCard,
+  StatusChip,
+  TicketField
+} from "../src/components/design";
 import { colors, font, spacing } from "../src/theme";
 
 const STRATEGIES = [
@@ -39,10 +50,10 @@ export default function OptimizerScreen() {
 
   if (isLoading) {
     return (
-      <ViewPad>
+      <ScrollView style={styles.container} contentContainerStyle={styles.pad}>
         <Skeleton height={200} />
         <Skeleton height={120} />
-      </ViewPad>
+      </ScrollView>
     );
   }
   if (isError) {
@@ -90,55 +101,59 @@ export default function OptimizerScreen() {
   return (
     <FlatList
       style={styles.container}
-      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 48 }}
+      contentContainerStyle={styles.pad}
       data={items}
       keyExtractor={(item) => String(item.id)}
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.accent} />}
       ListHeaderComponent={
         <>
-          <SectionTitle>New grid search</SectionTitle>
-          <Card>
-            <Text style={styles.label}>Strategy</Text>
-            <Row style={{ marginBottom: spacing.sm, flexWrap: "wrap" }}>
-              {STRATEGIES.map((s) => (
-                <Pressable key={s.kind} onPress={() => setStrategyKind(s.kind)}>
-                  <Text style={[styles.selector, strategyKind === s.kind && styles.selectorActive]}>{s.label}</Text>
-                </Pressable>
-              ))}
-            </Row>
-            <Text style={styles.label}>Symbol</Text>
-            <Row style={{ marginBottom: spacing.sm }}>
-              {enabledSymbols.map((sym) => (
-                <Pressable key={sym.id} onPress={() => setSymbol(sym.derivSymbol)}>
-                  <Text style={[styles.selector, activeSymbol === sym.derivSymbol && styles.selectorActive]}>
-                    {sym.derivSymbol}
-                  </Text>
-                </Pressable>
-              ))}
-            </Row>
-            <Text style={styles.label}>Interval</Text>
-            <Row style={{ marginBottom: spacing.sm }}>
-              {INTERVALS.map((iv) => (
-                <Pressable key={iv} onPress={() => setInterval(iv)}>
-                  <Text style={[styles.selector, interval === iv && styles.selectorActive]}>{iv}</Text>
-                </Pressable>
-              ))}
-            </Row>
-            <Input label="From (YYYY-MM-DD)" value={from} onChangeText={setFrom} />
-            <Input label="To (YYYY-MM-DD)" value={to} onChangeText={setTo} />
+          <SectionHeader title="New grid search" />
+          <SoftCard>
+            <Text style={styles.fieldLabel}>Strategy</Text>
+            <SegmentedChips
+              options={STRATEGIES.map((s) => ({ id: s.kind, label: s.label }))}
+              value={strategyKind}
+              onChange={(id) => setStrategyKind(id as (typeof STRATEGIES)[number]["kind"])}
+            />
+            <View style={{ height: spacing.md }} />
+            <Text style={styles.fieldLabel}>Symbol</Text>
+            <SegmentedChips
+              options={enabledSymbols.map((s) => ({ id: s.derivSymbol, label: s.derivSymbol }))}
+              value={activeSymbol}
+              onChange={setSymbol}
+            />
+            <View style={{ height: spacing.md }} />
+            <Text style={styles.fieldLabel}>Interval</Text>
+            <SegmentedChips
+              options={INTERVALS.map((iv) => ({ id: iv, label: iv }))}
+              value={interval}
+              onChange={(id) => setInterval(id as (typeof INTERVALS)[number])}
+            />
+            <View style={{ height: spacing.md }} />
+            <View style={styles.fieldRow}>
+              <TicketField label="From" value={from} onChangeText={setFrom} keyboardType="default" />
+              <TicketField label="To" value={to} onChangeText={setTo} keyboardType="default" />
+            </View>
+
+            <Collapsible title="Optimization ranges (default grid)" inline>
+              <Text style={styles.hint}>Editable ranges are not exposed in this MVP — default grid:</Text>
+              <Text style={styles.paramLine}>emaFast · [10, 20]</Text>
+              <Text style={styles.paramLine}>emaSlow · [40, 50]</Text>
+              <Text style={styles.paramLine}>adxThreshold · [18, 22]</Text>
+            </Collapsible>
+
             {formError ? <Text style={styles.error}>{formError}</Text> : null}
-            <Button
+            <PrimaryButton
               title={confirmLarge ? "Confirm large run" : "Start optimization"}
               onPress={submit}
               loading={create.isPending}
             />
             <Text style={styles.hint}>
-              Initial MVP uses a small default parameter grid. Large runs require explicit confirmation to prevent
-              combinatorial explosions.
+              Large combinatorial runs require explicit confirmation.
             </Text>
-          </Card>
+          </SoftCard>
 
-          <SectionTitle>Runs</SectionTitle>
+          <SectionHeader title="Runs" />
         </>
       }
       ListEmptyComponent={<EmptyState title="No optimization runs" hint="Start a grid search above." />}
@@ -147,33 +162,56 @@ export default function OptimizerScreen() {
         const status = String(run.status ?? "UNKNOWN");
         const id = String(run.id);
         const expanded = selectedRunId === id;
+        const progress = Math.round(Number(run.progress ?? 0) * 100);
+        const tone =
+          status === "COMPLETED" ? "up" : status === "FAILED" ? "down" : status === "RUNNING" ? "warning" : "neutral";
         return (
           <Pressable onPress={() => setSelectedRunId(expanded ? null : id)}>
-            <Card>
-              <Row style={{ justifyContent: "space-between" }}>
+            <SoftCard>
+              <View style={styles.runHeader}>
                 <Text style={styles.runTitle}>
                   {String(run.strategyKind)} · {String(run.symbol)} {String(run.interval)}
                 </Text>
-                <Badge
-                  tone={status === "COMPLETED" ? "up" : status === "FAILED" ? "down" : "accent"}
-                  text={status}
-                />
-              </Row>
+                <StatusChip label={status} tone={tone} />
+              </View>
               <Text style={styles.meta}>
-                {String(run.totalCombinations)} combos · {Math.round(Number(run.progress ?? 0) * 100)}%
+                {String(run.totalCombinations)} combos · {progress}%
               </Text>
-              {expanded && candidates.data?.candidates?.length ? (
-                <View style={{ marginTop: spacing.sm }}>
-                  {(candidates.data.candidates as Array<Record<string, unknown>>).slice(0, 5).map((c) => (
-                    <Text key={String(c.id)} style={styles.candidate}>
-                      Score {Number(c.selectionScore ?? 0).toFixed(1)} · PF{" "}
-                      {c.profitFactor != null ? Number(c.profitFactor).toFixed(2) : "—"} · OOS{" "}
-                      {c.oosExpectancy != null ? Number(c.oosExpectancy).toFixed(3) : "—"}
-                    </Text>
-                  ))}
-                </View>
+              {status === "RUNNING" || progress > 0 ? (
+                <ProgressBar progress={progress} tone={status === "FAILED" ? "down" : "accent"} />
               ) : null}
-            </Card>
+              {expanded ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={styles.fieldLabel}>Top candidates</Text>
+                  {candidates.data?.candidates?.length ? (
+                    (candidates.data.candidates as Array<Record<string, unknown>>).slice(0, 5).map((c, idx) => (
+                      <View key={String(c.id)} style={styles.candidate}>
+                        <ChipRow>
+                          <StatusChip
+                            label={idx === 0 ? "Best" : `#${idx + 1}`}
+                            tone={idx === 0 ? "up" : "neutral"}
+                          />
+                          <StatusChip
+                            label={`Score ${Number(c.selectionScore ?? 0).toFixed(1)}`}
+                            tone="accent"
+                          />
+                        </ChipRow>
+                        <Text style={styles.candidateMeta}>
+                          PF {c.profitFactor != null ? Number(c.profitFactor).toFixed(2) : "—"} · OOS E{" "}
+                          {c.oosExpectancy != null ? Number(c.oosExpectancy).toFixed(3) : "—"}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.hint}>
+                      {candidates.isLoading ? "Loading candidates…" : "No candidates yet."}
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <Text style={styles.tapHint}>{expanded ? "" : "Tap for candidates"}</Text>
+              )}
+            </SoftCard>
           </Pressable>
         );
       }}
@@ -181,30 +219,25 @@ export default function OptimizerScreen() {
   );
 }
 
-function ViewPad({ children }: { children: React.ReactNode }) {
-  return <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg }}>{children}</ScrollView>;
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  label: { color: colors.textDim, fontSize: font.caption, marginBottom: spacing.xs },
-  selector: {
-    color: colors.textDim,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: font.caption,
+  pad: { padding: spacing.lg, paddingBottom: 48 },
+  fieldLabel: {
+    color: colors.textFaint,
+    fontSize: font.micro,
     fontWeight: "700",
-    marginRight: 6,
-    marginBottom: 6
+    marginBottom: spacing.sm,
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
   },
-  selectorActive: { color: colors.text, borderColor: colors.accent, backgroundColor: "#12283F" },
+  fieldRow: { flexDirection: "row", gap: spacing.md, flexWrap: "wrap" },
   error: { color: colors.down, fontSize: font.caption, marginBottom: spacing.sm },
   hint: { color: colors.textFaint, fontSize: font.caption, marginTop: spacing.sm, lineHeight: 18 },
+  paramLine: { color: colors.textDim, fontSize: font.caption, marginTop: 4, fontWeight: "600" },
+  runHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.sm },
   runTitle: { color: colors.text, fontSize: font.body, fontWeight: "700", flex: 1 },
-  meta: { color: colors.textDim, fontSize: font.caption, marginTop: 4 },
-  candidate: { color: colors.textDim, fontSize: font.caption, marginTop: 4 }
+  meta: { color: colors.textDim, fontSize: font.caption, marginTop: 6 },
+  candidate: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  candidateMeta: { color: colors.textDim, fontSize: font.caption, marginTop: 6 },
+  tapHint: { color: colors.textFaint, fontSize: font.micro, marginTop: spacing.sm }
 });

@@ -1,11 +1,23 @@
 import React, { useState } from "react";
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ApiError, configuredApiUrl } from "../../src/api/client";
 import { useDashboard, useEngineAction, useStrategies, useBrokerDemoStatus, useMt5Status } from "../../src/api/hooks";
 import { useLiveEvents } from "../../src/ws/useLiveEvents";
-import { Badge, Button, Card, ErrorView, Metric, RegimeBadge, Row, SectionTitle, Skeleton } from "../../src/components/ui";
+import { ErrorView, RegimeBadge, Skeleton } from "../../src/components/ui";
+import {
+  ChipRow,
+  Collapsible,
+  HeroStat,
+  PrimaryButton,
+  SectionHeader,
+  SoftCard,
+  StatRow,
+  StatTile,
+  StatusChip
+} from "../../src/components/design";
 import { colors, font, spacing } from "../../src/theme";
+import { webStyle } from "../../src/lib/webStyles";
 
 export default function DashboardScreen() {
   const { data, isLoading, isError, error, refetch, isRefetching } = useDashboard();
@@ -47,377 +59,182 @@ export default function DashboardScreen() {
 
   if (isLoading) {
     return (
-      <ScrollView style={styles.container}>
-        <Skeleton height={120} />
-        <Skeleton height={180} />
+      <ScrollView style={styles.container} contentContainerStyle={styles.pad}>
+        <Skeleton height={140} />
         <Skeleton height={100} />
+        <Skeleton height={160} />
       </ScrollView>
     );
   }
   if (isError || !data) {
     const detail = error instanceof Error ? error.message : "Failed to load";
-    const api = configuredApiUrl();
     return (
-      <ErrorView
-        message={`${detail}\n\nAPI: ${api}`}
-        onRetry={() => void refetch()}
-      />
+      <ErrorView message={`${detail}\n\nAPI: ${configuredApiUrl()}`} onRetry={() => void refetch()} />
     );
   }
 
   const s = data.summary;
   const engineRunning = s.engineState.startsWith("RUNNING");
-  const executionSource = s.execution?.source ?? (mt5Status?.status?.enabled && s.executionMode === "broker_demo_mt5" ? "MT5_DEMO" : "PAPER_CFD");
+  const executionSource =
+    s.execution?.source ??
+    (mt5Status?.status?.enabled && s.executionMode === "broker_demo_mt5" ? "MT5_DEMO" : "PAPER_CFD");
   const mt5 = mt5Status?.status;
   const mt5Active = Boolean(mt5?.enabled) || executionSource === "MT5_DEMO";
   const mt5EngineOn = Boolean(mt5?.engineAutomationEnabled ?? s.execution?.mt5EngineAutomationEnabled);
-
-  function formatAgo(ts: number | null | undefined): string {
-    if (ts == null || !Number.isFinite(ts)) return "—";
-    const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
-    if (mins < 1) return "just now";
-    if (mins === 1) return "1m ago";
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.round(mins / 60);
-    return hours === 1 ? "1h ago" : `${hours}h ago`;
-  }
-
-  const bridgeLabel =
-    mt5?.bridge === "online" ? "Online" : mt5?.bridge === "unhealthy" ? "Unhealthy" : mt5?.connected ? "Online" : "Offline";
-  const eaLabel =
-    mt5?.ea === "online" ? "Online" : mt5?.ea === "offline" ? "Offline" : mt5?.eaConnected ? "Online" : "Unknown";
-  const reconcileLabel =
-    mt5?.reconciliation === "fresh" ? "Fresh" : mt5?.reconciliation === "stale" ? "Stale" : "Unknown";
+  const bridgeOnline = mt5?.bridge === "online" || Boolean(mt5?.connected);
+  const eaOnline = mt5?.ea === "online" || Boolean(mt5?.eaConnected);
   const mt5Ready = Boolean(mt5?.ready) && mt5?.bridge === "online";
-  const executionBlocked = Boolean(mt5?.executionBlockReason) || !mt5Ready;
-  const executionReason = mt5?.executionBlockReason ?? s.autonomous?.decisionCode ?? s.autonomous?.reason ?? null;
+  const executionBlocked = Boolean(mt5?.executionBlockReason) || (mt5Active && !mt5Ready);
+  const openCount = Array.isArray(mt5?.openPositions)
+    ? mt5.openPositions.length
+    : (s.autonomous?.openEnginePositions ?? 0);
+
+  const equityValue =
+    executionSource === "MT5_DEMO"
+      ? mt5?.account?.equity != null
+        ? String(mt5.account.equity)
+        : "—"
+      : executionSource === "CTRADER_DEMO" && brokerDemo?.status?.account?.equity != null
+        ? String(brokerDemo.status.account.equity)
+        : s.paperEquity != null
+          ? s.paperEquity.toFixed(2)
+          : s.balance != null
+            ? s.balance.toFixed(2)
+            : "—";
+
+  const venueLabel =
+    executionSource === "MT5_DEMO"
+      ? "MT5 DEMO"
+      : executionSource === "CTRADER_DEMO"
+        ? "cTrader DEMO"
+        : "Paper CFD";
 
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={{ padding: spacing.lg, paddingBottom: 48 }}
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.accent} />}
+      contentContainerStyle={styles.pad}
+      refreshControl={
+        <RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.accent} />
+      }
     >
-      <Card>
-        <Row>
-          <Metric label="Engine" value={s.engineState.replace(/_/g, " ")} tone={engineRunning ? "up" : s.engineState === "EMERGENCY_STOPPED" ? "down" : "neutral"} />
-          <Metric label="Market data" value={s.derivConnected ? "Connected" : "Offline"} tone={s.derivConnected ? "up" : "warning"} />
-          <Metric label="Live feed" value={connected ? "Streaming" : "Reconnecting"} tone={connected ? "up" : "warning"} />
-        </Row>
-        {s.emergencyStop ? <Badge tone="down" text="EMERGENCY STOP ACTIVE" /> : null}
-        <Row style={{ marginTop: spacing.md }}>
-          <Metric
-            label="Execution"
-            value={
-              executionSource === "MT5_DEMO"
-                ? "MT5 DEMO"
-                : executionSource === "CTRADER_DEMO"
-                  ? "cTrader DEMO"
-                  : "PAPER CFD"
-            }
-            tone={executionSource === "PAPER_CFD" ? "neutral" : "warning"}
-          />
-          {executionSource === "MT5_DEMO" || mt5Active ? (
-            <Metric
-              label="MT5 engine"
-              value={mt5EngineOn ? "ON" : "OFF"}
-              tone={mt5EngineOn ? "warning" : "neutral"}
-            />
-          ) : (
-            <Metric label="Paper role" value="Dev / fallback" />
-          )}
-        </Row>
-        {brokerDemo?.status?.enabled && executionSource === "CTRADER_DEMO" ? (
-          <Row style={{ marginTop: spacing.md }}>
-            <Metric
-              label="cTrader"
-              value={brokerDemo.status.demo || brokerDemo.status.isDemo ? "DEMO" : "—"}
-              tone="warning"
-            />
-            <Metric
-              label="cTrader link"
-              value={brokerDemo.status.connected ? "Connected" : brokerDemo.status.error ? "Error" : "Offline"}
-              tone={brokerDemo.status.connected ? "up" : "warning"}
-            />
-            <Metric
-              label="Demo equity"
-              value={
-                brokerDemo.status.account?.equity != null
-                  ? String(brokerDemo.status.account.equity)
-                  : "—"
-              }
-            />
-          </Row>
-        ) : null}
-        {mt5Active ? (
-          <>
-            <Row style={{ marginTop: spacing.md }}>
-              <Metric
-                label="MT5 DEMO"
-                value={mt5?.isDemo || mt5?.demo ? "DEMO" : "—"}
-                tone={mt5?.isDemo || mt5?.demo ? "warning" : "neutral"}
-              />
-              <Metric
-                label="Bridge"
-                value={bridgeLabel}
-                tone={bridgeLabel === "Online" ? "up" : "warning"}
-              />
-              <Metric
-                label="EA"
-                value={eaLabel}
-                tone={eaLabel === "Online" ? "up" : "warning"}
-              />
-            </Row>
-            <Row style={{ marginTop: spacing.sm }}>
-              <Metric
-                label="Reconcile"
-                value={reconcileLabel}
-                tone={reconcileLabel === "Fresh" ? "up" : "warning"}
-              />
-              <Metric
-                label="Circuit"
-                value={mt5?.circuitState ?? "—"}
-                tone={mt5?.circuitState === "CLOSED" ? "up" : "warning"}
-              />
-              <Metric
-                label="Execution"
-                value={executionBlocked ? "Blocked" : "Ready"}
-                tone={executionBlocked ? "warning" : "up"}
-              />
-            </Row>
-            {executionReason ? (
-              <Text style={{ color: colors.textDim, marginTop: spacing.xs, fontSize: font.caption }}>
-                Reason: {String(executionReason).replace(/_/g, " ")}
-                {mt5?.lastBridgeSuccessAt
-                  ? ` · Last healthy: ${formatAgo(mt5.lastBridgeSuccessAt)}`
-                  : ""}
-              </Text>
-            ) : null}
-            <Row style={{ marginTop: spacing.sm }}>
-              <Metric
-                label="MT5 equity"
-                value={mt5?.account?.equity != null ? String(mt5.account.equity) : "—"}
-              />
-              <Metric
-                label="MT5 balance"
-                value={mt5?.account?.balance != null ? String(mt5.account.balance) : "—"}
-              />
-              <Metric
-                label="Broker"
-                value={mt5?.company || mt5?.server || "—"}
-              />
-            </Row>
-            {mt5?.server ? (
-              <Text style={{ color: colors.textDim, marginTop: spacing.xs, fontSize: font.caption }}>
-                {mt5.server}
-                {mt5.login ? ` · login ${mt5.login}` : ""}
-                {Array.isArray(mt5.openPositions) ? ` · ${mt5.openPositions.length} open` : ""}
-              </Text>
-            ) : null}
-          </>
-        ) : null}
-        {executionSource === "PAPER_CFD" && !mt5Active ? (
-          <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
-            PAPER CFD — local development / tests / fallback. Primary forward path is Deriv MT5 DEMO.
-          </Text>
-        ) : null}
-      </Card>
-
-      <Card>
-        <Row>
-          <Metric
-            label={
-              executionSource === "MT5_DEMO"
-                ? `MT5 DEMO ${mt5?.account?.currency ?? ""}`.trim()
-                : executionSource === "CTRADER_DEMO"
-                  ? `cTrader DEMO ${s.currency ?? ""}`
-                  : `Paper CFD ${s.currency ?? ""}`
-            }
-            value={
-              executionSource === "MT5_DEMO"
-                ? mt5?.account?.equity != null
-                  ? String(mt5.account.equity)
-                  : "—"
-                : executionSource === "CTRADER_DEMO" && brokerDemo?.status?.account?.equity != null
-                  ? String(brokerDemo.status.account.equity)
-                  : s.paperEquity != null
-                    ? s.paperEquity.toFixed(2)
-                    : s.balance != null
-                      ? s.balance.toFixed(2)
-                      : "—"
-            }
-            large
-          />
-        </Row>
-        <Row>
-          <Metric
+      <SoftCard>
+        <HeroStat
+          label={`Equity · ${venueLabel}`}
+          value={equityValue}
+          subtitle={`Today ${s.todayPnl >= 0 ? "+" : ""}${s.todayPnl.toFixed(2)}${
+            s.todayR != null ? ` · ${s.todayR >= 0 ? "+" : ""}${s.todayR.toFixed(2)}R` : ""
+          }`}
+          tone={s.todayPnl > 0 ? "up" : s.todayPnl < 0 ? "down" : "neutral"}
+        />
+        <StatRow>
+          <StatTile
             label="Today P/L"
             value={`${s.todayPnl >= 0 ? "+" : ""}${s.todayPnl.toFixed(2)}`}
             tone={s.todayPnl > 0 ? "up" : s.todayPnl < 0 ? "down" : "neutral"}
-            large
           />
-          <Metric
-            label="Today R"
-            value={s.todayR != null ? `${s.todayR >= 0 ? "+" : ""}${s.todayR.toFixed(2)}R` : "—"}
-            tone={s.todayR != null && s.todayR > 0 ? "up" : s.todayR != null && s.todayR < 0 ? "down" : "neutral"}
-            large
-          />
-        </Row>
-        <Text style={{ color: colors.textDim, marginTop: spacing.xs, fontSize: font.caption }}>
-          Today P/L and opened-today are from realized CFD positions, not binary options contracts.
-        </Text>
-        <Row>
-          <Metric label="Symbol" value={s.symbol ?? "—"} />
-          <Metric label="Opened today" value={String(s.todayTrades)} />
-          <Metric
-            label="Consec. losses"
-            value={String(s.consecutiveLosses)}
-            tone={s.consecutiveLosses >= 2 ? "warning" : "neutral"}
-          />
-        </Row>
-      </Card>
+          <StatTile label="Open" value={String(openCount)} />
+          <StatTile label="Symbol" value={s.symbol ?? "—"} />
+        </StatRow>
+      </SoftCard>
 
-      {executionSource === "MT5_DEMO" || mt5Active ? (
-        <>
-          <SectionTitle>Autonomous MT5 DEMO</SectionTitle>
-          <Card>
-            <Row>
-              <Metric
-                label="Autonomous"
-                value={s.autonomous?.enabled ? "Enabled" : "Blocked"}
-                tone={s.autonomous?.enabled ? "warning" : "neutral"}
-              />
-              <Metric
-                label="Engine flag"
-                value={s.autonomous?.mt5EngineEnabled || mt5EngineOn ? "ON" : "OFF"}
-                tone={s.autonomous?.mt5EngineEnabled || mt5EngineOn ? "warning" : "neutral"}
-              />
-              <Metric
-                label="Open owned"
-                value={String(s.autonomous?.openEnginePositions ?? 0)}
-              />
-            </Row>
-            {s.autonomous?.blocked && s.autonomous.reason ? (
-              <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
-                {s.autonomous.reason.replace(/_/g, " ")}
-              </Text>
-            ) : null}
-            <Row style={{ marginTop: spacing.md }}>
-              <Metric label="RegimeX" value={s.autonomous?.mapping?.internalSymbol ?? s.symbol ?? "—"} />
-              <Metric
-                label="MT5 symbol"
-                value={s.autonomous?.mapping?.brokerSymbol ?? "—"}
-              />
-              <Metric
-                label="Mapping"
-                value={s.autonomous?.mapping?.verified ? "Verified" : "Unverified"}
-                tone={s.autonomous?.mapping?.verified ? "up" : "warning"}
-              />
-            </Row>
-            <Row style={{ marginTop: spacing.sm }}>
-              <Metric
-                label="Broker min"
-                value={
-                  s.autonomous?.brokerMinVolume != null ? String(s.autonomous.brokerMinVolume) : "—"
-                }
-              />
-              <Metric
-                label="Broker step"
-                value={
-                  s.autonomous?.brokerVolumeStep != null ? String(s.autonomous.brokerVolumeStep) : "—"
-                }
-              />
-              <Metric
-                label="Engine max vol"
-                value={s.autonomous?.engineMaxVolume != null ? String(s.autonomous.engineMaxVolume) : "—"}
-              />
-            </Row>
-            <Row style={{ marginTop: spacing.md }}>
-              <Metric label="Forward trades" value={String(s.mt5Forward?.trades ?? 0)} />
-              <Metric
-                label="Expectancy R"
-                value={s.mt5Forward?.expectancyR != null ? s.mt5Forward.expectancyR.toFixed(2) : "—"}
-              />
-              <Metric
-                label="Profit factor"
-                value={s.mt5Forward?.profitFactor != null ? s.mt5Forward.profitFactor.toFixed(2) : "—"}
-              />
-            </Row>
-            <Row style={{ marginTop: spacing.sm }}>
-              <Metric
-                label="Drawdown"
-                value={
-                  s.mt5Forward?.maxDrawdownPercent != null
-                    ? `${s.mt5Forward.maxDrawdownPercent.toFixed(1)}%`
-                    : "—"
-                }
-              />
-              <Metric
-                label="Lifecycle"
-                value={(s.mt5Forward?.lifecycle ?? "EXPERIMENTAL").replace(/_/g, " ")}
-              />
-            </Row>
-            {s.recentAutonomousDecisions && s.recentAutonomousDecisions.length > 0 ? (
-              <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
-                Recent: {s.recentAutonomousDecisions.slice(0, 5).map((d) => d.code).join(" · ")}
-              </Text>
-            ) : (
-              <Text style={{ color: colors.textDim, marginTop: spacing.sm, fontSize: font.caption }}>
-                No autonomous decisions yet. Engine-driven orders stay off until you enable them.
-              </Text>
-            )}
-          </Card>
-        </>
-      ) : null}
+      <SectionHeader title="Status" />
+      <SoftCard>
+        <ChipRow>
+          <StatusChip
+            label={engineRunning ? "Engine running" : s.engineState.replace(/_/g, " ")}
+            tone={engineRunning ? "up" : s.engineState === "EMERGENCY_STOPPED" ? "down" : "neutral"}
+          />
+          <StatusChip label={venueLabel} tone="accent" />
+          <StatusChip
+            label={executionBlocked ? "Exec blocked" : "Exec ready"}
+            tone={executionBlocked ? "warning" : "up"}
+          />
+          <StatusChip label={connected ? "Live feed" : "Reconnecting"} tone={connected ? "up" : "warning"} />
+          <StatusChip
+            label={s.derivConnected ? "Market data" : "Data offline"}
+            tone={s.derivConnected ? "up" : "warning"}
+          />
+          {mt5Active ? (
+            <>
+              <StatusChip label={`Bridge ${bridgeOnline ? "online" : "offline"}`} tone={bridgeOnline ? "up" : "warning"} />
+              <StatusChip label={`EA ${eaOnline ? "online" : "offline"}`} tone={eaOnline ? "up" : "warning"} />
+              <StatusChip label={mt5EngineOn ? "MT5 auto ON" : "MT5 auto OFF"} tone={mt5EngineOn ? "accent" : "neutral"} />
+            </>
+          ) : null}
+          {s.emergencyStop ? <StatusChip label="Emergency stop" tone="down" /> : null}
+        </ChipRow>
+        {executionBlocked && (mt5?.executionBlockReason || s.autonomous?.reason) ? (
+          <Text style={styles.reason}>
+            {String(mt5?.executionBlockReason ?? s.autonomous?.reason ?? "").replace(/_/g, " ")}
+          </Text>
+        ) : null}
+      </SoftCard>
 
-      <SectionTitle>Market view</SectionTitle>
-      <Card>
+      <SectionHeader title="Market" action="Trade" onAction={() => router.push("/(tabs)/market")} />
+      <SoftCard>
         <RegimeBadge regime={s.currentRegime} confidence={s.regimeConfidence} />
-        <Row style={{ marginTop: spacing.md }}>
-          <Metric label="Active strategy" value={strategyLabel(s.activeStrategy)} />
-          <Metric
-            label="Selection"
-            value={s.strategySelection?.selectionMode ?? "—"}
-          />
-          <Metric
-            label="Current signal"
+        <StatRow>
+          <StatTile label="Strategy" value={strategyLabel(s.activeStrategy)} />
+          <StatTile
+            label="Signal"
             value={
-              s.currentSignal.action === "HOLD"
-                ? "HOLD"
-                : s.currentSignal.action === "BUY" || s.currentSignal.action === "SELL"
-                  ? s.currentSignal.action
+              s.currentSignal.action === "BUY" || s.currentSignal.action === "SELL"
+                ? s.currentSignal.action
+                : s.currentSignal.action === "HOLD"
+                  ? "HOLD"
                   : "—"
             }
             tone={
               s.currentSignal.action === "BUY" ? "up" : s.currentSignal.action === "SELL" ? "down" : "neutral"
             }
           />
-        </Row>
-        {s.latestSignal ? (
-          <Row>
-            <Metric
-              label={`Last signal (${s.latestSignal.status})`}
-              value={`${s.latestSignal.action} · ${(s.latestSignal.confidence * 100).toFixed(0)}%`}
-              tone={s.latestSignal.action === "BUY" ? "up" : s.latestSignal.action === "SELL" ? "down" : "neutral"}
-            />
-          </Row>
-        ) : (
-          <Text style={styles.dim}>No signals recorded yet</Text>
-        )}
-      </Card>
+        </StatRow>
+        <Text style={styles.meta}>
+          Opened today {s.todayTrades} · Consec. losses {s.consecutiveLosses}
+        </Text>
+      </SoftCard>
 
-      <SectionTitle>Controls</SectionTitle>
-      <Button title="Open Live Engine" onPress={() => router.push("/engine")} variant="secondary" />
-      <Button
-        title="EMERGENCY STOP"
+      {(executionSource === "MT5_DEMO" || mt5Active) && (
+        <Collapsible title="MT5 details">
+          <StatRow>
+            <StatTile label="Owned open" value={String(s.autonomous?.openEnginePositions ?? 0)} />
+            <StatTile
+              label="Forward E[R]"
+              value={s.mt5Forward?.expectancyR != null ? s.mt5Forward.expectancyR.toFixed(2) : "—"}
+            />
+            <StatTile
+              label="Lifecycle"
+              value={(s.mt5Forward?.lifecycle ?? "EXPERIMENTAL").replace(/_/g, " ")}
+            />
+          </StatRow>
+          <Text style={styles.meta}>
+            {s.autonomous?.mapping?.internalSymbol ?? s.symbol ?? "—"} →{" "}
+            {s.autonomous?.mapping?.brokerSymbol ?? "—"}
+            {s.autonomous?.mapping?.verified ? " · verified" : " · unverified"}
+          </Text>
+          {mt5?.server ? (
+            <Text style={styles.meta}>
+              {mt5.server}
+              {mt5.login ? ` · ${mt5.login}` : ""}
+            </Text>
+          ) : null}
+        </Collapsible>
+      )}
+
+      <SectionHeader title="Controls" />
+      <PrimaryButton title="Open Live Engine" variant="secondary" onPress={() => router.push("/engine")} />
+      <PrimaryButton
+        title="Emergency stop"
         variant="danger"
         onPress={confirmEmergencyStop}
         loading={engineAction.isPending}
       />
-      {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
+      <Pressable onPress={() => router.push("/positions")} style={webStyle({ cursor: "pointer" })}>
+        <Text style={styles.link}>View positions →</Text>
+      </Pressable>
+      {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
       <Text style={styles.disclaimer}>
-        CFD research lab — MT5 DEMO is the primary forward path; paper CFD is fallback. Not binary options.
-        Backtests are not guarantees of future performance.
+        CFD research lab · MT5 DEMO primary · Paper fallback · Not live money
       </Text>
     </ScrollView>
   );
@@ -425,7 +242,22 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  dim: { color: colors.textDim, fontSize: font.body, marginTop: spacing.sm },
-  actionError: { color: colors.down, fontSize: font.caption, textAlign: "center", marginTop: spacing.sm },
-  disclaimer: { color: colors.textFaint, fontSize: font.caption, textAlign: "center", marginTop: spacing.lg }
+  pad: { padding: spacing.lg, paddingBottom: 56 },
+  reason: { color: colors.textDim, fontSize: font.caption, marginTop: spacing.md, lineHeight: 18 },
+  meta: { color: colors.textFaint, fontSize: font.caption, marginTop: spacing.md },
+  link: {
+    color: colors.accent,
+    fontSize: font.body,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: spacing.md
+  },
+  error: { color: colors.down, fontSize: font.caption, textAlign: "center", marginTop: spacing.sm },
+  disclaimer: {
+    color: colors.textFaint,
+    fontSize: font.micro,
+    textAlign: "center",
+    marginTop: spacing.xl,
+    lineHeight: 16
+  }
 });

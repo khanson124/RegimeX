@@ -46,9 +46,25 @@ export function Metric({
 
 export function Badge({ text, tone = "neutral" }: { text: string; tone?: "neutral" | "up" | "down" | "warning" | "accent" }) {
   const bg =
-    tone === "up" ? "#14351F" : tone === "down" ? "#3A1416" : tone === "warning" ? "#3A2A0E" : tone === "accent" ? "#12283F" : colors.surfaceRaised;
+    tone === "up"
+      ? colors.upMuted
+      : tone === "down"
+        ? colors.downMuted
+        : tone === "warning"
+          ? colors.warningMuted
+          : tone === "accent"
+            ? colors.accentSoft
+            : colors.surfaceRaised;
   const fg =
-    tone === "up" ? colors.up : tone === "down" ? colors.down : tone === "warning" ? colors.warning : tone === "accent" ? colors.accent : colors.textDim;
+    tone === "up"
+      ? colors.up
+      : tone === "down"
+        ? colors.down
+        : tone === "warning"
+          ? colors.warning
+          : tone === "accent"
+            ? colors.accent
+            : colors.textDim;
   return (
     <View style={[styles.badge, { backgroundColor: bg }]}>
       <Text style={[styles.badgeText, { color: fg }]}>{text}</Text>
@@ -159,15 +175,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
+    padding: spacing.xl,
     marginBottom: spacing.md
   },
   sectionTitle: {
     color: colors.textDim,
-    fontSize: font.caption,
+    fontSize: font.micro,
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 1.2,
     marginBottom: spacing.sm,
     marginTop: spacing.md
   },
@@ -179,13 +195,13 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
-    borderRadius: radius.sm
+    borderRadius: radius.pill
   },
   badgeText: { fontSize: font.caption, fontWeight: "700" },
   button: {
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
+    borderRadius: radius.xl,
     alignItems: "center",
     marginVertical: spacing.xs
   },
@@ -197,7 +213,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: font.body
   },
   inputLabel: { color: colors.textDim, fontSize: font.caption, marginBottom: 4 },

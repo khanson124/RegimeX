@@ -25,3 +25,5 @@ export * from "./schemas/research.js";
 export * from "./schemas/trades.js";
 export * from "./schemas/instrument.js";
 export * from "./backend.js";
+export * from "./config/engineConfigurationPolicy.js";
+export * from "./config/riskProfileMerge.js";

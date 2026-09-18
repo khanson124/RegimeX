@@ -1,5 +1,14 @@
 import { type FastifyInstance } from "fastify";
-import { riskProfileUpdateSchema, utcDayStart, ValidationError } from "@regimex/shared";
+import {
+  assertMergedRiskProfile,
+  mergeRiskProfileUpdate,
+  RiskProfileMergeError,
+  riskProfileUpdateSchema,
+  riskProfileWarnings,
+  snapshotRiskProfile,
+  utcDayStart,
+  ValidationError
+} from "@regimex/shared";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
 
@@ -36,33 +45,51 @@ export function registerRiskRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { profile: await activeProfile(request.userId) };
   });
 
+  /**
+   * Partial-update semantics: omitted fields keep their existing values.
+   * Explicit null clears nullable CFD/session/override fields only.
+   */
   app.put("/risk-profile", { preHandler: auth }, async (request) => {
     const body = riskProfileUpdateSchema.parse(request.body);
-    if (body.maxStakePerTrade < body.fixedStake) {
-      throw new ValidationError("maxStakePerTrade cannot be below fixedStake");
-    }
-
-    const warnings: string[] = [];
-    if (body.fixedStake > 25) {
-      warnings.push("Fixed stake above $25 — fine for demo, but confirm it matches what you intend per trade.");
-    }
-    if (body.maxDailyLoss > 200) {
-      warnings.push("Daily loss limit above $200 — consider whether that cap fits your demo experiment.");
-    }
-    if (body.maxConsecutiveLosses > 10) {
-      warnings.push("More than 10 consecutive losses allowed before the engine pauses trading.");
-    }
-    if (body.maxDrawdownPercent > 40) {
-      warnings.push("Drawdown limit above 40% — unusually loose for risk control.");
-    }
-    if (body.riskPerTradePercent != null && body.riskPerTradePercent > 2) {
-      warnings.push("Risk per trade above 2% of equity is aggressive for CFD sizing.");
-    }
-
     const existing = await activeProfile(request.userId);
+    const merged = mergeRiskProfileUpdate(
+      snapshotRiskProfile(existing as unknown as Record<string, unknown>),
+      body
+    );
+
+    try {
+      assertMergedRiskProfile(merged);
+    } catch (err) {
+      if (err instanceof RiskProfileMergeError) {
+        throw new ValidationError(err.message);
+      }
+      throw err;
+    }
+
+    const warnings = riskProfileWarnings(merged);
+
     const profile = await prisma.riskProfile.update({
       where: { id: existing.id },
-      data: { ...body, demoOnly: true } // demoOnly cannot be disabled in the MVP
+      data: {
+        fixedStake: merged.fixedStake,
+        maxStakePerTrade: merged.maxStakePerTrade,
+        maxDailyLoss: merged.maxDailyLoss,
+        maxDailyTrades: merged.maxDailyTrades,
+        maxConsecutiveLosses: merged.maxConsecutiveLosses,
+        maxSimultaneousContracts: merged.maxSimultaneousContracts,
+        minCooldownSeconds: merged.minCooldownSeconds,
+        maxDrawdownPercent: merged.maxDrawdownPercent,
+        minBalance: merged.minBalance,
+        riskPerTradePercent: merged.riskPerTradePercent,
+        sessionStartHourUtc: merged.sessionStartHourUtc,
+        sessionEndHourUtc: merged.sessionEndHourUtc,
+        volumeOverrideLots: merged.volumeOverrideLots,
+        stopLossDistanceOverride: merged.stopLossDistanceOverride,
+        maxTotalOpenRiskPercent: merged.maxTotalOpenRiskPercent,
+        maxConcurrentPositions: merged.maxConcurrentPositions,
+        minRiskRewardRatio: merged.minRiskRewardRatio,
+        demoOnly: true
+      }
     });
     return { profile, warnings };
   });

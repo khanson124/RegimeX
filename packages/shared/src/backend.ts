@@ -16,9 +16,21 @@ export const CHANNELS = {
 } as const;
 
 export interface EngineControlMessage {
-  command: "START" | "PAUSE" | "RESUME" | "STOP" | "EMERGENCY_STOP" | "RELOAD_CONFIG" | "CLOSE_POSITION";
+  command:
+    | "START"
+    | "PAUSE"
+    | "RESUME"
+    | "STOP"
+    | "EMERGENCY_STOP"
+    | "RELOAD_CONFIG"
+    | "CLOSE_POSITION"
+    | "MODIFY_POSITION";
   userId: string;
   correlationId: string;
-  /** Required when command is CLOSE_POSITION. */
+  /** Required when command is CLOSE_POSITION or MODIFY_POSITION. */
   positionId?: string;
+  /** Required when command is MODIFY_POSITION — new stop loss. */
+  stopLoss?: number;
+  /** Optional when command is MODIFY_POSITION — omit to preserve existing TP. */
+  takeProfit?: number | null;
 }

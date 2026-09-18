@@ -6,6 +6,7 @@ export const ENGINE_STATES = [
   "SYNCING_DATA",
   "RUNNING_ANALYSIS_ONLY",
   "RUNNING_DEMO_TRADING",
+  "RUNNING_LIVE_TRADING",
   "PAUSED",
   "DEGRADED",
   "EMERGENCY_STOPPED",
@@ -14,7 +15,7 @@ export const ENGINE_STATES = [
 
 export type EngineState = (typeof ENGINE_STATES)[number];
 
-export type EngineMode = "ANALYSIS_ONLY" | "DEMO_TRADING";
+export type EngineMode = "ANALYSIS_ONLY" | "DEMO_TRADING" | "LIVE_TRADING";
 
 export type StrategySelectionMode = "AUTO" | "SINGLE" | "ENSEMBLE";
 

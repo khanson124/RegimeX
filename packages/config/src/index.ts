@@ -37,7 +37,7 @@ const envSchema = z.object({
    * - broker_demo_mt5: primary Deriv MT5 DEMO forward path (EA/bridge, no public ports)
    * - paper_cfd: local development / tests / broker-unavailable fallback (still supported)
    * - broker_demo_cfd: Deriv cTrader Open API DEMO
-   * - broker_real_cfd / broker_real_mt5: MUST remain unimplemented
+   * - broker_real_cfd / broker_real_mt5: live MT5 requires REAL_MONEY_ENABLED+LIVE_MT5_ENABLED
    * - legacy_binary: quarantined options path
    */
   EXECUTION_MODE: z
@@ -50,8 +50,23 @@ const envSchema = z.object({
       "legacy_binary"
     ])
     .default("paper_cfd"),
-  /** Must remain false. Real-money path is architecture-only. */
+  /** Must remain false unless deliberately enabling live MT5 with LIVE_MT5_ENABLED. */
   REAL_MONEY_ENABLED: envBoolean.default(false),
+  /**
+   * Explicit live MT5 execution gate. Requires REAL_MONEY_ENABLED=true as well.
+   * Defaults OFF — never enable via client.
+   */
+  LIVE_MT5_ENABLED: envBoolean.default(false),
+  /** Hard switch historically used for LIVE_TRADING mode. Runtime arm/disarm (DB) replaces this for operator control. Retained for diagnostics; not required to arm. */
+  LIVE_TRADING_ENABLED: envBoolean.default(false),
+  /** Live symbol allowlist (internal symbols). Empty = fail-closed for live orders. */
+  LIVE_ALLOWED_SYMBOLS: z.string().default(""),
+  LIVE_MAX_CONCURRENT_POSITIONS: z.coerce.number().int().min(1).max(5).default(1),
+  LIVE_MAX_RISK_PER_TRADE_PERCENT: z.coerce.number().positive().default(0.25),
+  LIVE_MAX_DAILY_LOSS: z.coerce.number().positive().default(25),
+  LIVE_MAX_LOT_SIZE: z.coerce.number().positive().default(0.01),
+  /** Optional ultra-restrictive live smoke-test profile (still requires both live gates). */
+  LIVE_SMOKE_TEST_MODE: envBoolean.default(false),
   /** Quarantined legacy Deriv rise/fall options path. Defaults OFF. */
   LEGACY_BINARY_ENABLED: envBoolean.default(false),
   /** Initial balance for new paper CFD accounts (not Deriv options balance). */
