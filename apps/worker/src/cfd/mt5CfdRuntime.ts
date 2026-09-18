@@ -60,6 +60,7 @@ import {
 import { type EventPublisher } from "../lib/events.js";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
 import { recordPositionEvent } from "./paperPersistence.js";
+import { applyR10ProfitLocks } from "./r10ProfitLockReconcile.js";
 import {
   evidenceThresholdsFromConfig,
   loadLifecycle,
@@ -2121,25 +2122,35 @@ export class Mt5CfdRuntime {
         }
       }
       const brokerOpen = await this.adapter.getOpenPositions();
-    const localOpen = await this.deps.prisma.position.findMany({
-      where: {
-        userId: this.userId,
-        status: { in: ["OPEN", "PENDING", "OPEN_REQUESTED", "CLOSE_REQUESTED"] }
-      }
-    });
-    const plan = planBrokerPositionReconciliation({
-      brokerOpen: brokerOpen.map((p) => ({
-        brokerPositionId: p.brokerPositionId,
-        stopLoss: p.stopLoss,
-        takeProfit: p.takeProfit
-      })),
-      localOpen: localOpen.map((p) => ({
-        brokerPositionId: p.brokerPositionId,
-        stopLoss: Number(p.stopLoss),
-        takeProfit: p.takeProfit != null ? Number(p.takeProfit) : null,
-        status: p.status
-      }))
-    });
+      const localOpen = await this.deps.prisma.position.findMany({
+        where: {
+          userId: this.userId,
+          status: { in: ["OPEN", "PENDING", "OPEN_REQUESTED", "CLOSE_REQUESTED"] }
+        }
+      });
+
+      // R_10 progressive profit-lock before ordinary SL/TP sync can overwrite local state.
+      await applyR10ProfitLocks({
+        prisma: this.deps.prisma,
+        adapter: this.adapter,
+        logger: this.log,
+        brokerOpen,
+        localOpen
+      });
+
+      const plan = planBrokerPositionReconciliation({
+        brokerOpen: brokerOpen.map((p) => ({
+          brokerPositionId: p.brokerPositionId,
+          stopLoss: p.stopLoss,
+          takeProfit: p.takeProfit
+        })),
+        localOpen: localOpen.map((p) => ({
+          brokerPositionId: p.brokerPositionId,
+          stopLoss: Number(p.stopLoss),
+          takeProfit: p.takeProfit != null ? Number(p.takeProfit) : null,
+          status: p.status
+        }))
+      });
 
     for (const id of plan.updateSlTp) {
       const broker = brokerOpen.find((p) => p.brokerPositionId === id);

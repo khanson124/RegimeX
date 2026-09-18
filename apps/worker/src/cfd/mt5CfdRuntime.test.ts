@@ -72,4 +72,13 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(gateLogIdx).toBeGreaterThan(effectiveIdx);
     expect(reserveIdx).toBeGreaterThan(effectiveIdx);
   });
+
+  it("applies R_10 profit-lock in reconcileOpen before ordinary SL/TP sync", () => {
+    const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
+    expect(src).toContain("applyR10ProfitLocks");
+    const profitLockIdx = src.indexOf("await applyR10ProfitLocks({");
+    const planIdx = src.indexOf("planBrokerPositionReconciliation({");
+    expect(profitLockIdx).toBeGreaterThan(-1);
+    expect(planIdx).toBeGreaterThan(profitLockIdx);
+  });
 });
