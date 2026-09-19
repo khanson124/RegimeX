@@ -21,6 +21,7 @@ import {
   describeTradeMode,
   formatLiveConfirmationFacts,
   maskBrokerLogin,
+  resolveActiveAccountValidationChip,
   resolveLiveTradingSupported,
   type TradingEnvironment
 } from "../src/lib/tradingEnvironment";
@@ -116,7 +117,6 @@ export default function SettingsScreen() {
       Boolean(dashboard?.summary.execution?.liveTradingSupported)
   });
   const liveTradingArmed = Boolean(envStatus?.liveTradingArmed ?? liveStatus?.liveTradingArmed);
-  const accountIsDemo = mt5?.isDemo === true || mt5?.demo === true || mt5?.tradeMode === "DEMO";
   const tradeModeLabel = describeTradeMode(
     envStatus?.connectedAccountKind === "live"
       ? "REAL"
@@ -125,6 +125,16 @@ export default function SettingsScreen() {
         : mt5?.tradeMode,
     mt5?.isDemo ?? mt5?.demo
   );
+  const accountValidationChip = resolveActiveAccountValidationChip({
+    tradingEnvironment,
+    envConnected: envStatus?.connected,
+    connectedAccountKind: envStatus?.connectedAccountKind,
+    mt5Connected: mt5?.connected,
+    mt5IsDemo: mt5?.isDemo ?? mt5?.demo,
+    mt5TradeMode: mt5?.tradeMode,
+    liveAccountEnvironmentValid: liveStatus?.accountEnvironmentValid
+  });
+  const demoLoginMasked = maskBrokerLogin(mt5?.login);
   const cfg = (mt5?.config ?? {}) as Record<string, unknown>;
 
   function onSelectEnvironment(id: string): void {
@@ -299,19 +309,29 @@ export default function SettingsScreen() {
           {!liveTradingSupported ? (
             <StatusChip label="Live capability gated off" tone="warning" />
           ) : null}
-          {liveStatus && !liveStatus.accountEnvironmentValid ? (
-            <StatusChip label="Account validation failed" tone="down" />
+          {accountValidationChip.showFailure && accountValidationChip.label ? (
+            <StatusChip label={accountValidationChip.label} tone="down" />
           ) : null}
         </ChipRow>
         <View style={{ height: spacing.sm }} />
         <InfoRow label="MT5 trade mode" value={tradeModeLabel} />
         <InfoRow
           label="Broker / server"
-          value={liveStatus?.mt5.server ?? mt5?.server ?? mt5?.company ?? "—"}
+          value={
+            tradingEnvironment === "live"
+              ? (liveStatus?.mt5.server ?? mt5?.server ?? mt5?.company ?? "—")
+              : (mt5?.server ?? mt5?.company ?? liveStatus?.mt5.server ?? "—")
+          }
         />
         <InfoRow
           label="Account / login"
-          value={liveStatus?.mt5.loginMasked ?? maskBrokerLogin(mt5?.login)}
+          value={
+            tradingEnvironment === "live"
+              ? (liveStatus?.mt5.loginMasked ?? maskBrokerLogin(mt5?.login))
+              : demoLoginMasked !== "—"
+                ? demoLoginMasked
+                : (envStatus?.connectedLoginMasked ?? "—")
+          }
         />
         <InfoRow label="Engine execution env" value={executionMode} />
         <InfoRow

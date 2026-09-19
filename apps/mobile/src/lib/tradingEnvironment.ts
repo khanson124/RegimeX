@@ -30,6 +30,62 @@ export function describeTradeMode(tradeMode: string | null | undefined, isDemo: 
   return "—";
 }
 
+/**
+ * Account-validation badge for the active trading environment only.
+ *
+ * `liveAccountEnvironmentValid` is LIVE-arm preflight (often false while
+ * EXECUTION_MODE is still broker_demo_mt5). Never surface it when DEMO is active.
+ * DEMO validity comes from the trading-environment probe (or MT5 DEMO status).
+ */
+export function resolveActiveAccountValidationChip(input: {
+  tradingEnvironment: TradingEnvironment;
+  /** From /trading-environment/status — probe of the active env bridge. */
+  envConnected?: boolean | null;
+  connectedAccountKind?: string | null;
+  /** Fallback DEMO signals from /broker-demo/mt5/status when env status is thin. */
+  mt5Connected?: boolean | null;
+  mt5IsDemo?: boolean | null;
+  mt5TradeMode?: string | null;
+  /** From /live-trading/status — LIVE-only; ignore unless tradingEnvironment === "live". */
+  liveAccountEnvironmentValid?: boolean | null;
+}): { showFailure: boolean; label: string | null } {
+  if (input.tradingEnvironment === "live") {
+    if (input.liveAccountEnvironmentValid === false) {
+      return { showFailure: true, label: "Account validation failed" };
+    }
+    return { showFailure: false, label: null };
+  }
+
+  // DEMO active
+  const kind = input.connectedAccountKind;
+  if (kind === "live" || kind === "unknown") {
+    return { showFailure: true, label: "Account validation failed" };
+  }
+  if (kind === "demo") {
+    if (input.envConnected === false) {
+      return { showFailure: true, label: "Account validation failed" };
+    }
+    return { showFailure: false, label: null };
+  }
+
+  // No env kind yet — fall back to MT5 DEMO status fields
+  const tradeMode = String(input.mt5TradeMode ?? "").toUpperCase();
+  const looksDemo =
+    input.mt5IsDemo === true || tradeMode === "DEMO";
+  const looksNonDemo =
+    input.mt5IsDemo === false || tradeMode === "REAL" || tradeMode === "CONTEST";
+  if (looksNonDemo) {
+    return { showFailure: true, label: "Account validation failed" };
+  }
+  if (input.mt5Connected === false && looksDemo) {
+    return { showFailure: true, label: "Account validation failed" };
+  }
+  if (input.mt5Connected === false && input.mt5IsDemo == null && !tradeMode) {
+    return { showFailure: true, label: "Account validation failed" };
+  }
+  return { showFailure: false, label: null };
+}
+
 export function formatLiveConfirmationFacts(input: {
   server?: string | null;
   company?: string | null;

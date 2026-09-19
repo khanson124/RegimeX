@@ -10,7 +10,7 @@
     "ios": "expo start --ios --lan",
     "typecheck": "tsc --noEmit",
     "lint": "true",
-    "test": "true",
+    "test": "vitest run",
     "build": "true"
   },
   "dependencies": {
@@ -38,6 +38,7 @@
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "@types/react": "~19.1.17",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
   }
 }
