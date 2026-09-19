@@ -19,6 +19,7 @@ import {
   findConfirmedSwingPivots,
   latestSwingOfKind
 } from "./structureSwings.js";
+import { XAUUSD_SYMBOLS } from "./symbolScopes.js";
 import {
   atrPercentileAtEnd,
   classifyH4TrendBias,
@@ -169,7 +170,7 @@ export class XauTrendPullbackStrategy implements TradingStrategy {
     minimumHistory: XAU_TREND_PULLBACK_M15_MINIMUM_BARS,
     minimumRegimeConfidence: 0,
     minimumStrategyConfidence: 0.5,
-    allowedSymbols: [],
+    allowedSymbols: [...XAUUSD_SYMBOLS],
     allowedIntervals: ["15m"],
     cooldownCandles: 4
   };

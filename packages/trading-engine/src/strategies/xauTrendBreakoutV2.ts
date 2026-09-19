@@ -23,6 +23,7 @@ import {
   type H4TrendBias
 } from "./xauTrendPullbackHtf.js";
 import { sessionContextFromEpochMs } from "./xauMtfEntryQuality.js";
+import { XAUUSD_SYMBOLS } from "./symbolScopes.js";
 import {
   evaluateBreakoutRetest,
   evaluateConsolidationBreakout
@@ -145,7 +146,7 @@ export class XauTrendBreakoutV2Strategy implements TradingStrategy {
     minimumHistory: 10_000,
     minimumRegimeConfidence: 0,
     minimumStrategyConfidence: 0.5,
-    allowedSymbols: [],
+    allowedSymbols: [...XAUUSD_SYMBOLS],
     allowedIntervals: ["1m"],
     cooldownCandles: 30
   };

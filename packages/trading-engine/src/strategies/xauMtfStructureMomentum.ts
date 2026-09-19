@@ -23,6 +23,7 @@ import {
   maxHighSince,
   minLowSince
 } from "./structureSwings.js";
+import { XAUUSD_SYMBOLS } from "./symbolScopes.js";
 
 export const XAU_MTF_STRUCTURE_MOMENTUM_REASON_CODES = [
   "INSUFFICIENT_HISTORY",
@@ -120,7 +121,7 @@ export class XauMtfStructureMomentumStrategy implements TradingStrategy {
     minimumHistory: 900,
     minimumRegimeConfidence: 0,
     minimumStrategyConfidence: 0.5,
-    allowedSymbols: [],
+    allowedSymbols: [...XAUUSD_SYMBOLS],
     allowedIntervals: ["1m"],
     cooldownCandles: 15
   };

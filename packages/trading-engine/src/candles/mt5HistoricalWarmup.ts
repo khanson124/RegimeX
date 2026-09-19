@@ -34,10 +34,14 @@ export const MT5_WARMUP_FETCH_OVERLAP_BARS = 10;
 
 export const MT5_WARMUP_INTERVAL_UNSUPPORTED = "MT5_WARMUP_INTERVAL_UNSUPPORTED";
 export const MT5_WARMUP_MAPPING_REQUIRED = "MT5_WARMUP_MAPPING_REQUIRED";
+/** @deprecated Prefer MT5_WARMUP_ACCOUNT_MISMATCH — historical getBars is allowed on REAL accounts. */
 export const MT5_WARMUP_DEMO_REQUIRED = "MT5_WARMUP_DEMO_REQUIRED";
+export const MT5_WARMUP_ACCOUNT_MISMATCH = "MT5_WARMUP_ACCOUNT_MISMATCH";
 export const MT5_WARMUP_INSUFFICIENT_HISTORY = "MT5_WARMUP_INSUFFICIENT_HISTORY";
 export const MT5_WARMUP_FETCH_FAILED = "MT5_WARMUP_FETCH_FAILED";
 export const MT5_WARMUP_MERGE_REJECTED = "MT5_WARMUP_MERGE_REJECTED";
+
+export type Mt5WarmupAccountKind = "demo" | "live";
 
 export function candleIntervalToMt5BarTimeframe(
   interval: CandleInterval | string
@@ -125,6 +129,11 @@ export function planMt5HistoricalWarmup(input: {
   engineSymbol: string;
   mapping: BrokerSymbolMappingRecord | null | undefined;
   isDemoAccount: boolean;
+  /**
+   * demo backend → require DEMO account; live backend → require REAL account.
+   * Historical getBars is read-only and allowed on both when the account matches.
+   */
+  expectedAccountKind: Mt5WarmupAccountKind;
 }): Mt5HistoricalWarmupPlan {
   if (input.requirement.status === "NO_ELIGIBLE_STRATEGIES") {
     return {
@@ -154,10 +163,12 @@ export function planMt5HistoricalWarmup(input: {
     };
   }
 
-  if (!input.isDemoAccount) {
+  const accountMatches =
+    input.expectedAccountKind === "demo" ? input.isDemoAccount === true : input.isDemoAccount === false;
+  if (!accountMatches) {
     return {
       status: "BLOCKED",
-      reason: MT5_WARMUP_DEMO_REQUIRED,
+      reason: MT5_WARMUP_ACCOUNT_MISMATCH,
       requiredBars,
       persistedTrustedBars: input.persistedCandles.length,
       missing: Math.max(0, requiredBars - input.persistedCandles.length),
@@ -396,6 +407,7 @@ export async function runMt5HistoricalWarmup(input: {
   engineSymbol: string;
   mapping: BrokerSymbolMappingRecord | null | undefined;
   isDemoAccount: boolean;
+  expectedAccountKind: Mt5WarmupAccountKind;
 }): Promise<Mt5HistoricalWarmupResult> {
   const plan = planMt5HistoricalWarmup({
     requirement: input.requirement,
@@ -403,7 +415,8 @@ export async function runMt5HistoricalWarmup(input: {
     interval: input.interval,
     engineSymbol: input.engineSymbol,
     mapping: input.mapping,
-    isDemoAccount: input.isDemoAccount
+    isDemoAccount: input.isDemoAccount,
+    expectedAccountKind: input.expectedAccountKind
   });
 
   if (plan.status !== "FETCH") {

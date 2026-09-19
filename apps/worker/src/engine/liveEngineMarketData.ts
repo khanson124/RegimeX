@@ -2,7 +2,8 @@ import { type Candle, type CandleSource } from "@regimex/shared";
 import {
   filterRestorableMt5Candles,
   MT5_RESTORABLE_CANDLE_SOURCES,
-  type ExecutionBackend
+  type ExecutionBackend,
+  type Mt5CandleValidationDiagnostic
 } from "@regimex/trading-engine";
 
 function isMt5ExecutionBackend(executionBackend: ExecutionBackend): boolean {
@@ -40,7 +41,14 @@ export function mapRestoredSessionCandles(input: {
   symbol: string;
   interval: Candle["interval"] | string;
   rows: readonly PersistedCandleRow[];
-}): { candles: Candle[]; rejected: boolean; reason: string | null } {
+  pricePrecision?: number | null;
+  tickSize?: number | null;
+}): {
+  candles: Candle[];
+  rejected: boolean;
+  reason: string | null;
+  diagnostics: Mt5CandleValidationDiagnostic[];
+} {
   const mapped: Candle[] = input.rows.map((r) => ({
     symbol: input.symbol,
     interval: input.interval as Candle["interval"],
@@ -56,8 +64,11 @@ export function mapRestoredSessionCandles(input: {
   }));
 
   if (!isMt5ExecutionBackend(input.executionBackend)) {
-    return { candles: mapped, rejected: false, reason: null };
+    return { candles: mapped, rejected: false, reason: null, diagnostics: [] };
   }
 
-  return filterRestorableMt5Candles(mapped);
+  return filterRestorableMt5Candles(mapped, {
+    digits: input.pricePrecision,
+    tickSize: input.tickSize
+  });
 }

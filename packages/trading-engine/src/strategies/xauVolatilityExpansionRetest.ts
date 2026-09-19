@@ -22,6 +22,7 @@ import {
 } from "./volatilityExpansionState.js";
 import { classifyHtfStructure } from "./htfStructure.js";
 import { findConfirmedSwingPivots, latestSwingOfKind } from "./structureSwings.js";
+import { XAUUSD_SYMBOLS } from "./symbolScopes.js";
 
 export const XAU_VOL_EXPANSION_RETEST_REASON_CODES = [
   "INSUFFICIENT_HISTORY",
@@ -131,7 +132,7 @@ export class XauVolatilityExpansionRetestStrategy implements TradingStrategy {
     minimumHistory: 900,
     minimumRegimeConfidence: 0,
     minimumStrategyConfidence: 0.5,
-    allowedSymbols: [],
+    allowedSymbols: [...XAUUSD_SYMBOLS],
     allowedIntervals: ["1m"],
     cooldownCandles: 20
   };

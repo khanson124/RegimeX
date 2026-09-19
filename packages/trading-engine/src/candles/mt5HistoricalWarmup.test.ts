@@ -19,7 +19,7 @@ import {
   assembleMt5HistoricalWarmup,
   classifyMt5OpenTimeGap,
   computeMt5WarmupFetchCount,
-  MT5_WARMUP_DEMO_REQUIRED,
+  MT5_WARMUP_ACCOUNT_MISMATCH,
   MT5_WARMUP_INSUFFICIENT_HISTORY,
   mt5BarToHistoryCandle,
   planMt5HistoricalWarmup,
@@ -190,7 +190,8 @@ describe("planMt5HistoricalWarmup gates", () => {
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: null,
-      isDemoAccount: true
+      isDemoAccount: true,
+      expectedAccountKind: "demo"
     });
     expect(missing.status).toBe("BLOCKED");
     expect(missing.reason).toBe(BROKER_SYMBOL_MAPPING_MISSING);
@@ -201,23 +202,51 @@ describe("planMt5HistoricalWarmup gates", () => {
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: { ...verifiedMapping, verified: false },
-      isDemoAccount: true
+      isDemoAccount: true,
+      expectedAccountKind: "demo"
     });
     expect(unverified.status).toBe("BLOCKED");
     expect(unverified.reason).toBe(BROKER_SYMBOL_MAPPING_UNVERIFIED);
   });
 
-  it("demo environment required", () => {
+  it("account kind must match backend (demo vs live)", () => {
+    const demoMismatch = planMt5HistoricalWarmup({
+      requirement: XAU_REQ,
+      persistedCandles: [],
+      interval: "15m",
+      engineSymbol: "XAUUSD",
+      mapping: verifiedMapping,
+      isDemoAccount: false,
+      expectedAccountKind: "demo"
+    });
+    expect(demoMismatch.status).toBe("BLOCKED");
+    expect(demoMismatch.reason).toBe(MT5_WARMUP_ACCOUNT_MISMATCH);
+
+    const liveMismatch = planMt5HistoricalWarmup({
+      requirement: XAU_REQ,
+      persistedCandles: [],
+      interval: "15m",
+      engineSymbol: "XAUUSD",
+      mapping: verifiedMapping,
+      isDemoAccount: true,
+      expectedAccountKind: "live"
+    });
+    expect(liveMismatch.status).toBe("BLOCKED");
+    expect(liveMismatch.reason).toBe(MT5_WARMUP_ACCOUNT_MISMATCH);
+  });
+
+  it("REAL account historical warm-up is allowed when expectedAccountKind is live", () => {
     const plan = planMt5HistoricalWarmup({
       requirement: XAU_REQ,
       persistedCandles: [],
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: verifiedMapping,
-      isDemoAccount: false
+      isDemoAccount: false,
+      expectedAccountKind: "live"
     });
-    expect(plan.status).toBe("BLOCKED");
-    expect(plan.reason).toBe(MT5_WARMUP_DEMO_REQUIRED);
+    expect(plan.status).toBe("FETCH");
+    expect(plan.fetchCount).toBe(130);
   });
 
   it("120 MT5_HISTORY bars satisfy XAU M15 warm-up without fetch", () => {
@@ -228,7 +257,8 @@ describe("planMt5HistoricalWarmup gates", () => {
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: verifiedMapping,
-      isDemoAccount: true
+      isDemoAccount: true,
+      expectedAccountKind: "demo"
     });
     expect(plan.status).toBe("SKIP");
     expect(isMt5MarketDataReady(bars, XAU_REQ).ready).toBe(true);
@@ -245,7 +275,8 @@ describe("assembleMt5HistoricalWarmup", () => {
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: verifiedMapping,
-      isDemoAccount: true
+      isDemoAccount: true,
+      expectedAccountKind: "demo"
     });
     expect(plan.status).toBe("FETCH");
     expect(plan.fetchCount).toBe(130);
@@ -275,7 +306,8 @@ describe("assembleMt5HistoricalWarmup", () => {
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: verifiedMapping,
-      isDemoAccount: true
+      isDemoAccount: true,
+      expectedAccountKind: "demo"
     });
     const result = assembleMt5HistoricalWarmup({
       plan,
@@ -296,7 +328,8 @@ describe("assembleMt5HistoricalWarmup", () => {
       interval: "15m",
       engineSymbol: "XAUUSD",
       mapping: verifiedMapping,
-      isDemoAccount: true
+      isDemoAccount: true,
+      expectedAccountKind: "demo"
     });
     const result = assembleMt5HistoricalWarmup({
       plan,
@@ -325,7 +358,7 @@ describe("session gaps + continuity", () => {
     ).toBe("SESSION_OR_WEEKEND_GAP");
   });
 
-  it("session gap with continuous prices restores; corrupt close jump rejected", () => {
+  it("session gap with continuous prices restores; corrupt close jump is dropped", () => {
     const fri = hist(0, undefined, Date.UTC(2026, 0, 9, 20, 0, 0));
     const monClose = 2000.5;
     const mon = hist(0, {
@@ -347,7 +380,10 @@ describe("session gaps + continuity", () => {
         low: 4998
       }
     ]);
-    expect(bad.rejected).toBe(true);
+    expect(bad.rejected).toBe(false);
+    expect(bad.candles).toHaveLength(1);
+    expect(bad.candles[0]!.openTime).toBe(fri.openTime);
+    expect(bad.diagnostics.some((d) => d.reason.includes("CLOSE_JUMP"))).toBe(true);
   });
 });
 

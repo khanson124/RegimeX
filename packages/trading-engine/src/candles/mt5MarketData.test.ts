@@ -8,6 +8,7 @@ import {
   shouldIngestMt5ClosedCandle,
   validateIncomingMt5Candle
 } from "./mt5MarketData.js";
+import { validateCandleOhlc } from "./candleIntegrity.js";
 
 const demoConfig = {
   EXECUTION_MODE: "broker_demo_mt5",
@@ -135,13 +136,15 @@ describe("filterRestorableMt5Candles", () => {
     expect(result.rejected).toBe(true);
   });
 
-  it("G: rejects contaminated MT5 rows with cross-domain jumps", () => {
+  it("G: drops contaminated MT5 rows with cross-domain jumps but keeps valid prefix", () => {
     const result = filterRestorableMt5Candles([
       mt5Candle(4783, "MT5_LIVE_TICKS", 0),
       mt5Candle(9790, "MT5_LIVE_TICKS", 60_000)
     ]);
-    expect(result.candles).toEqual([]);
-    expect(result.rejected).toBe(true);
+    expect(result.rejected).toBe(false);
+    expect(result.candles).toHaveLength(1);
+    expect(result.candles[0]!.close).toBe(4783);
+    expect(result.diagnostics.some((d) => d.reason.includes("CLOSE_JUMP"))).toBe(true);
   });
 
   it("accepts consistent MT5-only history", () => {
@@ -152,6 +155,41 @@ describe("filterRestorableMt5Candles", () => {
     ]);
     expect(result.rejected).toBe(false);
     expect(result.candles).toHaveLength(3);
+  });
+
+  it("normalizes sub-tick CLOSE_OUTSIDE_RANGE and keeps the candle", () => {
+    const noisy = {
+      ...mt5Candle(4783.12, "MT5_HISTORY", 0),
+      open: 4783.034,
+      high: 4783.12,
+      low: 4782.653,
+      close: 4783.1200000004
+    };
+    expect(validateCandleOhlc(noisy).code).toBe("CLOSE_OUTSIDE_RANGE");
+    const result = filterRestorableMt5Candles([noisy], { digits: 3, tickSize: 0.001 });
+    expect(result.rejected).toBe(false);
+    expect(result.candles).toHaveLength(1);
+    expect(result.diagnostics).toHaveLength(0);
+  });
+
+  it("drops truly invalid OHLC rows with diagnostics instead of wiping the buffer", () => {
+    const good = mt5Candle(4783, "MT5_HISTORY", 0);
+    const bad = {
+      ...mt5Candle(4784, "MT5_HISTORY", 60_000),
+      open: 4784,
+      high: 4784.1,
+      low: 4783.9,
+      close: 4790
+    };
+    const next = mt5Candle(4783.5, "MT5_HISTORY", 120_000);
+    const result = filterRestorableMt5Candles([good, bad, next], { digits: 3, tickSize: 0.001 });
+    expect(result.rejected).toBe(false);
+    expect(result.candles.map((c) => c.openTime)).toEqual([good.openTime, next.openTime]);
+    expect(result.diagnostics.some((d) => d.reason.includes("CLOSE_OUTSIDE_RANGE"))).toBe(true);
+    expect(result.diagnostics[0]).toMatchObject({
+      openTime: bad.openTime,
+      source: "MT5_HISTORY"
+    });
   });
 
   it("accepts MT5_HISTORY restore provenance", () => {

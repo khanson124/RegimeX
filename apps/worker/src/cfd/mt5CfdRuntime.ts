@@ -2146,8 +2146,9 @@ export class Mt5CfdRuntime {
   }
 
   /**
-   * Read-only historical OHLC for broker_demo_mt5 warm-up.
-   * Requires verified BrokerSymbolMapping + DEMO account. Never tags bars as MT5_LIVE_TICKS.
+   * Read-only historical OHLC for MT5 warm-up (demo or real).
+   * Requires verified BrokerSymbolMapping + account matching the execution backend.
+   * Never tags bars as MT5_LIVE_TICKS. Does not require liveTradingArmed.
    */
   async getHistoricalBarsForWarmup(input: {
     engineSymbol: string;
@@ -2157,7 +2158,7 @@ export class Mt5CfdRuntime {
     | {
         ok: true;
         brokerSymbol: string;
-        isDemo: true;
+        isDemo: boolean;
         bars: Awaited<ReturnType<DerivMT5BrokerAdapter["getBars"]>>["bars"];
         requestedCount: number;
       }
@@ -2169,8 +2170,13 @@ export class Mt5CfdRuntime {
     if (!this.adapter) this.adapter = await getOrConnectMt5Adapter(this.deps.config);
     await this.adapter.getAccount();
     const status = this.adapter.getStatus();
-    if (!status.isDemo) {
-      return { ok: false, reason: "MT5_WARMUP_DEMO_REQUIRED" };
+    const liveBackend = this.deps.config.EXECUTION_MODE === "broker_real_mt5";
+    if (liveBackend) {
+      if (status.isDemo !== false || status.tradeMode !== "REAL") {
+        return { ok: false, reason: "MT5_WARMUP_ACCOUNT_MISMATCH" };
+      }
+    } else if (status.isDemo !== true) {
+      return { ok: false, reason: "MT5_WARMUP_ACCOUNT_MISMATCH" };
     }
     const mapping = await this.loadMapping(input.engineSymbol);
     const resolved = resolveBrokerSymbolMapping(input.engineSymbol, mapping);
@@ -2189,7 +2195,7 @@ export class Mt5CfdRuntime {
     return {
       ok: true,
       brokerSymbol: resolved.brokerSymbol,
-      isDemo: true,
+      isDemo: status.isDemo === true,
       bars: result.bars,
       requestedCount: input.count
     };

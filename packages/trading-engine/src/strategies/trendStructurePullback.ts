@@ -8,6 +8,7 @@ import {
   minLowSince,
   priorSwingBefore
 } from "./structureSwings.js";
+import { VOLATILITY_INDEX_SYMBOLS } from "./symbolScopes.js";
 
 /**
  * Entry-quality reason codes for HOLD/telemetry.
@@ -127,7 +128,7 @@ export class TrendStructurePullbackStrategy implements TradingStrategy {
     minimumHistory: this.minimumHistory,
     minimumRegimeConfidence: 0.5,
     minimumStrategyConfidence: 0.55,
-    allowedSymbols: [],
+    allowedSymbols: [...VOLATILITY_INDEX_SYMBOLS],
     allowedIntervals: ["1m", "5m"],
     cooldownCandles: TREND_STRUCTURE_PULLBACK_DEFAULTS.cooldownCandles
   };

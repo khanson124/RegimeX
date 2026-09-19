@@ -5,6 +5,7 @@ export * from "./features/featureExtractor.js";
 export * from "./regime/classifier.js";
 
 // Strategies
+export * from "./strategies/symbolScopes.js";
 export * from "./strategies/types.js";
 export * from "./strategies/breakoutMomentum.js";
 export * from "./strategies/breakoutMomentumCfd.js";

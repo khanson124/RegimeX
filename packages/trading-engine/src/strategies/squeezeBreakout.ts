@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type MarketRegime, type StrategyDecision, type StrategyEligibility } from "@regimex/shared";
 import { holdDecision, type StrategyContext, type TradingStrategy } from "./types.js";
+import { VOLATILITY_INDEX_SYMBOLS } from "./symbolScopes.js";
 
 const parametersSchema = z.object({
   /** Bollinger width must have been below this within the squeeze window. */
@@ -42,7 +43,7 @@ export class SqueezeBreakoutStrategy implements TradingStrategy {
     minimumHistory: this.minimumHistory,
     minimumRegimeConfidence: 0.5,
     minimumStrategyConfidence: 0.6,
-    allowedSymbols: [],
+    allowedSymbols: [...VOLATILITY_INDEX_SYMBOLS],
     allowedIntervals: ["1m", "5m"],
     cooldownCandles: SQUEEZE_BREAKOUT_DEFAULTS.cooldownCandles
   };

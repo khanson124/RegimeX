@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type Candle } from "@regimex/shared";
 import {
+  normalizeCandleOhlc,
   validateCandleOhlc,
   validateCloseDiscontinuity,
   validateCandleSeriesContinuity
@@ -35,6 +36,30 @@ describe("validateCandleOhlc", () => {
   it("rejects non-finite and inverted OHLC", () => {
     expect(validateCandleOhlc({ open: NaN, high: 1, low: 1, close: 1 }).code).toBe("NON_FINITE");
     expect(validateCandleOhlc({ open: 1, high: 0.5, low: 1, close: 1 }).code).toBe("HIGH_LOW_INVERTED");
+  });
+
+  it("flags CLOSE_OUTSIDE_RANGE when close is above high", () => {
+    expect(validateCandleOhlc({ open: 100, high: 101, low: 99, close: 101.0001 }).code).toBe(
+      "CLOSE_OUTSIDE_RANGE"
+    );
+  });
+});
+
+describe("normalizeCandleOhlc", () => {
+  it("repairs sub-tick CLOSE_OUTSIDE_RANGE noise using price precision", () => {
+    // R_10 digits=3: close slightly above high from Decimal→Number conversion
+    const raw = { open: 4783.034, high: 4783.12, low: 4782.653, close: 4783.1200000004 };
+    expect(validateCandleOhlc(raw).code).toBe("CLOSE_OUTSIDE_RANGE");
+    const normalized = normalizeCandleOhlc(raw, { digits: 3, tickSize: 0.001 });
+    expect(validateCandleOhlc(normalized).valid).toBe(true);
+    expect(normalized.repaired).toBe(true);
+    expect(normalized.close).toBeLessThanOrEqual(normalized.high);
+  });
+
+  it("does not repair truly invalid OHLC beyond one tick", () => {
+    const raw = { open: 100, high: 101, low: 99, close: 105 };
+    const normalized = normalizeCandleOhlc(raw, { digits: 2, tickSize: 0.01 });
+    expect(validateCandleOhlc(normalized).code).toBe("CLOSE_OUTSIDE_RANGE");
   });
 });
 

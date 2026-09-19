@@ -8,6 +8,7 @@ import {
   minLowSince,
   priorSwingBefore
 } from "./structureSwings.js";
+import { VOLATILITY_INDEX_SYMBOLS } from "./symbolScopes.js";
 
 /**
  * Iteration-2 reason codes. Soft codes may appear alongside accepts;
@@ -173,7 +174,7 @@ export class TrendStructurePullbackV2Strategy implements TradingStrategy {
     minimumHistory: this.minimumHistory,
     minimumRegimeConfidence: 0.5,
     minimumStrategyConfidence: 0.5,
-    allowedSymbols: [],
+    allowedSymbols: [...VOLATILITY_INDEX_SYMBOLS],
     allowedIntervals: ["1m", "5m"],
     cooldownCandles: TREND_STRUCTURE_PULLBACK_V2_DEFAULTS.cooldownCandles
   };

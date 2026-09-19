@@ -111,8 +111,14 @@ interface LoadedStrategy {
   parameters: Record<string, number | boolean | string>;
 }
 
-/** Must hold XAU 15m warm-up (≥1000) with headroom for ongoing live bars. */
-const CANDLE_BUFFER = 1500;
+/** Base retention; grown when session-scoped warm-up needs more bars. */
+const CANDLE_BUFFER_BASE = 1500;
+const CANDLE_BUFFER_HEADROOM = 100;
+
+export function resolveCandleBufferCapacity(requiredBars: number): number {
+  const need = Number.isFinite(requiredBars) ? Math.max(0, Math.floor(requiredBars)) : 0;
+  return Math.max(CANDLE_BUFFER_BASE, need + CANDLE_BUFFER_HEADROOM);
+}
 const STALE_DATA_MS = 45_000;
 
 /**
@@ -170,6 +176,8 @@ export class LiveEngineSession {
   /** Context HTF buffers (e.g. 4h) — never mixed into the execution candle ring. */
   private mt5ContextCandles = new Map<string, Candle[]>();
   private mt5MtfSpec: MultiTimeframeWarmupSpec | null = null;
+  /** Retention for execution candles; derived from session warm-up requirement. */
+  private candleBufferCapacity = CANDLE_BUFFER_BASE;
 
   constructor(
     readonly userId: string,
@@ -374,25 +382,6 @@ export class LiveEngineSession {
     const symbolRow = await prisma.symbol.findUnique({ where: { derivSymbol: this.symbol } });
     if (!symbolRow) throw new Error(`Symbol ${this.symbol} is not in the catalogue`);
 
-    const restorableSources = resolvePersistedCandleSources(this.executionBackend);
-    const history = await prisma.candle.findMany({
-      where: {
-        symbolId: symbolRow.id,
-        interval: this.interval,
-        isComplete: true,
-        ...(restorableSources ? { source: { in: restorableSources } } : {})
-      },
-      orderBy: { openTime: "desc" },
-      take: CANDLE_BUFFER
-    });
-    history.reverse();
-    const restored = mapRestoredSessionCandles({
-      executionBackend: this.executionBackend,
-      symbol: this.symbol,
-      interval: this.interval,
-      rows: history
-    });
-    this.candles = restored.candles;
     if (isMt5Backend) {
       // Warm-up eligibility is scoped to strategies that can run on THIS
       // session's symbol + interval — not the global MT5 allowlist alone.
@@ -410,6 +399,11 @@ export class LiveEngineSession {
         selectionMode: this.engineSelectionMode,
         fixedStrategyId: this.fixedStrategyId
       });
+      const requiredBars =
+        this.mt5WarmupRequirement.status === "REQUIRES_BARS"
+          ? this.mt5WarmupRequirement.requiredBars
+          : 0;
+      this.candleBufferCapacity = resolveCandleBufferCapacity(requiredBars);
 
       const eligibleIds =
         this.mt5WarmupRequirement.status === "REQUIRES_BARS"
@@ -421,6 +415,33 @@ export class LiveEngineSession {
         symbol: this.symbol,
         interval: this.interval
       });
+    }
+
+    const restorableSources = resolvePersistedCandleSources(this.executionBackend);
+    const history = await prisma.candle.findMany({
+      where: {
+        symbolId: symbolRow.id,
+        interval: this.interval,
+        isComplete: true,
+        ...(restorableSources ? { source: { in: restorableSources } } : {})
+      },
+      orderBy: { openTime: "desc" },
+      take: this.candleBufferCapacity
+    });
+    history.reverse();
+    const restored = mapRestoredSessionCandles({
+      executionBackend: this.executionBackend,
+      symbol: this.symbol,
+      interval: this.interval,
+      rows: history,
+      pricePrecision: symbolRow.pricePrecision
+    });
+    this.candles = restored.candles;
+    if (isMt5Backend) {
+      const sessionScopedStrategies = filterStrategiesForSessionWarmup(
+        this.strategies.map((s) => s.strategy),
+        { symbol: this.symbol, interval: this.interval }
+      );
 
       // Restore context intervals (e.g. 4h) separately — never into M15 buffer.
       this.mt5ContextCandles.clear();
@@ -442,7 +463,8 @@ export class LiveEngineSession {
             executionBackend: this.executionBackend,
             symbol: this.symbol,
             interval: req.interval as CandleInterval,
-            rows: ctxRows
+            rows: ctxRows,
+            pricePrecision: symbolRow.pricePrecision
           });
           if (!ctxRestored.rejected) {
             this.mt5ContextCandles.set(req.interval, ctxRestored.candles);
@@ -450,6 +472,16 @@ export class LiveEngineSession {
             this.log.warn(
               { interval: req.interval, reason: ctxRestored.reason },
               "Rejected incompatible MT5 context candles"
+            );
+          }
+          if (ctxRestored.diagnostics.length > 0) {
+            this.log.warn(
+              {
+                interval: req.interval,
+                dropped: ctxRestored.diagnostics.length,
+                samples: ctxRestored.diagnostics.slice(0, 5)
+              },
+              "MT5 context candle validation diagnostics"
             );
           }
         }
@@ -462,6 +494,7 @@ export class LiveEngineSession {
           persistedMt5History: sourceMixRestored.history,
           persistedMt5LiveTicks: sourceMixRestored.liveTicks,
           restoredBars: this.candles.length,
+          candleBufferCapacity: this.candleBufferCapacity,
           sessionSymbol: this.symbol,
           sessionInterval: this.interval,
           sessionScopedStrategyIds: sessionScopedStrategies.map((s) => s.id),
@@ -471,7 +504,9 @@ export class LiveEngineSession {
             bars: bars.length
           })),
           rejected: restored.rejected,
-          reason: restored.reason
+          reason: restored.reason,
+          droppedCandles: restored.diagnostics.length,
+          diagnostics: restored.diagnostics.slice(0, 10)
         },
         "MT5_WARMUP_RESTORE"
       );
@@ -479,6 +514,15 @@ export class LiveEngineSession {
         this.log.warn(
           { reason: restored.reason, persistedRows: history.length, executionBackend: this.executionBackend },
           "Rejected incompatible persisted candles for MT5 backend — starting MT5 warm-up from empty buffer"
+        );
+      } else if (restored.diagnostics.length > 0) {
+        this.log.warn(
+          {
+            kept: this.candles.length,
+            dropped: restored.diagnostics.length,
+            samples: restored.diagnostics.slice(0, 5)
+          },
+          "Dropped invalid persisted MT5 candles; retained valid history"
         );
       }
       if (this.mt5WarmupRequirement.status === "NO_ELIGIBLE_STRATEGIES") {
@@ -663,9 +707,17 @@ export class LiveEngineSession {
       } satisfies MultiTimeframeWarmupSpec);
 
     const { mapping, isDemo } = await this.mt5Cfd.loadVerifiedMappingForWarmup(this.symbol);
-    if (!isDemo) {
+    const expectedAccountKind =
+      this.executionBackend === "broker_real_mt5" ? ("live" as const) : ("demo" as const);
+    const accountMatches = expectedAccountKind === "demo" ? isDemo === true : isDemo === false;
+    if (!accountMatches) {
       this.log.warn(
-        { event: "MT5_MTF_WARMUP_BLOCKED", reason: "MT5_WARMUP_DEMO_REQUIRED" },
+        {
+          event: "MT5_MTF_WARMUP_BLOCKED",
+          reason: "MT5_WARMUP_ACCOUNT_MISMATCH",
+          expectedAccountKind,
+          isDemo
+        },
         "MT5_MTF_WARMUP_BLOCKED"
       );
       return;
@@ -708,7 +760,8 @@ export class LiveEngineSession {
         interval: req.interval,
         engineSymbol: this.symbol,
         mapping,
-        isDemoAccount: isDemo
+        isDemoAccount: isDemo,
+        expectedAccountKind
       });
 
       const logKey =
@@ -799,7 +852,7 @@ export class LiveEngineSession {
       if (assembled.status !== "READY") {
         // Best-effort keep partial buffers for continued live accumulation
         if (req.role === "execution" && assembled.candles.length > this.candles.length) {
-          this.candles = assembled.candles.slice(-CANDLE_BUFFER);
+          this.candles = assembled.candles.slice(-this.candleBufferCapacity);
         } else if (req.role === "context" && assembled.candles.length > 0) {
           this.mt5ContextCandles.set(req.interval, assembled.candles);
         }
@@ -819,7 +872,7 @@ export class LiveEngineSession {
       await this.persistMt5HistoryCandles(symbolId, assembled.historyCandlesToPersist);
 
       if (req.role === "execution") {
-        this.candles = assembled.candles.slice(-CANDLE_BUFFER);
+        this.candles = assembled.candles.slice(-this.candleBufferCapacity);
       } else {
         this.mt5ContextCandles.set(req.interval, assembled.candles);
       }
@@ -975,7 +1028,7 @@ export class LiveEngineSession {
         this.candles[existingIdx] = candle;
       } else {
         this.candles.push(candle);
-        if (this.candles.length > CANDLE_BUFFER) this.candles.shift();
+        if (this.candles.length > this.candleBufferCapacity) this.candles.shift();
         this.candleIndex++;
       }
 

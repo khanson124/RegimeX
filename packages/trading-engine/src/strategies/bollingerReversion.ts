@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type MarketRegime, type StrategyDecision, type StrategyEligibility } from "@regimex/shared";
 import { holdDecision, type StrategyContext, type TradingStrategy } from "./types.js";
+import { VOLATILITY_INDEX_SYMBOLS } from "./symbolScopes.js";
 
 const parametersSchema = z.object({
   adxMaximum: z.number().min(10).max(40).default(22),
@@ -43,7 +44,7 @@ export class BollingerReversionStrategy implements TradingStrategy {
     minimumHistory: this.minimumHistory,
     minimumRegimeConfidence: 0.5,
     minimumStrategyConfidence: 0.55,
-    allowedSymbols: [],
+    allowedSymbols: [...VOLATILITY_INDEX_SYMBOLS],
     allowedIntervals: ["1m", "5m"],
     cooldownCandles: BOLLINGER_REVERSION_DEFAULTS.cooldownCandles
   };

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type MarketRegime, type StrategyDecision, type StrategyEligibility } from "@regimex/shared";
 import { holdDecision, type StrategyContext, type TradingStrategy } from "./types.js";
+import { VOLATILITY_INDEX_SYMBOLS } from "./symbolScopes.js";
 
 const parametersSchema = z.object({
   /** Which EMA the pullback targets: "fast" or "slow". */
@@ -48,7 +49,7 @@ export class EmaPullbackStrategy implements TradingStrategy {
     minimumHistory: this.minimumHistory,
     minimumRegimeConfidence: 0.5,
     minimumStrategyConfidence: 0.55,
-    allowedSymbols: [],
+    allowedSymbols: [...VOLATILITY_INDEX_SYMBOLS],
     allowedIntervals: ["1m", "5m"],
     cooldownCandles: EMA_PULLBACK_DEFAULTS.cooldownCandles
   };

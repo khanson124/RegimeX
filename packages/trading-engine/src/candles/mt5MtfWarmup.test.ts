@@ -21,7 +21,14 @@ import {
   XAU_TREND_PULLBACK_M15_MINIMUM_BARS
 } from "./mt5MtfWarmup.js";
 import { candleIntervalToMt5BarTimeframe } from "./mt5HistoricalWarmup.js";
+import { BreakoutMomentumStrategy } from "../strategies/breakoutMomentum.js";
+import { EmaPullbackStrategy } from "../strategies/emaPullback.js";
+import { BollingerReversionStrategy } from "../strategies/bollingerReversion.js";
 import { SqueezeBreakoutStrategy } from "../strategies/squeezeBreakout.js";
+import { TrendStructurePullbackStrategy } from "../strategies/trendStructurePullback.js";
+import { XauTrendBreakoutV2Strategy } from "../strategies/xauTrendBreakoutV2.js";
+import { XauMtfStructureMomentumStrategy } from "../strategies/xauMtfStructureMomentum.js";
+import { XauVolatilityExpansionRetestStrategy } from "../strategies/xauVolatilityExpansionRetest.js";
 import { isMt5MarketDataReady, resolveMt5WarmupRequirement } from "./mt5MarketData.js";
 
 function m15(
@@ -451,6 +458,90 @@ describe("session-scoped MTF warm-up", () => {
       interval: "15m"
     });
     expect(xau?.requirements.map((r) => r.interval).sort()).toEqual(["15m", "4h"]);
+  });
+
+  it("R_10 1m excludes all XAU strategies from warm-up (including 1m XAU research ids)", () => {
+    const strategies = [
+      new BreakoutMomentumStrategy(),
+      new EmaPullbackStrategy(),
+      new BollingerReversionStrategy(),
+      new SqueezeBreakoutStrategy(),
+      new TrendStructurePullbackStrategy(),
+      new XauTrendBreakoutV2Strategy(),
+      new XauMtfStructureMomentumStrategy(),
+      new XauVolatilityExpansionRetestStrategy(),
+      new XauTrendPullbackStrategy()
+    ];
+    const sessionScoped = filterStrategiesForSessionWarmup(strategies, {
+      symbol: "R_10",
+      interval: "1m"
+    });
+    const ids = sessionScoped.map((s) => s.id);
+    expect(ids).not.toContain("xau-trend-breakout-v2");
+    expect(ids).not.toContain("xau-mtf-structure-momentum-v1");
+    expect(ids).not.toContain("xau-volatility-expansion-retest-v1");
+    expect(ids).not.toContain("xau-trend-pullback-v1");
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "breakout-momentum-v1",
+        "ema-pullback-v1",
+        "bollinger-reversion-v1",
+        "squeeze-breakout-v1",
+        "trend-structure-pullback-v1"
+      ])
+    );
+
+    const allowAll = {
+      EXECUTION_MODE: "broker_demo_mt5",
+      REAL_MONEY_ENABLED: false,
+      MT5_ENGINE_ENABLED: true,
+      MT5_ENGINE_STRATEGY_ALLOWLIST: ids.join(",")
+    };
+    const requirement = resolveMt5WarmupRequirement({
+      strategies: sessionScoped.map((s) => ({
+        strategyId: s.id,
+        minimumHistory: s.minimumHistory
+      })),
+      executionBackend: "broker_demo_mt5",
+      config: allowAll,
+      selectionMode: "AUTO",
+      fixedStrategyId: null
+    });
+    expect(requirement).toMatchObject({
+      status: "REQUIRES_BARS",
+      requiredBars: 80
+    });
+    if (requirement.status === "REQUIRES_BARS") {
+      expect(requirement.eligibleStrategyIds).not.toContain("xau-trend-breakout-v2");
+      expect(Math.max(...sessionScoped.map((s) => s.minimumHistory))).toBe(80);
+    }
+
+    const spec = resolveSessionMtfWarmupSpec({
+      strategies: sessionScoped,
+      eligibleStrategyIds:
+        requirement.status === "REQUIRES_BARS" ? requirement.eligibleStrategyIds : [],
+      symbol: "R_10",
+      interval: "1m"
+    });
+    expect(spec?.requirements).toEqual([
+      { interval: "1m", minimumBars: 80, role: "execution" }
+    ]);
+  });
+
+  it("XAUUSD 15m keeps only compatible XAU strategies", () => {
+    const strategies = [
+      new SqueezeBreakoutStrategy(),
+      new XauTrendBreakoutV2Strategy(),
+      new XauTrendPullbackStrategy(),
+      new XauMtfStructureMomentumStrategy()
+    ];
+    const sessionScoped = filterStrategiesForSessionWarmup(strategies, {
+      symbol: "XAUUSD",
+      interval: "15m"
+    });
+    expect(sessionScoped.map((s) => s.id)).toEqual(["xau-trend-pullback-v1"]);
+    expect(sessionScoped.map((s) => s.id)).not.toContain("squeeze-breakout-v1");
+    expect(sessionScoped.map((s) => s.id)).not.toContain("xau-trend-breakout-v2");
   });
 });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type MarketRegime, type StrategyDecision, type StrategyEligibility } from "@regimex/shared";
 import { holdDecision, type StrategyContext, type TradingStrategy } from "./types.js";
+import { VOLATILITY_INDEX_SYMBOLS } from "./symbolScopes.js";
 
 const parametersSchema = z.object({
   donchianLookback: z.number().int().min(5).max(100).default(20),
@@ -42,7 +43,7 @@ export class BreakoutMomentumStrategy implements TradingStrategy {
     minimumHistory: this.minimumHistory,
     minimumRegimeConfidence: 0.55,
     minimumStrategyConfidence: 0.6,
-    allowedSymbols: [],
+    allowedSymbols: [...VOLATILITY_INDEX_SYMBOLS],
     allowedIntervals: ["1m", "5m"],
     cooldownCandles: BREAKOUT_MOMENTUM_DEFAULTS.cooldownCandles
   };

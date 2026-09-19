@@ -6,9 +6,11 @@ import {
 } from "../broker/mt5/engineRollout.js";
 import { type ExecutionBackend } from "../execution/executionMode.js";
 import {
+  normalizeCandleOhlc,
+  type CandlePricePrecision,
   validateCandleOhlc,
-  validateCandleSeriesContinuity,
-  validateCloseDiscontinuity
+  validateCloseDiscontinuity,
+  validateCandleSeriesContinuity
 } from "./candleIntegrity.js";
 
 /**
@@ -48,8 +50,9 @@ export function isMt5LiveTickSource(source: CandleSource): boolean {
 }
 
 /**
- * Derives broker_demo_mt5 warm-up from rollout-eligible strategies only.
+ * Derives MT5 warm-up from rollout-eligible strategies only.
  * Reuses MT5 strategy allowlist + fixed/SINGLE gates from engineRollout.
+ * Callers must pass strategies already scoped to the session symbol/interval.
  */
 export function resolveMt5WarmupRequirement(input: {
   strategies: readonly Mt5WarmupStrategyInput[];
@@ -58,7 +61,9 @@ export function resolveMt5WarmupRequirement(input: {
   selectionMode: "AUTO" | "SINGLE" | "ENSEMBLE";
   fixedStrategyId: string | null;
 }): Mt5WarmupRequirement {
-  if (input.executionBackend !== "broker_demo_mt5") {
+  const isMt5Backend =
+    input.executionBackend === "broker_demo_mt5" || input.executionBackend === "broker_real_mt5";
+  if (!isMt5Backend) {
     if (input.strategies.length === 0) {
       return { status: "NO_ELIGIBLE_STRATEGIES", reason: NO_MT5_ELIGIBLE_STRATEGIES };
     }
@@ -91,7 +96,7 @@ export function resolveMt5WarmupRequirement(input: {
   const eligible = applyMt5StrategySelectionAllowlist(
     input.strategies,
     (s) => s.strategyId,
-    "broker_demo_mt5",
+    input.executionBackend,
     input.config
   );
   if (eligible.length === 0) {
@@ -251,49 +256,130 @@ export function mergeMt5TrustedCandles(input: {
 }
 
 /**
- * Fail-closed restore for broker_demo_mt5: only MT5-provenance rows that pass OHLC
- * and close-to-close continuity checks are returned.
+ * Fail-closed restore for MT5 backends: only MT5-provenance rows.
+ *
+ * OHLC is normalized to symbol price precision / tick size before validation.
+ * Individual invalid candles are dropped (with diagnostics) rather than
+ * discarding the entire history buffer. Close-jump outliers are skipped the
+ * same way so one contaminated row cannot wipe trusted history.
  *
  * Time gaps (weekend / session closures) are allowed — continuity is price-based,
  * not bucket-adjacency based. Duplicate openTimes are merged with live precedence.
  */
-export function filterRestorableMt5Candles(candles: readonly Candle[]): {
+export interface Mt5CandleValidationDiagnostic {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  source: string;
+  reason: string;
+}
+
+export function filterRestorableMt5Candles(
+  candles: readonly Candle[],
+  precision?: CandlePricePrecision | null
+): {
   candles: Candle[];
   rejected: boolean;
   reason: string | null;
+  diagnostics: Mt5CandleValidationDiagnostic[];
 } {
   if (candles.some((c) => !isMt5ProvenanceSource(c.source))) {
     return {
       candles: [],
       rejected: true,
-      reason: "Persisted candle batch includes non-MT5 provenance rows"
+      reason: "Persisted candle batch includes non-MT5 provenance rows",
+      diagnostics: []
     };
   }
 
   const history = candles.filter((c) => c.source === "MT5_HISTORY");
   const live = candles.filter((c) => c.source === "MT5_LIVE_TICKS");
   const merged = mergeMt5TrustedCandles({ history, live });
-  if (merged.rejected) return merged;
+  if (merged.rejected) {
+    return { ...merged, diagnostics: [] };
+  }
+
+  const diagnostics: Mt5CandleValidationDiagnostic[] = [];
+  const ohlcOk: Candle[] = [];
 
   for (const candle of merged.candles) {
-    const ohlc = validateCandleOhlc(candle);
+    const normalizedValues = normalizeCandleOhlc(candle, precision);
+    const normalized: Candle = { ...candle, ...normalizedValues };
+    const ohlc = validateCandleOhlc(normalized);
     if (!ohlc.valid) {
-      return {
-        candles: [],
-        rejected: true,
+      diagnostics.push({
+        openTime: candle.openTime,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        source: String(candle.source),
         reason: `Invalid MT5 candle OHLC (${ohlc.code})`
-      };
+      });
+      continue;
     }
+    ohlcOk.push(normalized);
   }
-  const continuity = validateCandleSeriesContinuity(merged.candles);
-  if (!continuity.valid) {
+
+  const kept: Candle[] = [];
+  for (const candle of ohlcOk) {
+    if (kept.length === 0) {
+      kept.push(candle);
+      continue;
+    }
+    const prev = kept[kept.length - 1]!;
+    const jump = validateCloseDiscontinuity(prev.close, candle.close);
+    if (!jump.valid) {
+      diagnostics.push({
+        openTime: candle.openTime,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        source: String(candle.source),
+        reason: `MT5 candle series discontinuity (${jump.code}, ratio=${jump.ratio?.toFixed(3) ?? "n/a"})`
+      });
+      continue;
+    }
+    kept.push(candle);
+  }
+
+  if (kept.length === 0 && merged.candles.length > 0) {
     return {
       candles: [],
       rejected: true,
-      reason: `MT5 candle series discontinuity at index ${continuity.index} (${continuity.code})`
+      reason: diagnostics[0]?.reason ?? "All MT5 candles failed validation",
+      diagnostics
     };
   }
-  return { candles: merged.candles, rejected: false, reason: null };
+
+  // Series-level continuity should already hold; keep as a final guard.
+  const continuity = validateCandleSeriesContinuity(kept);
+  if (!continuity.valid) {
+    const bad = kept[continuity.index ?? 0];
+    diagnostics.push({
+      openTime: bad?.openTime ?? 0,
+      open: bad?.open ?? 0,
+      high: bad?.high ?? 0,
+      low: bad?.low ?? 0,
+      close: bad?.close ?? 0,
+      source: String(bad?.source ?? "unknown"),
+      reason: `MT5 candle series discontinuity at index ${continuity.index} (${continuity.code})`
+    });
+    return {
+      candles: continuity.index != null && continuity.index > 0 ? kept.slice(0, continuity.index) : [],
+      rejected: continuity.index === 0 || continuity.index == null,
+      reason:
+        continuity.index === 0 || continuity.index == null
+          ? `MT5 candle series discontinuity at index ${continuity.index} (${continuity.code})`
+          : null,
+      diagnostics
+    };
+  }
+
+  return { candles: kept, rejected: false, reason: null, diagnostics };
 }
 
 export function validateIncomingMt5Candle(
