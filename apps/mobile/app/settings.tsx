@@ -12,7 +12,9 @@ import {
   useDownloadMarketData,
   useLiveTradingStatus,
   useMt5Status,
-  useTestDerivConnection
+  useSwitchTradingEnvironment,
+  useTestDerivConnection,
+  useTradingEnvironmentStatus
 } from "../src/api/hooks";
 import { useAuthStore } from "../src/stores/auth";
 import {
@@ -42,6 +44,8 @@ export default function SettingsScreen() {
   const { data: mt5Data } = useMt5Status();
   const { data: dashboard } = useDashboard();
   const { data: liveTradingData, refetch: refetchLiveTrading } = useLiveTradingStatus();
+  const { data: tradingEnvData, refetch: refetchTradingEnv } = useTradingEnvironmentStatus();
+  const switchTradingEnv = useSwitchTradingEnvironment();
   const armLive = useArmLiveTrading();
   const disarmLive = useDisarmLiveTrading();
   const connect = useConnectDeriv();
@@ -53,8 +57,6 @@ export default function SettingsScreen() {
 
   const [token, setToken] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  /** UI preference only — Live selection does not rewrite .env. */
-  const [tradingEnvironment, setTradingEnvironment] = useState<TradingEnvironment>("demo");
   const [armConfirmText, setArmConfirmText] = useState("");
   const [showArmConfirm, setShowArmConfirm] = useState(false);
 
@@ -102,33 +104,64 @@ export default function SettingsScreen() {
   const marketTone = account ? "up" : "warning";
 
   const liveStatus = liveTradingData?.status;
+  const envStatus = tradingEnvData?.status;
+  const tradingEnvironment: TradingEnvironment =
+    envStatus?.activeEnvironment === "LIVE" ? "live" : "demo";
   const liveTradingSupported = resolveLiveTradingSupported({
     liveTradingSupported:
+      Boolean(envStatus?.liveTradingSupported) ||
       Boolean(liveStatus?.liveTradingSupported) ||
-      Boolean(mt5?.liveTradingSupported) ||
-      Boolean(mt5?.config?.liveTradingSupported) ||
+      Boolean((mt5 as { liveTradingSupported?: boolean } | undefined)?.liveTradingSupported) ||
+      Boolean((mt5?.config as { liveTradingSupported?: boolean } | undefined)?.liveTradingSupported) ||
       Boolean(dashboard?.summary.execution?.liveTradingSupported)
   });
-  const liveTradingArmed = Boolean(liveStatus?.liveTradingArmed);
+  const liveTradingArmed = Boolean(envStatus?.liveTradingArmed ?? liveStatus?.liveTradingArmed);
   const accountIsDemo = mt5?.isDemo === true || mt5?.demo === true || mt5?.tradeMode === "DEMO";
-  const tradeModeLabel = describeTradeMode(mt5?.tradeMode, mt5?.isDemo ?? mt5?.demo);
+  const tradeModeLabel = describeTradeMode(
+    envStatus?.connectedAccountKind === "live"
+      ? "REAL"
+      : envStatus?.connectedAccountKind === "demo"
+        ? "DEMO"
+        : mt5?.tradeMode,
+    mt5?.isDemo ?? mt5?.demo
+  );
   const cfg = (mt5?.config ?? {}) as Record<string, unknown>;
 
   function onSelectEnvironment(id: string): void {
-    if (id === "live") {
-      if (!liveTradingSupported) {
-        alertMessage(
-          "Live trading not supported",
-          "Server capability gates are off (REAL_MONEY_ENABLED / LIVE_MT5_ENABLED / live config). This app cannot edit .env."
-        );
-        return;
-      }
-      setTradingEnvironment("live");
+    const target = id === "live" ? "LIVE" : "DEMO";
+    if (target === "LIVE" && !liveTradingSupported) {
+      alertMessage(
+        "Live trading not supported",
+        "Server capability gates are off (REAL_MONEY_ENABLED / LIVE_MT5_ENABLED). This app cannot edit .env."
+      );
       return;
     }
-    setTradingEnvironment("demo");
-    setShowArmConfirm(false);
-    setArmConfirmText("");
+    void (async () => {
+      const ok = await confirmAsync(
+        `Switch to ${target}?`,
+        target === "LIVE"
+          ? "Requires the LIVE MT5 terminal/bridge connected. Live arming will be cleared. Engines must be restarted deliberately."
+          : "Requires the DEMO MT5 terminal/bridge connected. Live arming will be cleared."
+      );
+      if (!ok) return;
+      switchTradingEnv.mutate(target, {
+        onSuccess: () => {
+          void refetchTradingEnv();
+          void refetchLiveTrading();
+          setShowArmConfirm(false);
+          setArmConfirmText("");
+          alertMessage(
+            `Now ${target}`,
+            "Environment switched. Start the engine deliberately when ready. LIVE still requires a separate Arm action."
+          );
+        },
+        onError: (err) =>
+          alertMessage(
+            "Switch blocked",
+            err instanceof ApiError ? err.message : "Could not switch trading environment"
+          )
+      });
+    })();
   }
 
   function requestArm(): void {
@@ -281,6 +314,29 @@ export default function SettingsScreen() {
           value={liveStatus?.mt5.loginMasked ?? maskBrokerLogin(mt5?.login)}
         />
         <InfoRow label="Engine execution env" value={executionMode} />
+        <InfoRow
+          label="Target backend"
+          value={envStatus?.targetBackend ?? "—"}
+        />
+        <InfoRow
+          label="Connected account"
+          value={`${envStatus?.connectedAccountKind ?? "—"} · ${envStatus?.connectedLoginMasked ?? "—"}`}
+        />
+        <InfoRow
+          label="Execution readiness"
+          value={
+            tradingEnvironment === "live"
+              ? envStatus?.executionReadiness.live
+                ? "Ready (armed)"
+                : "Not ready — arm + verified REAL account required"
+              : envStatus?.executionReadiness.demo
+                ? "Ready for DEMO"
+                : "Waiting — connect DEMO terminal/bridge"
+          }
+        />
+        {envStatus?.lastSwitchError ? (
+          <Text style={styles.hint}>Last switch error: {envStatus.lastSwitchError}</Text>
+        ) : null}
         {tradingEnvironment === "live" && liveTradingSupported ? (
           <>
             <View style={{ height: spacing.md }} />

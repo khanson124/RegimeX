@@ -846,6 +846,45 @@ export const useDisarmLiveTrading = () => {
       void qc.invalidateQueries({ queryKey: ["live-trading-status"] });
       void qc.invalidateQueries({ queryKey: ["engine"] });
       void qc.invalidateQueries({ queryKey: ["broker-demo-mt5-status"] });
+      void qc.invalidateQueries({ queryKey: ["trading-environment-status"] });
+    }
+  });
+};
+
+export interface TradingEnvironmentStatus {
+  activeEnvironment: "DEMO" | "LIVE";
+  targetBackend: string;
+  submissionsBlocked: boolean;
+  switchState: string;
+  connectedAccountKind: string;
+  connectedLoginMasked: string | null;
+  connected: boolean;
+  liveTradingArmed: boolean;
+  liveTradingSupported: boolean;
+  executionReadiness: { demo: boolean; live: boolean };
+  lastSwitchError: string | null;
+}
+
+export const useTradingEnvironmentStatus = () =>
+  useQuery({
+    queryKey: ["trading-environment-status"],
+    queryFn: () => api<{ status: TradingEnvironmentStatus }>("/trading-environment/status"),
+    refetchInterval: 15_000
+  });
+
+export const useSwitchTradingEnvironment = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (environment: "DEMO" | "LIVE") =>
+      api<{ status: TradingEnvironmentStatus }>("/trading-environment/switch", {
+        method: "POST",
+        body: JSON.stringify({ environment })
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["trading-environment-status"] });
+      void qc.invalidateQueries({ queryKey: ["live-trading-status"] });
+      void qc.invalidateQueries({ queryKey: ["engine"] });
+      void qc.invalidateQueries({ queryKey: ["broker-demo-mt5-status"] });
     }
   });
 };

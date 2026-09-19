@@ -38,7 +38,11 @@ export function registerBrokerDemoMt5Routes(app: FastifyInstance, ctx: AppContex
   const auth = requireAuth(ctx);
 
   app.get("/broker-demo/mt5/status", { preHandler: auth }, async () => {
-    const mappings = await loadMt5BrokerMappings(ctx.prisma);
+    const mappings = await loadMt5BrokerMappings(
+      ctx.prisma,
+      ctx.config.EXECUTION_MODE === "broker_real_mt5" ? "broker_real_mt5" : "broker_demo_mt5",
+      { includeFallback: true }
+    );
     const liveCap = resolveLiveTradingCapability(ctx.config);
     if (isMt5RealPath(ctx.config) && !liveCap.liveTradingSupported) {
       return buildMt5StatusEnvelope(ctx.config, null, REAL_MT5_NOT_IMPLEMENTED, mappings);

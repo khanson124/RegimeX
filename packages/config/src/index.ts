@@ -118,6 +118,10 @@ const envSchema = z.object({
    * Do NOT publish this port. Do NOT put MT5 account passwords here.
    */
   MT5_BRIDGE_URL: z.string().url().optional(),
+  /** Isolated DEMO bridge (preferred). Falls back to MT5_BRIDGE_URL. */
+  MT5_DEMO_BRIDGE_URL: z.string().url().optional(),
+  /** Isolated LIVE bridge (preferred). Falls back to MT5_BRIDGE_URL. */
+  MT5_LIVE_BRIDGE_URL: z.string().url().optional(),
   MT5_BRIDGE_HOST: z.string().default("mt5-bridge"),
   MT5_BRIDGE_PORT: z.coerce.number().int().positive().default(8765),
   MT5_BRIDGE_SECRET: z.string().min(16).optional(),
@@ -126,6 +130,10 @@ const envSchema = z.object({
   MT5_EXPECTED_ENVIRONMENT: z.enum(["demo", "live"]).default("demo"),
   MT5_EXPECTED_SERVER: z.string().optional(),
   MT5_EXPECTED_LOGIN: z.string().optional(),
+  /** Optional LIVE identity (when dual accounts are configured). */
+  MT5_LIVE_EXPECTED_BROKER: z.string().optional(),
+  MT5_LIVE_EXPECTED_SERVER: z.string().optional(),
+  MT5_LIVE_EXPECTED_LOGIN: z.string().optional(),
   MT5_MAGIC_NUMBER: z.coerce.number().int().positive().default(26082301),
   /**
    * Allow engine-generated MT5 DEMO orders. Keep false for status/preflight/TEST.

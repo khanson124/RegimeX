@@ -4,6 +4,7 @@ export * from "./legacyDerivOptionsBroker.js";
 export * from "./derivCfdBroker.js";
 export * from "./derivCfdReconciliation.js";
 export * from "./derivMt5Broker.js";
+export * from "./mt5/tradingEnvironment.js";
 export * from "./mt5/types.js";
 export * from "./mt5/volume.js";
 export * from "./mt5/symbolMap.js";

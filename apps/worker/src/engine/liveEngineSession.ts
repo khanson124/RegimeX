@@ -22,6 +22,8 @@ import {
   DEFAULT_STRATEGY_PARAMETERS,
   isPaperCfdExecution,
   assertLegacyBinaryReachable,
+  assertMt5ModeBackendConsistency,
+  isUsableMt5QuotePrice,
   getSharedMt5BridgeCircuit,
   Mt5BridgeCircuitBreaker,
   OncePerCodeLogger,
@@ -203,7 +205,34 @@ export class LiveEngineSession {
   }): Promise<void> {
     const { prisma, config, publish } = this.deps;
 
-    this.executionBackend = resolveExecutionBackend(config);
+    const envState = await prisma.tradingEnvironmentState.findUnique({ where: { userId: this.userId } });
+    if (envState?.submissionsBlocked || envState?.switchState === "SWITCHING") {
+      throw new Error("Trading environment switch in progress — submissions blocked");
+    }
+
+    const activeTradingEnv =
+      envState?.activeEnvironment === "LIVE"
+        ? ("LIVE" as const)
+        : envState?.activeEnvironment === "DEMO"
+          ? ("DEMO" as const)
+          : null;
+
+    // Operator environment selector overrides EXECUTION_MODE for MT5 venues.
+    if (activeTradingEnv === "LIVE") {
+      this.executionBackend = resolveExecutionBackend({
+        ...config,
+        EXECUTION_MODE: "broker_real_mt5"
+      });
+    } else if (activeTradingEnv === "DEMO") {
+      this.executionBackend = resolveExecutionBackend({
+        ...config,
+        EXECUTION_MODE: "broker_demo_mt5",
+        MT5_EXPECTED_ENVIRONMENT: "demo"
+      });
+    } else {
+      this.executionBackend = resolveExecutionBackend(config);
+    }
+
     const isMt5Backend =
       this.executionBackend === "broker_demo_mt5" || this.executionBackend === "broker_real_mt5";
     if (this.executionBackend === "broker_real_cfd") {
@@ -1427,32 +1456,15 @@ export class LiveEngineSession {
       return;
     }
 
-    if (this.executionBackend === "broker_demo_mt5") {
-      // Temporary DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY.
-      if (
-        shouldBlockR10SqueezeForwardTrial({
-          executionBackend: this.executionBackend,
-          symbol: this.symbol,
-          interval: this.interval,
-          strategyId: chosen.strategy.id,
-          action: decision.action
-        })
-      ) {
+    // All MT5 backends use CFD execution — never fall through to legacy binary.
+    if (this.isMt5Backend()) {
+      const modeBackend = assertMt5ModeBackendConsistency({
+        sessionMode: this.mode,
+        executionBackend: this.executionBackend
+      });
+      if (!modeBackend.ok) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
-        await this.recordCandidate(latest, correlationId, {
-          decisionCode: "REJECT_STRATEGY",
-          rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
-          reasons: [
-            R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
-            "DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY may execute on MT5"
-          ],
-          strategyId: chosen.strategy.id,
-          direction: decision.action
-        });
-        await this.logAutonomousDecision("NO_TRADE", [
-          R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
-          "DEMO forward-trial guard — not 1m BUY; not submitted to MT5"
-        ], {
+        await this.logAutonomousDecision("NO_TRADE", [modeBackend.reason], {
           strategyId: chosen.strategy.id,
           action: decision.action,
           correlationId,
@@ -1461,53 +1473,95 @@ export class LiveEngineSession {
           featureSummary: {
             interval: this.interval,
             internalSymbol: this.symbol,
-            forwardTrialDirectionalGuard: true,
-            reason: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON
+            executionBackend: this.executionBackend,
+            sessionMode: this.mode
           }
         });
         return;
       }
 
-      // Temporary DEMO forward-trial guard: XAUUSD only 15m xau-trend-pullback-v1 BUY|SELL.
-      if (
-        shouldBlockXauUsdForwardTrialExecution({
-          executionBackend: this.executionBackend,
-          symbol: this.symbol,
-          interval: this.interval,
-          strategyId: chosen.strategy.id,
-          action: decision.action,
-          realMoneyEnabled: config.REAL_MONEY_ENABLED === true
-        })
-      ) {
-        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
-        await this.recordCandidate(latest, correlationId, {
-          decisionCode: "REJECT_STRATEGY",
-          rejectionCode: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
-          reasons: [
-            XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
-            "DEMO forward-trial guard: XAUUSD only 15m xau-trend-pullback-v1 BUY|SELL may execute on MT5"
-          ],
-          strategyId: chosen.strategy.id,
-          direction: decision.action
-        });
-        await this.logAutonomousDecision("NO_TRADE", [
-          XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
-          "DEMO forward-trial guard — XAUUSD combo rejected; not submitted to MT5"
-        ], {
-          strategyId: chosen.strategy.id,
-          action: decision.action,
-          correlationId,
-          regime: regime.regime,
-          regimeConfidence: regime.confidence,
-          featureSummary: {
+      // Temporary DEMO forward-trial guards (demo backend only).
+      if (this.executionBackend === "broker_demo_mt5") {
+        if (
+          shouldBlockR10SqueezeForwardTrial({
+            executionBackend: this.executionBackend,
+            symbol: this.symbol,
             interval: this.interval,
-            internalSymbol: this.symbol,
-            xauForwardTrialExperimental: true,
-            reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON
-          }
-        });
-        return;
+            strategyId: chosen.strategy.id,
+            action: decision.action
+          })
+        ) {
+          await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+          await this.recordCandidate(latest, correlationId, {
+            decisionCode: "REJECT_STRATEGY",
+            rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+            reasons: [
+              R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+              "DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY may execute on MT5"
+            ],
+            strategyId: chosen.strategy.id,
+            direction: decision.action
+          });
+          await this.logAutonomousDecision("NO_TRADE", [
+            R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+            "DEMO forward-trial guard — not 1m BUY; not submitted to MT5"
+          ], {
+            strategyId: chosen.strategy.id,
+            action: decision.action,
+            correlationId,
+            regime: regime.regime,
+            regimeConfidence: regime.confidence,
+            featureSummary: {
+              interval: this.interval,
+              internalSymbol: this.symbol,
+              forwardTrialDirectionalGuard: true,
+              reason: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON
+            }
+          });
+          return;
+        }
+
+        if (
+          shouldBlockXauUsdForwardTrialExecution({
+            executionBackend: this.executionBackend,
+            symbol: this.symbol,
+            interval: this.interval,
+            strategyId: chosen.strategy.id,
+            action: decision.action,
+            realMoneyEnabled: config.REAL_MONEY_ENABLED === true
+          })
+        ) {
+          await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+          await this.recordCandidate(latest, correlationId, {
+            decisionCode: "REJECT_STRATEGY",
+            rejectionCode: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+            reasons: [
+              XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+              "DEMO forward-trial guard: XAUUSD only 15m xau-trend-pullback-v1 BUY|SELL may execute on MT5"
+            ],
+            strategyId: chosen.strategy.id,
+            direction: decision.action
+          });
+          await this.logAutonomousDecision("NO_TRADE", [
+            XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+            "DEMO forward-trial guard — XAUUSD combo rejected; not submitted to MT5"
+          ], {
+            strategyId: chosen.strategy.id,
+            action: decision.action,
+            correlationId,
+            regime: regime.regime,
+            regimeConfidence: regime.confidence,
+            featureSummary: {
+              interval: this.interval,
+              internalSymbol: this.symbol,
+              xauForwardTrialExperimental: true,
+              reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON
+            }
+          });
+          return;
+        }
       }
+
       const readiness = this.mt5MtfReadyOrNull();
       if (!readiness.ready) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
@@ -1522,7 +1576,7 @@ export class LiveEngineSession {
       if (!isCfdCapableStrategy(chosen.strategy.id)) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
         await this.logAutonomousDecision("NO_TRADE", [
-          `Strategy ${chosen.strategy.id} is not CFD-capable — skipped for MT5 DEMO`
+          `Strategy ${chosen.strategy.id} is not CFD-capable — skipped for MT5`
         ], {
           strategyId: chosen.strategy.id,
           action: decision.action,
@@ -1559,20 +1613,22 @@ export class LiveEngineSession {
       if (shouldConsumeStrategySignalCooldown({ opened: result.opened, decisionCode: result.decisionCode })) {
         this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);
       }
-      const xauTrialTag = isXauTrendPullbackForwardTrialExecutable({
-        executionBackend: this.executionBackend,
-        symbol: this.symbol,
-        interval: this.interval,
-        strategyId: chosen.strategy.id,
-        action: decision.action,
-        realMoneyEnabled: config.REAL_MONEY_ENABLED === true
-      })
-        ? {
-            xauForwardTrialExperimental: true,
-            reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
-            forwardTrialSeparateFromR10: true
-          }
-        : {};
+      const xauTrialTag =
+        this.executionBackend === "broker_demo_mt5" &&
+        isXauTrendPullbackForwardTrialExecutable({
+          executionBackend: this.executionBackend,
+          symbol: this.symbol,
+          interval: this.interval,
+          strategyId: chosen.strategy.id,
+          action: decision.action,
+          realMoneyEnabled: config.REAL_MONEY_ENABLED === true
+        })
+          ? {
+              xauForwardTrialExperimental: true,
+              reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+              forwardTrialSeparateFromR10: true
+            }
+          : {};
       await this.recordCandidate(latest, correlationId, {
         decisionCode:
           result.decisionCode === "RISK_BLOCKED"
@@ -2150,6 +2206,19 @@ export class LiveEngineSession {
       const quote = await this.mt5Cfd.getQuote(this.symbol);
       if (!quote) {
         recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_QUOTE_FEED_UNAVAILABLE, now);
+        return;
+      }
+      // Closed markets / bad ticks can return zero or non-finite mids — never feed OHLC.
+      if (
+        !isUsableMt5QuotePrice(quote.mid) ||
+        !isUsableMt5QuotePrice(quote.bid) ||
+        !isUsableMt5QuotePrice(quote.ask)
+      ) {
+        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_QUOTE_FEED_UNAVAILABLE, now);
+        this.log.debug(
+          { symbol: this.symbol, mid: quote.mid, bid: quote.bid, ask: quote.ask },
+          "MT5 quote ignored — non-positive or non-finite price (market likely closed)"
+        );
         return;
       }
       if (isBrokerQuoteTimestampStale(quote.timestamp, now, STALE_DATA_MS)) {

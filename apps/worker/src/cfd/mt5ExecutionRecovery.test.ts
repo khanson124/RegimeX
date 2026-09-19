@@ -149,7 +149,10 @@ function adapterBase(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const recoveryConfig = { MAX_EXECUTION_QUOTE_AGE_MS: 30_000 };
+const recoveryConfig = {
+  MAX_EXECUTION_QUOTE_AGE_MS: 30_000,
+  EXECUTION_MODE: "broker_demo_mt5" as const
+};
 
 describe("recoverUnresolvedMt5ExecutionIntents", () => {
   it("E. recovers SUBMITTED intent with PENDING position from broker on startup", async () => {

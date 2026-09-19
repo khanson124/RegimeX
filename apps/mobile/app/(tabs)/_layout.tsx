@@ -42,7 +42,6 @@ export default function TabsLayout() {
               }
             : {})
         },
-        tabBarSafeAreaInsets: { bottom: 0 },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textFaint,
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },

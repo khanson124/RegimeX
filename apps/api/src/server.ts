@@ -24,6 +24,7 @@ import { registerResearchRoutes } from "./routes/research.js";
 import { registerBrokerDemoRoutes } from "./routes/brokerDemo.js";
 import { registerBrokerDemoMt5Routes } from "./routes/brokerDemoMt5.js";
 import { registerLiveTradingRoutes } from "./routes/liveTrading.js";
+import { registerTradingEnvironmentRoutes } from "./routes/tradingEnvironment.js";
 import { registerWsRoutes } from "./routes/ws.js";
 
 export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
@@ -93,6 +94,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerBrokerDemoRoutes(app, ctx);
   registerBrokerDemoMt5Routes(app, ctx);
   registerLiveTradingRoutes(app, ctx);
+  registerTradingEnvironmentRoutes(app, ctx);
   registerWsRoutes(app, ctx);
 
   return app;

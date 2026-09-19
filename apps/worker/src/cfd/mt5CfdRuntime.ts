@@ -2118,16 +2118,36 @@ export class Mt5CfdRuntime {
     };
   }
 
+  private mt5MappingExecutionMode(): "broker_demo_mt5" | "broker_real_mt5" {
+    return this.deps.config.EXECUTION_MODE === "broker_real_mt5"
+      ? "broker_real_mt5"
+      : "broker_demo_mt5";
+  }
+
   private async loadMapping(internalSymbol: string) {
-    const row = await this.deps.prisma.brokerSymbolMapping.findFirst({
+    const preferred = this.mt5MappingExecutionMode();
+    const preferredRow = await this.deps.prisma.brokerSymbolMapping.findFirst({
       where: {
         venue: "MT5",
-        executionMode: "broker_demo_mt5",
+        executionMode: preferred,
         symbol: { derivSymbol: internalSymbol }
       },
       include: { symbol: true }
     });
-    return row ? mappingRecordFromRow(row) : null;
+    if (preferredRow) return mappingRecordFromRow(preferredRow);
+
+    // Migration fallback: many installs only registered demo mappings.
+    // Prefer env-scoped rows; never cross venue.
+    const fallbackMode = preferred === "broker_real_mt5" ? "broker_demo_mt5" : "broker_real_mt5";
+    const fallback = await this.deps.prisma.brokerSymbolMapping.findFirst({
+      where: {
+        venue: "MT5",
+        executionMode: fallbackMode,
+        symbol: { derivSymbol: internalSymbol }
+      },
+      include: { symbol: true }
+    });
+    return fallback ? mappingRecordFromRow(fallback) : null;
   }
 
   async getQuote(engineSymbol: string): Promise<{

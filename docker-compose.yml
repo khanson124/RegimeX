@@ -35,8 +35,11 @@ services:
     environment:
       DATABASE_URL: postgresql://regimex:regimex@postgres:5432/regimex
       REDIS_URL: redis://redis:6379
-      # Worker/API reach the bridge via Compose DNS, never 127.0.0.1.
+      # Dual MT5 bridges: DEMO and LIVE are isolated mailboxes/terminals.
+      # Legacy MT5_BRIDGE_URL remains the DEMO fallback.
       MT5_BRIDGE_URL: http://mt5-bridge:8765
+      MT5_DEMO_BRIDGE_URL: http://mt5-bridge:8765
+      MT5_LIVE_BRIDGE_URL: http://mt5-bridge-live:8765
     ports:
       - "4000:4000"
     depends_on:
@@ -61,6 +64,8 @@ services:
       DATABASE_URL: postgresql://regimex:regimex@postgres:5432/regimex
       REDIS_URL: redis://redis:6379
       MT5_BRIDGE_URL: http://mt5-bridge:8765
+      MT5_DEMO_BRIDGE_URL: http://mt5-bridge:8765
+      MT5_LIVE_BRIDGE_URL: http://mt5-bridge-live:8765
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,14 +75,14 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # DEMO bridge — existing mailbox path preserved for migration.
+  # Point Wine MT5 DEMO EA In/Out folders at this volume.
   mt5-bridge:
     build:
       context: .
       dockerfile: docker/Dockerfile.mt5-bridge
     env_file: .env
     environment:
-      # Bind inside the container; Compose DNS name is mt5-bridge.
-      # Do NOT add a host `ports:` mapping. Nginx must never proxy this.
       MT5_BRIDGE_BIND_HOST: 0.0.0.0
       MT5_BRIDGE_PORT: "8765"
       MT5_MAILBOX_PATH: /mt5-mailbox
@@ -97,6 +102,36 @@ services:
       retries: 4
       start_period: 10s
     restart: unless-stopped
+
+  # LIVE bridge — isolated mailbox. Do not share with DEMO Wine terminal.
+  # Point a separate Wine MT5 REAL EA at this volume. Leave unattached until LIVE is ready.
+  mt5-bridge-live:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mt5-bridge
+    env_file: .env
+    environment:
+      MT5_BRIDGE_BIND_HOST: 0.0.0.0
+      MT5_BRIDGE_PORT: "8765"
+      MT5_MAILBOX_PATH: /mt5-mailbox
+      MT5_BRIDGE_URL: http://mt5-bridge-live:8765
+    expose:
+      - "8765"
+    volumes:
+      - ${MT5_LIVE_MAILBOX_HOST_PATH:-./var/mt5-mailbox-live}:/mt5-mailbox
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- -T 2 http://127.0.0.1:8765/health/live | grep -q '\"ok\":true'"
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - live-mt5
 
 volumes:
   postgres_data:

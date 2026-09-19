@@ -30,7 +30,7 @@ describe("live engine execution isolation", () => {
 
   it("routes MT5 quotes only into the CandleAggregator for broker_demo_mt5", () => {
     const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
-    expect(src).toContain('source: this.executionBackend === "broker_demo_mt5" ? "MT5_LIVE_TICKS" : "LIVE_TICKS"');
+    expect(src).toContain('source: isMt5Backend ? "MT5_LIVE_TICKS" : "LIVE_TICKS"');
     expect(src).toContain("shouldIngestMt5ClosedCandle");
     expect(src).toContain("resolveMt5WarmupRequirement");
     expect(src).toContain("evaluateMt5QuoteWatchdog");
@@ -50,16 +50,37 @@ describe("live engine execution isolation", () => {
   it("10. cooldown is applied after MT5 execute, not before signal create", () => {
     const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
     const mt5Block = src.slice(
-      src.indexOf("if (this.executionBackend === \"broker_demo_mt5\")"),
+      src.indexOf("if (this.isMt5Backend())"),
       src.indexOf("if (isPaperCfdExecution(config))")
     );
     const executeIdx = mt5Block.indexOf("this.mt5Cfd.executeCfdSignal");
     const cooldownIdx = mt5Block.indexOf("shouldConsumeStrategySignalCooldown({");
     expect(executeIdx).toBeGreaterThan(-1);
     expect(cooldownIdx).toBeGreaterThan(executeIdx);
+    expect(mt5Block).toContain("assertMt5ModeBackendConsistency");
     expect(mt5Block).not.toContain(
       "this.lastSignalCandle.set(chosen.strategy.id, this.candleIndex);\n\n    const signal"
     );
+  });
+
+  it("MT5 backends never fall through to legacy executeTrade", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    const analyzeStart = src.indexOf("private async analyze(");
+    const executeTradeDef = src.indexOf("private async executeTrade(", analyzeStart);
+    const analyzeBody = src.slice(analyzeStart, executeTradeDef);
+    const mt5Return = analyzeBody.lastIndexOf("return;\n    }\n\n    if (isPaperCfdExecution");
+    expect(analyzeBody).toContain("if (this.isMt5Backend())");
+    expect(analyzeBody).toContain("assertMt5ModeBackendConsistency");
+    // After MT5 block returns, only paper or legacy remain — broker_real_mt5 must not reach executeTrade.
+    expect(mt5Return).toBeGreaterThan(-1);
+    const afterMt5 = analyzeBody.slice(analyzeBody.indexOf("if (this.isMt5Backend())"));
+    expect(afterMt5).toMatch(/isMt5Backend\(\)[\s\S]*executeCfdSignal[\s\S]*return;/);
+  });
+
+  it("ignores non-positive MT5 quotes before aggregator", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    expect(src).toContain("isUsableMt5QuotePrice");
+    expect(src).toContain("market likely closed");
   });
 
   it("F: rejected MT5 candles return before persistence, buffer push, and analyze", () => {

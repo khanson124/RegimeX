@@ -24,10 +24,12 @@ export async function recoverUnresolvedMt5ExecutionIntents(input: {
   prisma: PrismaClient;
   adapter: DerivMT5BrokerAdapter;
   userId: string;
-  config: Pick<AppConfig, "MAX_EXECUTION_QUOTE_AGE_MS">;
+  config: Pick<AppConfig, "MAX_EXECUTION_QUOTE_AGE_MS" | "EXECUTION_MODE">;
   logger: Logger;
 }): Promise<{ recovered: number; stillUnresolved: number; failedClosed: number; awaitingResume: number }> {
   const { prisma, adapter, userId, config, logger } = input;
+  const mappingMode: "broker_demo_mt5" | "broker_real_mt5" =
+    config.EXECUTION_MODE === "broker_real_mt5" ? "broker_real_mt5" : "broker_demo_mt5";
   let recovered = 0;
   let stillUnresolved = 0;
   let failedClosed = 0;
@@ -169,7 +171,7 @@ export async function recoverUnresolvedMt5ExecutionIntents(input: {
     const mapping = (row.metadata ?? {}) as { engineSymbol?: string };
     const brokerSymbol =
       typeof mapping.engineSymbol === "string"
-        ? await resolveBrokerSymbolFromPosition(prisma, row.symbol)
+        ? await resolveBrokerSymbolFromPosition(prisma, row.symbol, mappingMode)
         : row.symbol;
     const quote = await adapter.getQuote(brokerSymbol);
     const instrument = await adapter.getInstrumentMetadata(brokerSymbol);
@@ -226,14 +228,24 @@ export async function recoverUnresolvedMt5ExecutionIntents(input: {
 
 async function resolveBrokerSymbolFromPosition(
   prisma: PrismaClient,
-  internalSymbol: string
+  internalSymbol: string,
+  executionMode: "broker_demo_mt5" | "broker_real_mt5" = "broker_demo_mt5"
 ): Promise<string> {
-  const row = await prisma.brokerSymbolMapping.findFirst({
+  const preferred = await prisma.brokerSymbolMapping.findFirst({
     where: {
       venue: "MT5",
-      executionMode: "broker_demo_mt5",
+      executionMode,
       symbol: { derivSymbol: internalSymbol }
     }
   });
-  return row?.brokerSymbol ?? internalSymbol;
+  if (preferred?.brokerSymbol) return preferred.brokerSymbol;
+  const fallbackMode = executionMode === "broker_real_mt5" ? "broker_demo_mt5" : "broker_real_mt5";
+  const fallback = await prisma.brokerSymbolMapping.findFirst({
+    where: {
+      venue: "MT5",
+      executionMode: fallbackMode,
+      symbol: { derivSymbol: internalSymbol }
+    }
+  });
+  return fallback?.brokerSymbol ?? internalSymbol;
 }

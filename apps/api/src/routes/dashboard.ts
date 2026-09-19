@@ -174,7 +174,11 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
       prisma.position.count({
         where: { userId: request.userId, status: "OPEN", origin: "ENGINE" }
       }),
-      loadMt5BrokerMappings(prisma)
+      loadMt5BrokerMappings(
+        prisma,
+        ctx.config.EXECUTION_MODE === "broker_real_mt5" ? "broker_real_mt5" : "broker_demo_mt5",
+        { includeFallback: true }
+      )
     ]);
 
     const openedToday = todayPositions.filter((p) => p.openedAt != null && p.openedAt >= dayStart);

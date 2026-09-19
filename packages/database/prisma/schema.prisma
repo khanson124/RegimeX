@@ -38,6 +38,8 @@ model User {
   positions        Position[]
   strategyEvidenceStates StrategyEvidenceState[]
   executionIntents ExecutionIntent[]
+  tradingEnvironmentState TradingEnvironmentState?
+  tradingEnvironmentPolicies TradingEnvironmentPolicy[]
 
   @@index([status])
 }
@@ -603,6 +605,56 @@ model LiveEngine {
   configurations LiveEngineConfiguration[]
 
   @@index([state])
+}
+
+/**
+ * Operator-selected trading environment (DEMO | LIVE).
+ * Independent of LiveEngineConfiguration.mode labels.
+ * Account kind must be verified from the connected MT5 bridge — never from this row alone.
+ */
+model TradingEnvironmentState {
+  id                       String    @id @default(cuid())
+  userId                   String    @unique
+  /** DEMO | LIVE */
+  activeEnvironment        String    @default("DEMO")
+  submissionsBlocked       Boolean   @default(false)
+  /** IDLE | SWITCHING | VERIFYING */
+  switchState              String    @default("IDLE")
+  lastSwitchAt             DateTime?
+  lastVerifiedAccountKind  String?
+  lastVerifiedLoginMasked  String?
+  lastSwitchError          String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * Per-environment policy (symbols, strategies, risk). No passwords.
+ * expectedLogin is identity only for account matching.
+ */
+model TradingEnvironmentPolicy {
+  id                String   @id @default(cuid())
+  userId            String
+  /** DEMO | LIVE */
+  environment       String
+  strategyAllowlist String   @default("")
+  symbolAllowlist   String   @default("")
+  maxVolume         Decimal? @db.Decimal(18, 8)
+  maxRiskPercent    Decimal? @db.Decimal(8, 4)
+  maxConcurrent     Int?
+  expectedBroker    String?
+  expectedServer    String?
+  expectedLogin     String?
+  bridgeUrlOverride String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, environment])
+  @@index([userId])
 }
 
 model LiveEngineConfiguration {
