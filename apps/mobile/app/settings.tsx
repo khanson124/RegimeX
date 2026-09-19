@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ApiError } from "../src/api/client";
 import {
@@ -35,6 +35,7 @@ import {
   TicketField
 } from "../src/components/design";
 import { colors, font, spacing } from "../src/theme";
+import { alertMessage, confirmAsync } from "../src/lib/confirm";
 
 export default function SettingsScreen() {
   const { data, isLoading, isError, error, refetch } = useDerivAccount();
@@ -116,7 +117,7 @@ export default function SettingsScreen() {
   function onSelectEnvironment(id: string): void {
     if (id === "live") {
       if (!liveTradingSupported) {
-        Alert.alert(
+        alertMessage(
           "Live trading not supported",
           "Server capability gates are off (REAL_MONEY_ENABLED / LIVE_MT5_ENABLED / live config). This app cannot edit .env."
         );
@@ -138,40 +139,32 @@ export default function SettingsScreen() {
 
   function confirmArm(): void {
     if (armConfirmText.trim() !== "ENABLE LIVE") {
-      Alert.alert("Confirmation required", 'Type ENABLE LIVE exactly to arm live trading.');
+      alertMessage("Confirmation required", "Type ENABLE LIVE exactly to arm live trading.");
       return;
     }
     armLive.mutate(undefined, {
       onSuccess: () => {
         setShowArmConfirm(false);
         setArmConfirmText("");
-        Alert.alert("Live armed", "New live entries are now allowed (server policy still applies).");
+        alertMessage("Live armed", "New live entries are now allowed (server policy still applies).");
       },
       onError: (err) =>
-        Alert.alert("Arm failed", err instanceof ApiError ? err.message : "Could not arm live trading")
+        alertMessage("Arm failed", err instanceof ApiError ? err.message : "Could not arm live trading")
     });
   }
 
-  function confirmDisarm(): void {
-    Alert.alert(
+  async function confirmDisarm(): Promise<void> {
+    const ok = await confirmAsync(
       "Disarm live trading?",
       "No new live positions will open. Existing open live positions are not force-closed.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Disarm",
-          style: "destructive",
-          onPress: () =>
-            disarmLive.mutate(undefined, {
-              onError: (err) =>
-                Alert.alert(
-                  "Disarm failed",
-                  err instanceof ApiError ? err.message : "Could not disarm live trading"
-                )
-            })
-        }
-      ]
+      "Disarm"
     );
+    if (!ok) return;
+    disarmLive.mutate(undefined, {
+      onSuccess: () => alertMessage("Live disarmed", "New live entries are blocked."),
+      onError: (err) =>
+        alertMessage("Disarm failed", err instanceof ApiError ? err.message : "Could not disarm live trading")
+    });
   }
 
   function connectToken(): void {
@@ -183,31 +176,27 @@ export default function SettingsScreen() {
     connect.mutate(token.trim(), {
       onSuccess: () => {
         setToken("");
-        Alert.alert("Connected", "Market-data account linked. This token is not used for MT5 execution.");
+        alertMessage("Connected", "Market-data account linked. This token is not used for MT5 execution.");
       },
       onError: (err) => setFormError(err instanceof ApiError ? err.message : "Connection failed")
     });
   }
 
-  function confirmDisconnect(): void {
-    Alert.alert("Disconnect market data?", "The encrypted Deriv token will be revoked on the server.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Disconnect", style: "destructive", onPress: () => disconnect.mutate() }
-    ]);
+  async function confirmDisconnect(): Promise<void> {
+    const ok = await confirmAsync(
+      "Disconnect market data?",
+      "The encrypted Deriv token will be revoked on the server.",
+      "Disconnect"
+    );
+    if (!ok) return;
+    disconnect.mutate();
   }
 
-  function confirmLogout(): void {
-    Alert.alert("Log out?", undefined, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Log out",
-        style: "destructive",
-        onPress: () => {
-          void clearSession();
-          router.replace("/(auth)/login");
-        }
-      }
-    ]);
+  async function confirmLogout(): Promise<void> {
+    const ok = await confirmAsync("Log out?", "You will need to sign in again.", "Log out");
+    if (!ok) return;
+    void clearSession();
+    router.replace("/(auth)/login");
   }
 
   function seedHistory(): void {
@@ -216,8 +205,9 @@ export default function SettingsScreen() {
     download.mutate(
       { symbol: "R_10", interval: "1m", from, to },
       {
-        onSuccess: () => Alert.alert("Queued", "Historical candle download job queued."),
-        onError: (err) => Alert.alert("Failed", err instanceof ApiError ? err.message : "Download failed")
+        onSuccess: () => alertMessage("Queued", "Historical candle download job queued."),
+        onError: (err) =>
+          alertMessage("Failed", err instanceof ApiError ? err.message : "Download failed")
       }
     );
   }
