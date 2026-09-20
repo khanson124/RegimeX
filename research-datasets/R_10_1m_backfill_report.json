@@ -3,396 +3,65 @@
     "symbol": "R_10",
     "interval": "1m",
     "source": "HISTORY_API",
-    "fromMs": 1777593600000,
-    "toMs": 1788739200000,
-    "fetched": 185761,
-    "inserted": 141856,
-    "duplicatesSkipped": 43454,
-    "conflicts": 406,
+    "fromMs": 1789776000000,
+    "toMs": 1789927200000,
+    "fetched": 2446,
+    "inserted": 2445,
+    "duplicatesSkipped": 0,
+    "conflicts": 1,
     "invalid": 0,
     "dryRun": false,
     "conflictSamples": [
       {
-        "openTimeMs": 1777863600000,
+        "openTimeMs": 1789896000000,
         "existing": {
-          "openTimeMs": 1777863600000,
-          "open": 10024.09,
-          "high": 10024.09,
-          "low": 10024.09,
-          "close": 10024.09,
+          "openTimeMs": 1789896000000,
+          "open": 9458.7,
+          "high": 9458.7,
+          "low": 9458.7,
+          "close": 9458.7,
           "source": "HISTORY_API"
         },
         "incoming": {
-          "openTimeMs": 1777863600000,
-          "open": 10024.09,
-          "high": 10024.9,
-          "low": 10022.97,
-          "close": 10024.18
-        }
-      },
-      {
-        "openTimeMs": 1778403600000,
-        "existing": {
-          "openTimeMs": 1778403600000,
-          "open": 9920.04,
-          "high": 9920.04,
-          "low": 9920.04,
-          "close": 9920.04,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1778403600000,
-          "open": 9920.04,
-          "high": 9922.74,
-          "low": 9919.56,
-          "close": 9922.17
-        }
-      },
-      {
-        "openTimeMs": 1778943600000,
-        "existing": {
-          "openTimeMs": 1778943600000,
-          "open": 9814.01,
-          "high": 9814.01,
-          "low": 9814.01,
-          "close": 9814.01,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1778943600000,
-          "open": 9814.01,
-          "high": 9814.07,
-          "low": 9811.86,
-          "close": 9811.86
-        }
-      },
-      {
-        "openTimeMs": 1779483600000,
-        "existing": {
-          "openTimeMs": 1779483600000,
-          "open": 10041.63,
-          "high": 10041.63,
-          "low": 10041.63,
-          "close": 10041.63,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1779483600000,
-          "open": 10041.63,
-          "high": 10042.64,
-          "low": 10040.64,
-          "close": 10042.64
-        }
-      },
-      {
-        "openTimeMs": 1780023600000,
-        "existing": {
-          "openTimeMs": 1780023600000,
-          "open": 10129.33,
-          "high": 10129.33,
-          "low": 10129.33,
-          "close": 10129.33,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1780023600000,
-          "open": 10129.33,
-          "high": 10130.7,
-          "low": 10128.78,
-          "close": 10129.19
-        }
-      },
-      {
-        "openTimeMs": 1780563600000,
-        "existing": {
-          "openTimeMs": 1780563600000,
-          "open": 10286.75,
-          "high": 10286.75,
-          "low": 10286.75,
-          "close": 10286.75,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1780563600000,
-          "open": 10286.75,
-          "high": 10286.75,
-          "low": 10285.31,
-          "close": 10285.64
-        }
-      },
-      {
-        "openTimeMs": 1781103600000,
-        "existing": {
-          "openTimeMs": 1781103600000,
-          "open": 10170.28,
-          "high": 10170.28,
-          "low": 10170.28,
-          "close": 10170.28,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1781103600000,
-          "open": 10170.28,
-          "high": 10172.54,
-          "low": 10170.28,
-          "close": 10171.04
-        }
-      },
-      {
-        "openTimeMs": 1781643600000,
-        "existing": {
-          "openTimeMs": 1781643600000,
-          "open": 10122.49,
-          "high": 10122.49,
-          "low": 10122.49,
-          "close": 10122.49,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1781643600000,
-          "open": 10122.49,
-          "high": 10124.55,
-          "low": 10122.49,
-          "close": 10123.1
-        }
-      },
-      {
-        "openTimeMs": 1782183600000,
-        "existing": {
-          "openTimeMs": 1782183600000,
-          "open": 9817.07,
-          "high": 9817.07,
-          "low": 9817.07,
-          "close": 9817.07,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1782183600000,
-          "open": 9817.07,
-          "high": 9817.47,
-          "low": 9815.11,
-          "close": 9815.78
-        }
-      },
-      {
-        "openTimeMs": 1782723600000,
-        "existing": {
-          "openTimeMs": 1782723600000,
-          "open": 9657.66,
-          "high": 9657.66,
-          "low": 9657.66,
-          "close": 9657.66,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1782723600000,
-          "open": 9657.66,
-          "high": 9657.66,
-          "low": 9655.72,
-          "close": 9656.21
-        }
-      },
-      {
-        "openTimeMs": 1783263600000,
-        "existing": {
-          "openTimeMs": 1783263600000,
-          "open": 9730.59,
-          "high": 9730.59,
-          "low": 9730.59,
-          "close": 9730.59,
-          "source": "HISTORY_API"
-        },
-        "incoming": {
-          "openTimeMs": 1783263600000,
-          "open": 9730.59,
-          "high": 9731.69,
-          "low": 9729.64,
-          "close": 9730.65
-        }
-      },
-      {
-        "openTimeMs": 1783956960000,
-        "existing": {
-          "openTimeMs": 1783956960000,
-          "open": 4789.664,
-          "high": 4789.686,
-          "low": 4789.323,
-          "close": 4789.682,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783956960000,
-          "open": 9452.53,
-          "high": 9453.85,
-          "low": 9452.23,
-          "close": 9452.55
-        }
-      },
-      {
-        "openTimeMs": 1783957020000,
-        "existing": {
-          "openTimeMs": 1783957020000,
-          "open": 4789.664,
-          "high": 4789.82,
-          "low": 4789.12,
-          "close": 4789.455,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957020000,
-          "open": 9452.41,
-          "high": 9452.75,
-          "low": 9451.57,
-          "close": 9452.46
-        }
-      },
-      {
-        "openTimeMs": 1783957080000,
-        "existing": {
-          "openTimeMs": 1783957080000,
-          "open": 4789.469,
-          "high": 4789.508,
-          "low": 4788.883,
-          "close": 4788.883,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957080000,
-          "open": 9452.55,
-          "high": 9454.74,
-          "low": 9452.47,
-          "close": 9454.74
-        }
-      },
-      {
-        "openTimeMs": 1783957140000,
-        "existing": {
-          "openTimeMs": 1783957140000,
-          "open": 4788.998,
-          "high": 4789.325,
-          "low": 4788.446,
-          "close": 4789.024,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957140000,
-          "open": 9454.9,
-          "high": 9455.24,
-          "low": 9453.04,
-          "close": 9453.29
-        }
-      },
-      {
-        "openTimeMs": 1783957200000,
-        "existing": {
-          "openTimeMs": 1783957200000,
-          "open": 4788.889,
-          "high": 4788.934,
-          "low": 4788.273,
-          "close": 4788.926,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957200000,
-          "open": 9453.25,
-          "high": 9453.65,
-          "low": 9452.06,
-          "close": 9452.49
-        }
-      },
-      {
-        "openTimeMs": 1783957260000,
-        "existing": {
-          "openTimeMs": 1783957260000,
-          "open": 4789.166,
-          "high": 4789.293,
-          "low": 4788.107,
-          "close": 4788.169,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957260000,
-          "open": 9452.37,
-          "high": 9452.37,
-          "low": 9450.21,
-          "close": 9450.58
-        }
-      },
-      {
-        "openTimeMs": 1783957320000,
-        "existing": {
-          "openTimeMs": 1783957320000,
-          "open": 4788.016,
-          "high": 4788.132,
-          "low": 4787.345,
-          "close": 4787.588,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957320000,
-          "open": 9450.29,
-          "high": 9452.41,
-          "low": 9450.01,
-          "close": 9451.41
-        }
-      },
-      {
-        "openTimeMs": 1783957380000,
-        "existing": {
-          "openTimeMs": 1783957380000,
-          "open": 4787.66,
-          "high": 4787.806,
-          "low": 4787.271,
-          "close": 4787.594,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957380000,
-          "open": 9451.65,
-          "high": 9451.82,
-          "low": 9450.32,
-          "close": 9451.19
-        }
-      },
-      {
-        "openTimeMs": 1783957860000,
-        "existing": {
-          "openTimeMs": 1783957860000,
-          "open": 4787.28,
-          "high": 4787.319,
-          "low": 4787.036,
-          "close": 4787.3,
-          "source": "LIVE_TICKS"
-        },
-        "incoming": {
-          "openTimeMs": 1783957860000,
-          "open": 9448.03,
-          "high": 9448.44,
-          "low": 9446.82,
-          "close": 9447.22
+          "openTimeMs": 1789896000000,
+          "open": 9458.7,
+          "high": 9459.32,
+          "low": 9457.7,
+          "close": 9458.56
         }
       }
     ],
     "invalidSamples": []
   },
   "auditAfterHistoryApi": {
-    "actualCandleCount": 182708,
+    "actualCandleCount": 185153,
     "firstIso": "2026-05-01T00:01:00.000Z",
-    "lastIso": "2026-09-07T00:00:00.000Z",
-    "expectedContinuous1mCount": 185760,
-    "missingCandleCount": 3052,
-    "missingCandlePct": 0.01643,
-    "coveragePct": 0.98357,
-    "gapCount": 83,
+    "lastIso": "2026-09-20T16:45:00.000Z",
+    "expectedContinuous1mCount": 205485,
+    "missingCandleCount": 20332,
+    "missingCandlePct": 0.098946,
+    "coveragePct": 0.901054,
+    "gapCount": 84,
     "gapSizeDistribution": {
       "missing1": 22,
       "missing2to4": 32,
       "missing5to14": 3,
       "missing15to59": 9,
       "missing60to1439": 17,
-      "missing1dayPlus": 0
+      "missing1dayPlus": 1
     },
     "longestGaps": [
+      {
+        "afterIndex": 182707,
+        "fromOpenTime": 1788739200000,
+        "toOpenTime": 1789776060000,
+        "fromIso": "2026-09-07T00:00:00.000Z",
+        "toIso": "2026-09-19T00:01:00.000Z",
+        "deltaMs": 1036860000,
+        "missingMinutes": 17280,
+        "priceJumpAbs": 258.03,
+        "priceJumpPct": 0.02648
+      },
       {
         "afterIndex": 154438,
         "fromOpenTime": 1786928520000,
@@ -491,23 +160,12 @@
         "missingMinutes": 75,
         "priceJumpAbs": 6.81,
         "priceJumpPct": 0.000711
-      },
-      {
-        "afterIndex": 154501,
-        "fromOpenTime": 1786981920000,
-        "toOpenTime": 1786986300000,
-        "fromIso": "2026-08-17T15:52:00.000Z",
-        "toIso": "2026-08-17T17:05:00.000Z",
-        "deltaMs": 4380000,
-        "missingMinutes": 72,
-        "priceJumpAbs": 21.65,
-        "priceJumpPct": 0.002257
       }
     ]
   },
   "segments": {
     "maxGapMs": 120000,
-    "segmentCount": 62,
+    "segmentCount": 63,
     "largestSegmentCandleCount": 106055,
     "largestSegmentSpanMs": 6363240000,
     "segments": [
@@ -882,31 +540,37 @@
         "startIso": "2026-08-22T22:43:00.000Z",
         "endIso": "2026-09-07T00:00:00.000Z",
         "candleCount": 21678
+      },
+      {
+        "index": 62,
+        "startIso": "2026-09-19T00:01:00.000Z",
+        "endIso": "2026-09-20T16:45:00.000Z",
+        "candleCount": 2445
       }
     ]
   },
   "contiguous5m": {
-    "valid": 36477,
-    "excluded": 109
+    "valid": 36965,
+    "excluded": 111
   },
   "manifestPath": "/Users/kylehanson/Documents/GitHub/RegimeX/research-datasets/R_10_1m_manifest.json",
   "manifest": {
-    "datasetId": "R_10_1m_HISTORY_API_1788823068550",
+    "datasetId": "R_10_1m_HISTORY_API_1789922711072",
     "symbol": "R_10",
     "interval": "1m",
     "sources": [
       "HISTORY_API"
     ],
     "startOpenTime": 1777593660000,
-    "endOpenTime": 1788739200000,
+    "endOpenTime": 1789922700000,
     "startIso": "2026-05-01T00:01:00.000Z",
-    "endIso": "2026-09-07T00:00:00.000Z",
-    "rowCount": 182708,
-    "coveragePct": 0.98357,
-    "missingMinutes": 3052,
-    "gapCount": 83,
-    "contentHash": "32d1f3f175bf52b305a8505dc45b373c66323f92214d1e7917441f3d2b188c70",
-    "createdAt": "2026-09-07T23:17:48.683Z",
+    "endIso": "2026-09-20T16:45:00.000Z",
+    "rowCount": 185153,
+    "coveragePct": 0.901054,
+    "missingMinutes": 20332,
+    "gapCount": 84,
+    "contentHash": "e8ab44c41991fcca88328f6380bb61e6cb6451e10e8b5b6eb1075aebda8731da",
+    "createdAt": "2026-09-20T16:45:11.178Z",
     "notes": "Deriv HISTORY_API candles. Prefer this source for research vs mixed LIVE_TICKS/MT5. Gaps are real source gaps, not interpolated."
   }
 }

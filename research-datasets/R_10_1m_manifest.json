@@ -1,19 +1,19 @@
 {
-  "datasetId": "R_10_1m_HISTORY_API_1788823068550",
+  "datasetId": "R_10_1m_HISTORY_API_1789922711072",
   "symbol": "R_10",
   "interval": "1m",
   "sources": [
     "HISTORY_API"
   ],
   "startOpenTime": 1777593660000,
-  "endOpenTime": 1788739200000,
+  "endOpenTime": 1789922700000,
   "startIso": "2026-05-01T00:01:00.000Z",
-  "endIso": "2026-09-07T00:00:00.000Z",
-  "rowCount": 182708,
-  "coveragePct": 0.98357,
-  "missingMinutes": 3052,
-  "gapCount": 83,
-  "contentHash": "32d1f3f175bf52b305a8505dc45b373c66323f92214d1e7917441f3d2b188c70",
-  "createdAt": "2026-09-07T23:17:48.683Z",
+  "endIso": "2026-09-20T16:45:00.000Z",
+  "rowCount": 185153,
+  "coveragePct": 0.901054,
+  "missingMinutes": 20332,
+  "gapCount": 84,
+  "contentHash": "e8ab44c41991fcca88328f6380bb61e6cb6451e10e8b5b6eb1075aebda8731da",
+  "createdAt": "2026-09-20T16:45:11.178Z",
   "notes": "Deriv HISTORY_API candles. Prefer this source for research vs mixed LIVE_TICKS/MT5. Gaps are real source gaps, not interpolated."
 }

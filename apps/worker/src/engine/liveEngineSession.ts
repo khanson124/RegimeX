@@ -59,6 +59,9 @@ import {
   type SelectionCandidate,
   type TradingStrategy,
   type StrategyPerformanceRecord,
+  evaluateAutoShadowCandidates,
+  applyAutoShadowCooldownUpdates,
+  type AutoShadowEvaluationReport,
   createMt5QuotePollHealth,
   evaluateMt5QuoteWatchdog,
   isBrokerQuoteTimestampStale,
@@ -150,6 +153,10 @@ export class LiveEngineSession {
   private selection: StrategySelectionService;
   private thresholds: RegimeThresholds = DEFAULT_REGIME_THRESHOLDS;
   private lastSignalCandle = new Map<string, number>();
+  /** Shadow-only cooldown — never used for production evaluate or MT5 submission. */
+  private shadowLastSignalCandle = new Map<string, number>();
+  /** Prior bar's alternative shadow signal strategy IDs (for repeated-setup detection). */
+  private previousShadowAlternativeSignalIds = new Set<string>();
   private executedSignals = new Set<string>();
   private lastTickAt: number | null = null;
   private readonly mt5QuoteHealth: Mt5QuotePollHealth = createMt5QuotePollHealth();
@@ -1380,6 +1387,23 @@ export class LiveEngineSession {
           : undefined
     });
 
+    // Opt-in observational shadow — never submits, never touches production cooldown/selection.
+    if (this.deps.config.FEATURE_AUTO_SHADOW_EVAL && this.engineSelectionMode === "AUTO") {
+      try {
+        await this.runAutoShadowEval({
+          eligible,
+          selectionResult,
+          productionDecision: decision,
+          regime,
+          features,
+          latest,
+          correlationId
+        });
+      } catch (err) {
+        this.log.warn({ err, correlationId, symbol: this.symbol }, "AUTO_SHADOW_EVAL failed (non-fatal)");
+      }
+    }
+
     if (decision.action === "HOLD") {
       await this.recordCandidate(latest, correlationId, {
         decisionCode: "NO_SIGNAL",
@@ -2574,6 +2598,136 @@ export class LiveEngineSession {
       data: { state, stateReason: reason }
     });
     await this.deps.publish(this.userId, "engine.status", { state, reason, mode: this.mode });
+  }
+
+  /**
+   * Observational AUTO shadow: evaluate every production-eligible strategy on the
+   * same closed candle. Must never call MT5/paper execute, create executable intents,
+   * mutate lastSignalCandle, or change selection.
+   */
+  private async runAutoShadowEval(input: {
+    eligible: LoadedStrategy[];
+    selectionResult: StrategySelectionResult;
+    productionDecision: import("@regimex/shared").StrategyDecision;
+    regime: import("@regimex/shared").RegimeResult;
+    features: ReturnType<typeof extractFeatures>;
+    latest: import("@regimex/shared").MarketFeatureSnapshot;
+    correlationId: string;
+  }): Promise<AutoShadowEvaluationReport> {
+    const productionCooldownSnapshot = new Map(this.lastSignalCandle);
+    const { report, shadowCooldownUpdates } = evaluateAutoShadowCandidates({
+      timestampMs: input.latest.timestamp,
+      openTimeMs: this.candles[this.candles.length - 1]?.openTime ?? input.latest.timestamp,
+      candleIndex: this.candleIndex,
+      symbol: this.symbol,
+      interval: this.interval,
+      executionBackend: this.executionBackend,
+      regime: input.regime.regime,
+      regimeConfidence: input.regime.confidence,
+      selectionResult: input.selectionResult,
+      productionDecision: input.productionDecision,
+      eligible: input.eligible.map((s) => ({
+        strategy: s.strategy,
+        parameters: s.parameters
+      })),
+      context: {
+        candles: this.candles,
+        features: input.features,
+        regime: input.regime,
+        contextCandles:
+          this.mt5ContextCandles.size > 0
+            ? Object.fromEntries(this.mt5ContextCandles.entries())
+            : undefined
+      },
+      shadowLastSignalCandle: this.shadowLastSignalCandle,
+      previousAlternativeSignalIds: this.previousShadowAlternativeSignalIds,
+      forwardTrialBlockReason: (ftInput) => {
+        if (shouldBlockR10SqueezeForwardTrial(ftInput)) {
+          return R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON;
+        }
+        if (
+          shouldBlockXauUsdForwardTrialExecution({
+            ...ftInput,
+            realMoneyEnabled: this.deps.config.REAL_MONEY_ENABLED
+          })
+        ) {
+          return XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON;
+        }
+        return null;
+      }
+    });
+
+    // Apply shadow cooldown only — production map must remain unchanged.
+    applyAutoShadowCooldownUpdates(this.shadowLastSignalCandle, shadowCooldownUpdates);
+    this.previousShadowAlternativeSignalIds = new Set(report.alternativeSignalStrategyIds);
+
+    // Defense in depth: refuse to silently mutate production cooldown from shadow path.
+    for (const [k, v] of productionCooldownSnapshot) {
+      if (this.lastSignalCandle.get(k) !== v) {
+        this.log.error(
+          { strategyId: k, correlationId: input.correlationId },
+          "AUTO_SHADOW_EVAL invariant violated: production cooldown mutated"
+        );
+        this.lastSignalCandle.set(k, v);
+      }
+    }
+    for (const k of this.lastSignalCandle.keys()) {
+      if (!productionCooldownSnapshot.has(k)) {
+        this.log.error(
+          { strategyId: k, correlationId: input.correlationId },
+          "AUTO_SHADOW_EVAL invariant violated: production cooldown gained key"
+        );
+        this.lastSignalCandle.delete(k);
+      }
+    }
+
+    await this.logDecision("AUTO_SHADOW_EVAL", [report.comparisonSummary], {
+      regime: report.regime,
+      regimeConfidence: report.regimeConfidence,
+      strategyId: report.production.selectedStrategyId ?? undefined,
+      action: report.production.action ?? undefined,
+      correlationId: input.correlationId,
+      featureSummary: {
+        shadowOnly: true,
+        executionReadiness: "NOT_ASSESSED",
+        productionHoldWithAlternativeSignals: report.productionHoldWithAlternativeSignals,
+        alternativeSignalStrategyIds: report.alternativeSignalStrategyIds,
+        independentAlternativeSignalStrategyIds: report.independentAlternativeSignalStrategyIds,
+        repeatedAlternativeSignalStrategyIds: report.repeatedAlternativeSignalStrategyIds,
+        candidates: report.candidates.map((c) => ({
+          strategyId: c.strategyId,
+          rank: c.rank,
+          action: c.action,
+          entryReason: c.entryReason.slice(0, 3),
+          invalidationReason: c.invalidationReason.slice(0, 2),
+          shadowSignalEligible: c.shadowSignalEligible,
+          forwardTrialBlocked: c.forwardTrialBlocked,
+          forwardTrialReason: c.forwardTrialReason,
+          executionReadiness: c.executionReadiness,
+          repeatedSetup: c.repeatedSetup,
+          isProductionSelected: c.isProductionSelected
+        })),
+        comparisonSummary: report.comparisonSummary,
+        openTimeMs: report.openTimeMs,
+        interval: this.interval,
+        internalSymbol: this.symbol,
+        engineSelectionMode: this.engineSelectionMode,
+        allowlist: resolveMt5EngineStrategyAllowlist(this.deps.config)
+      }
+    });
+
+    this.log.info(
+      {
+        event: "AUTO_SHADOW_EVAL",
+        correlationId: input.correlationId,
+        summary: report.comparisonSummary,
+        productionHoldWithAlternativeSignals: report.productionHoldWithAlternativeSignals,
+        alternativeSignalStrategyIds: report.alternativeSignalStrategyIds
+      },
+      "AUTO_SHADOW_EVAL"
+    );
+
+    return report;
   }
 
   private async recordCandidate(

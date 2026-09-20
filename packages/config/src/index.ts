@@ -30,6 +30,13 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   /** Feature flag: ensemble strategy voting. */
   FEATURE_ENSEMBLE_VOTING: envBoolean.default(false),
+  /**
+   * Opt-in AUTO shadow evaluation: after production winner evaluate, also evaluate
+   * every production-eligible strategy on the same closed candle for comparison logs.
+   * Shadow never submits orders, never consumes production cooldown, never changes selection.
+   * Defaults OFF.
+   */
+  FEATURE_AUTO_SHADOW_EVAL: envBoolean.default(false),
   /** Hard switch: demo trade execution. Defaults OFF. */
   DEMO_TRADING_ENABLED: envBoolean.default(false),
   /**

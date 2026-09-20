@@ -42,6 +42,7 @@ export * from "./selection/strategySelector.js";
 export * from "./selection/sampleConfidence.js";
 export * from "./selection/strategyVersioning.js";
 export * from "./selection/cfdPerformanceRecords.js";
+export * from "./selection/autoShadowEvaluator.js";
 export * from "./ensemble/ensemble.js";
 
 // Candles
@@ -147,6 +148,7 @@ export * from "./research/cfdPromotion.js";
 export * from "./research/strategyLifecycle.js";
 export * from "./research/mt5ForwardLedger.js";
 export * from "./research/evidenceRanking.js";
+export * from "./research/autoSelectionCounterfactualReplay.js";
 export * from "./logging/redactSecrets.js";
 export * from "./logging/oncePerCode.js";
 

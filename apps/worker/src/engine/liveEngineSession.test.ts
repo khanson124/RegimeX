@@ -115,4 +115,41 @@ describe("live engine execution isolation", () => {
     expect(analyze).toBeGreaterThan(bufferPush);
     expect(onCloseBody).toMatch(/if \(!shouldIngestMt5ClosedCandle[\s\S]*?return;[\s\S]*?prisma\.candle\.upsert/);
   });
+
+  it("AUTO shadow eval is opt-in, observational, and cannot submit or mutate production cooldown", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    expect(src).toContain("FEATURE_AUTO_SHADOW_EVAL");
+    expect(src).toContain("evaluateAutoShadowCandidates");
+    expect(src).toContain("shadowLastSignalCandle");
+    expect(src).toContain("runAutoShadowEval");
+    expect(src).toContain('logDecision("AUTO_SHADOW_EVAL"');
+
+    const shadowFnStart = src.indexOf("private async runAutoShadowEval");
+    const shadowFnEnd = src.indexOf("private async recordCandidate", shadowFnStart);
+    const shadowBody = src.slice(shadowFnStart, shadowFnEnd);
+    expect(shadowBody).not.toContain("executeCfdSignal");
+    expect(shadowBody).not.toContain("executeTrade");
+    expect(shadowBody).not.toContain("prisma.signal.create");
+    expect(shadowBody).not.toContain("applyAutoShadowCooldownUpdates(this.lastSignalCandle");
+    expect(shadowBody).toContain("applyAutoShadowCooldownUpdates(this.shadowLastSignalCandle");
+    expect(shadowBody).toContain('executionReadiness: "NOT_ASSESSED"');
+    expect(shadowBody).toContain("productionCooldownSnapshot");
+    // Production cooldown writes appear only in the invariant restore path.
+    expect(shadowBody).toContain("AUTO_SHADOW_EVAL invariant violated: production cooldown mutated");
+    const cooldownSets = shadowBody.match(/this\.lastSignalCandle\.set/g) ?? [];
+    expect(cooldownSets.length).toBe(1);
+
+    // Shadow runs after production evaluate, before HOLD/signal branching — must not replace evaluate.
+    const analyzeStart = src.indexOf("private async analyze(");
+    const analyzeEnd = src.indexOf("private async executeTrade(", analyzeStart);
+    const analyzeBody = src.slice(analyzeStart, analyzeEnd);
+    const prodEval = analyzeBody.indexOf("chosen.strategy.evaluate({");
+    const shadowCall = analyzeBody.indexOf("await this.runAutoShadowEval({");
+    const holdBranch = analyzeBody.indexOf('if (decision.action === "HOLD")');
+    const signalCreate = analyzeBody.indexOf("prisma.signal.create");
+    expect(prodEval).toBeGreaterThan(-1);
+    expect(shadowCall).toBeGreaterThan(prodEval);
+    expect(holdBranch).toBeGreaterThan(shadowCall);
+    expect(signalCreate).toBeGreaterThan(holdBranch);
+  });
 });
