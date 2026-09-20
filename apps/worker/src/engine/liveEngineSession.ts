@@ -65,13 +65,15 @@ import {
   mt5ErrorCodeFromUnknown,
   MT5_BRIDGE_CIRCUIT_OPEN,
   MT5_BROKER_QUOTE_STALE,
-  MT5_QUOTE_FEED_UNAVAILABLE,
+  MT5_SYMBOL_MARKET_CLOSED,
+  MT5_SYMBOL_QUOTE_UNAVAILABLE,
   recordMt5QuotePollAttempt,
   recordMt5QuotePollFailure,
   recordMt5QuotePollSuccess,
   shouldConsumeStrategySignalCooldown,
   Mt5PassiveSpreadSampler,
-  type Mt5QuotePollHealth
+  type Mt5QuotePollHealth,
+  type Mt5SessionHealthContribution
 } from "@regimex/trading-engine";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
 import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
@@ -104,6 +106,11 @@ export interface SessionDeps {
   logger: Logger;
   credentialDecrypt: (ciphertext: string) => string;
   enqueueCounterfactual?: (candidateId: string) => Promise<void>;
+  /**
+   * Multi-symbol: EngineManager reconciles shared LiveEngine.state from all
+   * session contributions so one closed symbol cannot overwrite another.
+   */
+  reconcileMt5SharedEngineHealth?: (userId: string) => Promise<void>;
 }
 
 interface LoadedStrategy {
@@ -1573,6 +1580,38 @@ export class LiveEngineSession {
         });
         return;
       }
+      const quoteWatchdog = evaluateMt5QuoteWatchdog({
+        now: Date.now(),
+        staleDataMs: STALE_DATA_MS,
+        brokerQuoteMaxAgeMs: STALE_DATA_MS,
+        circuitState: getSharedMt5BridgeCircuit().snapshot().circuitState,
+        health: this.mt5QuoteHealth,
+        lastTickAt: this.lastTickAt
+      });
+      if (!quoteWatchdog.symbolTradable) {
+        await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
+        await this.logAutonomousDecision(
+          "NO_TRADE",
+          [
+            quoteWatchdog.reasonCode ?? "MT5_SYMBOL_NON_TRADABLE",
+            quoteWatchdog.detail ?? "Symbol quote feed non-tradable — order not submitted"
+          ],
+          {
+            strategyId: chosen.strategy.id,
+            action: decision.action,
+            correlationId,
+            regime: regime.regime,
+            regimeConfidence: regime.confidence,
+            featureSummary: {
+              symbol: this.symbol,
+              reasonCode: quoteWatchdog.reasonCode,
+              shouldDegradeShared: quoteWatchdog.shouldDegradeShared,
+              quotePollHealth: this.mt5QuoteHealth
+            }
+          }
+        );
+        return;
+      }
       if (!isCfdCapableStrategy(chosen.strategy.id)) {
         await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
         await this.logAutonomousDecision("NO_TRADE", [
@@ -2075,38 +2114,79 @@ export class LiveEngineSession {
           health: this.mt5QuoteHealth,
           lastTickAt: this.lastTickAt
         });
-        const running =
-          engine.state === "RUNNING_ANALYSIS_ONLY" ||
-          engine.state === "RUNNING_DEMO_TRADING" ||
-          engine.state === "RUNNING_LIVE_TRADING";
-        if (watchdog.shouldDegrade && running) {
-          await this.setState("DEGRADED", watchdog.stateReason ?? "Market data unavailable");
-          if (watchdog.reasonCode !== this.lastDegradedReasonCode) {
-            this.lastDegradedReasonCode = watchdog.reasonCode;
-            await this.logDecision("ENGINE_DEGRADED", [watchdog.detail ?? watchdog.stateReason ?? "Degraded"], {
-              featureSummary: {
-                reasonCode: watchdog.reasonCode,
-                quotePollHealth: this.mt5QuoteHealth,
-                circuitState: circuit.circuitState,
-                lastTickAt: this.lastTickAt
-              }
-            });
-            await publish(this.userId, "system.warning", {
-              message: `Engine degraded: ${watchdog.stateReason}`
-            });
-          }
-        } else if (!watchdog.shouldDegrade && engine.state === "DEGRADED" && !this.paused) {
-          const state = this.runningStateForMode();
-          await this.setState(state, "Market data recovered");
-          if (this.lastDegradedReasonCode !== null) {
-            await this.logDecision("ENGINE_RECOVERED", ["Trustworthy MT5 quote feed resumed"], {
-              featureSummary: {
-                previousReasonCode: this.lastDegradedReasonCode,
-                quotePollHealth: this.mt5QuoteHealth,
-                lastTickAt: this.lastTickAt
-              }
-            });
-            this.lastDegradedReasonCode = null;
+
+        // Per-symbol closed/unavailable: log once, never flip shared LiveEngine alone.
+        if (
+          !watchdog.symbolTradable &&
+          !watchdog.shouldDegradeShared &&
+          watchdog.reasonCode !== this.lastDegradedReasonCode
+        ) {
+          this.lastDegradedReasonCode = watchdog.reasonCode;
+          await this.logDecision("ENGINE_DEGRADED", [watchdog.detail ?? watchdog.stateReason ?? "Symbol non-tradable"], {
+            featureSummary: {
+              scope: "symbol",
+              symbol: this.symbol,
+              reasonCode: watchdog.reasonCode,
+              quotePollHealth: this.mt5QuoteHealth,
+              circuitState: circuit.circuitState,
+              lastTickAt: this.lastTickAt,
+              shouldDegradeShared: false
+            }
+          });
+        } else if (watchdog.symbolTradable && this.lastDegradedReasonCode != null && !watchdog.shouldDegradeShared) {
+          const previous = this.lastDegradedReasonCode;
+          this.lastDegradedReasonCode = null;
+          await this.logDecision("ENGINE_RECOVERED", [`Symbol ${this.symbol} quote feed resumed`], {
+            featureSummary: {
+              scope: "symbol",
+              symbol: this.symbol,
+              previousReasonCode: previous,
+              quotePollHealth: this.mt5QuoteHealth,
+              lastTickAt: this.lastTickAt
+            }
+          });
+        }
+
+        // Shared row: Manager aggregates all sessions (R_10 must not recover while circuit is OPEN).
+        if (this.deps.reconcileMt5SharedEngineHealth) {
+          await this.deps.reconcileMt5SharedEngineHealth(this.userId);
+        } else {
+          // Fallback single-session: preserve prior infra degrade/recover behavior.
+          const running =
+            engine.state === "RUNNING_ANALYSIS_ONLY" ||
+            engine.state === "RUNNING_DEMO_TRADING" ||
+            engine.state === "RUNNING_LIVE_TRADING";
+          if (watchdog.shouldDegradeShared && running) {
+            await this.setState("DEGRADED", watchdog.stateReason ?? "Market data unavailable");
+            if (watchdog.reasonCode !== this.lastDegradedReasonCode) {
+              this.lastDegradedReasonCode = watchdog.reasonCode;
+              await this.logDecision("ENGINE_DEGRADED", [watchdog.detail ?? watchdog.stateReason ?? "Degraded"], {
+                featureSummary: {
+                  scope: "shared",
+                  reasonCode: watchdog.reasonCode,
+                  quotePollHealth: this.mt5QuoteHealth,
+                  circuitState: circuit.circuitState,
+                  lastTickAt: this.lastTickAt
+                }
+              });
+              await publish(this.userId, "system.warning", {
+                message: `Engine degraded: ${watchdog.stateReason}`
+              });
+            }
+          } else if (!watchdog.shouldDegradeShared && engine.state === "DEGRADED" && !this.paused) {
+            const state = this.runningStateForMode();
+            await this.setState(state, "Market data recovered");
+            if (this.lastDegradedReasonCode !== null) {
+              await this.logDecision("ENGINE_RECOVERED", ["Trustworthy MT5 quote feed resumed"], {
+                featureSummary: {
+                  scope: "shared",
+                  previousReasonCode: this.lastDegradedReasonCode,
+                  quotePollHealth: this.mt5QuoteHealth,
+                  lastTickAt: this.lastTickAt
+                }
+              });
+              this.lastDegradedReasonCode = null;
+            }
           }
         }
       } else {
@@ -2133,11 +2213,16 @@ export class LiveEngineSession {
         }
       }
 
+      const tickUpdate =
+        this.lastTickAt != null &&
+        (engine.lastTickAt == null || this.lastTickAt > engine.lastTickAt.getTime())
+          ? { lastTickAt: new Date(this.lastTickAt) }
+          : {};
       await prisma.liveEngine.update({
         where: { id: this.engineId },
         data: {
           lastHeartbeatAt: new Date(),
-          ...(this.lastTickAt ? { lastTickAt: new Date(this.lastTickAt) } : {})
+          ...tickUpdate
         }
       });
       if (this.isMt5Backend() && this.mt5Cfd) {
@@ -2205,7 +2290,7 @@ export class LiveEngineSession {
       }
       const quote = await this.mt5Cfd.getQuote(this.symbol);
       if (!quote) {
-        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_QUOTE_FEED_UNAVAILABLE, now);
+        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_SYMBOL_QUOTE_UNAVAILABLE, now);
         return;
       }
       // Closed markets / bad ticks can return zero or non-finite mids — never feed OHLC.
@@ -2214,7 +2299,7 @@ export class LiveEngineSession {
         !isUsableMt5QuotePrice(quote.bid) ||
         !isUsableMt5QuotePrice(quote.ask)
       ) {
-        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_QUOTE_FEED_UNAVAILABLE, now);
+        recordMt5QuotePollFailure(this.mt5QuoteHealth, MT5_SYMBOL_MARKET_CLOSED, now, quote.timestamp);
         this.log.debug(
           { symbol: this.symbol, mid: quote.mid, bid: quote.bid, ask: quote.ask },
           "MT5 quote ignored — non-positive or non-finite price (market likely closed)"
@@ -2443,6 +2528,37 @@ export class LiveEngineSession {
 
   private isMt5Backend(): boolean {
     return this.executionBackend === "broker_demo_mt5" || this.executionBackend === "broker_real_mt5";
+  }
+
+  /** Snapshot for EngineManager shared-row aggregation. */
+  getMt5SessionHealthContribution(): Mt5SessionHealthContribution | null {
+    if (!this.isMt5Backend() || !this.symbol) return null;
+    const circuit = getSharedMt5BridgeCircuit().snapshot();
+    const watchdog = evaluateMt5QuoteWatchdog({
+      now: Date.now(),
+      staleDataMs: STALE_DATA_MS,
+      brokerQuoteMaxAgeMs: STALE_DATA_MS,
+      circuitState: circuit.circuitState,
+      health: this.mt5QuoteHealth,
+      lastTickAt: this.lastTickAt
+    });
+    return {
+      symbol: this.symbol,
+      shouldDegradeShared: watchdog.shouldDegradeShared,
+      reasonCode: watchdog.reasonCode,
+      stateReason: watchdog.stateReason,
+      symbolTradable: watchdog.symbolTradable,
+      lastTickAt: this.lastTickAt
+    };
+  }
+
+  /** Running mode used when aggregate health recovers the shared row. */
+  getRunningStateForMode(): EngineState {
+    return this.runningStateForMode();
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   private runningStateForMode(): EngineState {

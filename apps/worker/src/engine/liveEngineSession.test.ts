@@ -81,6 +81,23 @@ describe("live engine execution isolation", () => {
     const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
     expect(src).toContain("isUsableMt5QuotePrice");
     expect(src).toContain("market likely closed");
+    expect(src).toContain("MT5_SYMBOL_MARKET_CLOSED");
+    expect(src).toContain("MT5_SYMBOL_QUOTE_UNAVAILABLE");
+  });
+
+  it("multi-symbol: shared health reconcile + symbolTradable execute gate", () => {
+    const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
+    expect(src).toContain("reconcileMt5SharedEngineHealth");
+    expect(src).toContain("getMt5SessionHealthContribution");
+    expect(src).toContain("symbolTradable");
+    expect(src).toContain('scope: "symbol"');
+    const mgr = readFileSync(join(here, "engineManager.ts"), "utf8");
+    expect(mgr).toContain("aggregateMt5SessionHealth");
+    expect(mgr).toContain("reconcileMt5SharedEngineHealth");
+    // Repeated START still stops then starts all configs.
+    expect(mgr).toContain('case "START"');
+    expect(mgr).toContain("stopSessionsForUser(userId, \"Restarting\")");
+    expect(mgr).toContain("startSessions(userId, { allowTradingResume: true })");
   });
 
   it("F: rejected MT5 candles return before persistence, buffer push, and analyze", () => {

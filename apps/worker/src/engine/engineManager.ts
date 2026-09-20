@@ -1,7 +1,8 @@
 import { type PrismaClient } from "@regimex/database";
 import { type AppConfig } from "@regimex/config";
-import { CHANNELS, type EngineControlMessage } from "@regimex/shared";
+import { CHANNELS, type EngineControlMessage, type EngineState } from "@regimex/shared";
 import {
+  aggregateMt5SessionHealth,
   engineSessionKey,
   listSessionKeysForUser,
   parseEngineSessionKey
@@ -19,9 +20,13 @@ import { LiveEngineSession, type SessionDeps } from "./liveEngineSession.js";
  *
  * Sessions are keyed by `userId::symbol` so R_10 and XAUUSD can run in parallel
  * on the same DEMO account. Account-wide capacity/risk remains user-scoped.
+ * Shared LiveEngine.state is reconciled from all MT5 session health contributions
+ * so one closed-market symbol cannot overwrite another session's readiness.
  */
 export class EngineManager {
   private readonly sessions = new Map<string, LiveEngineSession>();
+  private readonly lastSharedDegradeReason = new Map<string, string | null>();
+  private readonly sharedHealthInFlight = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -40,8 +45,118 @@ export class EngineManager {
       publish: this.publish,
       logger: this.logger,
       credentialDecrypt: this.credentialDecrypt,
-      enqueueCounterfactual: this.enqueueCounterfactual
+      enqueueCounterfactual: this.enqueueCounterfactual,
+      reconcileMt5SharedEngineHealth: (userId) => this.reconcileMt5SharedEngineHealth(userId)
     };
+  }
+
+  /**
+   * Aggregate per-symbol quote health → one LiveEngine.state.
+   * Infra failures (circuit/stale/feed loss) degrade shared row.
+   * Closed-market / symbol-local unavailability does not.
+   */
+  async reconcileMt5SharedEngineHealth(userId: string): Promise<void> {
+    if (this.sharedHealthInFlight.has(userId)) return;
+    this.sharedHealthInFlight.add(userId);
+    try {
+      const userSessions = this.sessionsForUser(userId);
+      const contributions = userSessions
+        .map(({ session }) => session.getMt5SessionHealthContribution())
+        .filter((c): c is NonNullable<typeof c> => c != null);
+      if (contributions.length === 0) return;
+
+      const aggregate = aggregateMt5SessionHealth(contributions);
+      const engine = await this.prisma.liveEngine.findUnique({ where: { userId } });
+      if (!engine) return;
+
+      const anyPaused = userSessions.some(({ session }) => session.isPaused());
+      const running =
+        engine.state === "RUNNING_ANALYSIS_ONLY" ||
+        engine.state === "RUNNING_DEMO_TRADING" ||
+        engine.state === "RUNNING_LIVE_TRADING";
+
+      if (aggregate.sharedDegraded && running) {
+        const reason = aggregate.stateReason ?? "Market data unavailable";
+        await this.prisma.liveEngine.update({
+          where: { id: engine.id },
+          data: {
+            state: "DEGRADED",
+            stateReason: reason,
+            ...(aggregate.newestLastTickAt
+              ? { lastTickAt: new Date(aggregate.newestLastTickAt) }
+              : {})
+          }
+        });
+        await this.publish(userId, "engine.status", {
+          state: "DEGRADED" satisfies EngineState,
+          reason,
+          mode: null
+        });
+        if (this.lastSharedDegradeReason.get(userId) !== aggregate.reasonCode) {
+          this.lastSharedDegradeReason.set(userId, aggregate.reasonCode);
+          await this.prisma.decisionLog.create({
+            data: {
+              userId,
+              eventType: "ENGINE_DEGRADED",
+              reasons: [aggregate.detail],
+              correlationId: `shared_health_${Date.now()}`,
+              engineVersion: this.config.ENGINE_VERSION,
+              featureSummary: {
+                scope: "shared",
+                reasonCode: aggregate.reasonCode,
+                degradedSymbols: aggregate.degradedSymbols,
+                nonTradableSymbols: aggregate.nonTradableSymbols
+              }
+            }
+          });
+          await this.publish(userId, "system.warning", {
+            message: `Engine degraded: ${reason}`
+          });
+        }
+        return;
+      }
+
+      if (aggregate.canRecoverShared && engine.state === "DEGRADED" && !anyPaused) {
+        const primary = userSessions[0]?.session;
+        const nextState = primary?.getRunningStateForMode() ?? "RUNNING_ANALYSIS_ONLY";
+        await this.prisma.liveEngine.update({
+          where: { id: engine.id },
+          data: {
+            state: nextState,
+            stateReason: aggregate.detail,
+            ...(aggregate.newestLastTickAt
+              ? { lastTickAt: new Date(aggregate.newestLastTickAt) }
+              : {})
+          }
+        });
+        await this.publish(userId, "engine.status", {
+          state: nextState,
+          reason: aggregate.detail,
+          mode: null
+        });
+        if (this.lastSharedDegradeReason.get(userId) != null) {
+          await this.prisma.decisionLog.create({
+            data: {
+              userId,
+              eventType: "ENGINE_RECOVERED",
+              reasons: ["Shared MT5 infra quote health recovered across sessions"],
+              correlationId: `shared_health_${Date.now()}`,
+              engineVersion: this.config.ENGINE_VERSION,
+              featureSummary: {
+                scope: "shared",
+                previousReasonCode: this.lastSharedDegradeReason.get(userId),
+                nonTradableSymbols: aggregate.nonTradableSymbols
+              }
+            }
+          });
+          this.lastSharedDegradeReason.set(userId, null);
+        }
+      }
+    } catch (err) {
+      this.logger.warn({ err, userId }, "Shared MT5 engine health reconcile failed");
+    } finally {
+      this.sharedHealthInFlight.delete(userId);
+    }
   }
 
   private sessionsForUser(userId: string): Array<{ key: string; session: LiveEngineSession }> {
@@ -67,6 +182,7 @@ export class EngineManager {
       }
       this.sessions.delete(key);
     }
+    this.lastSharedDegradeReason.delete(userId);
   }
 
   async init(): Promise<void> {
