@@ -819,6 +819,69 @@ describe("MT5 history reconstruction and reconciliation", () => {
     expect(evidence.pendingHistory).toBe(true);
   });
 
+  it("reconstructs DEMO closes when OUT deal magic is 0 and IN retains RegimeX magic", async () => {
+    const { adapter, mock } = await connectedAdapter();
+    const opened = await adapter.openMarketPosition(openReq({ idempotencyKey: "mixed-magic-out" }));
+    const ticket = Number(opened.brokerPositionId);
+    const out = mock.brokerClose(ticket, "TP", { price: 1010, profit: 2.77 });
+    // Simulate MT5 assigning magic 0 on the exit deal while entry keeps configured magic.
+    out.magic = 0;
+    const evidence = await adapter.reconstructClosedPosition(ticket);
+    expect(evidence.found).toBe(true);
+    expect(evidence.pendingHistory).toBe(false);
+    expect(evidence.realizedPnl).toBe(2.77);
+    expect(evidence.exitPrice).toBe(1010);
+    expect(evidence.closeReason).toBe("TAKE_PROFIT");
+    expect(evidence.exitDealTicket).toBe(out.dealTicket);
+  });
+
+  it("fail-closed for reconstruct when history has no owned RegimeX entry", async () => {
+    const { adapter, mock } = await connectedAdapter();
+    const foreignTicket = 5773601245;
+    mock.deals.push({
+      dealTicket: 9001,
+      orderTicket: 9000,
+      positionTicket: foreignTicket,
+      symbol: instrument.symbol,
+      direction: "BUY",
+      volume: 0.01,
+      price: 9500,
+      profit: 0,
+      commission: 0,
+      swap: 0,
+      fee: 0,
+      comment: "foreign",
+      magic: 11111111,
+      time: Date.now() - 60_000,
+      entry: "IN",
+      reason: "CLIENT",
+      reasonRaw: "CLIENT"
+    });
+    mock.deals.push({
+      dealTicket: 9002,
+      orderTicket: 9000,
+      positionTicket: foreignTicket,
+      symbol: instrument.symbol,
+      direction: "BUY",
+      volume: 0.01,
+      price: 9505,
+      profit: 3.16,
+      commission: 0,
+      swap: 0,
+      fee: 0,
+      comment: "foreign-out",
+      magic: 0,
+      time: Date.now(),
+      entry: "OUT",
+      reason: "TP",
+      reasonRaw: "TP"
+    });
+    const evidence = await adapter.reconstructClosedPosition(foreignTicket);
+    expect(evidence.found).toBe(false);
+    expect(evidence.pendingHistory).toBe(false);
+    expect(evidence.realizedPnl).toBeNull();
+  });
+
   it("uses deal profit as authoritative realized P&L", () => {
     const evidence = reconstructClosedPositionFromDeals({
       magic: DEFAULT_MT5_MAGIC,

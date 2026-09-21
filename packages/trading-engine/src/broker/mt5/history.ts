@@ -76,7 +76,8 @@ export function filterHistoryDeals(
   query: Mt5HistoryQuery = {}
 ): Mt5HistoryDeal[] {
   return deals.filter((d) => {
-    if (query.magic != null && d.magic !== query.magic) return false;
+    // Match EA HandleHistory: magicFilter == 0 means no magic filter.
+    if (query.magic != null && query.magic !== 0 && d.magic !== query.magic) return false;
     if (query.positionTicket != null && d.positionTicket !== query.positionTicket) return false;
     if (query.orderTicket != null && d.orderTicket !== query.orderTicket) return false;
     if (query.dealTicket != null && d.dealTicket !== query.dealTicket) return false;
@@ -86,25 +87,14 @@ export function filterHistoryDeals(
   });
 }
 
-/**
- * Reconstruct a closed position from MT5 deals.
- * Realized P&L / commission / swap come from broker deals, not local price math.
- * If the position is gone but no OUT deal is visible yet, pendingHistory stays true.
- */
-export function reconstructClosedPositionFromDeals(input: {
-  deals: Mt5HistoryDeal[];
-  positionTicket: number;
-  magic: number;
-}): Mt5ClosedPositionEvidence {
-  const owned = input.deals.filter(
-    (d) => d.positionTicket === input.positionTicket && d.magic === input.magic
-  );
-  const entries = owned.filter((d) => d.entry === "IN" || d.entry === "INOUT");
-  const exits = owned.filter((d) => d.entry === "OUT" || d.entry === "INOUT");
-  const empty: Mt5ClosedPositionEvidence = {
+function emptyClosedEvidence(
+  positionTicket: number,
+  pendingHistory: boolean
+): Mt5ClosedPositionEvidence {
+  return {
     found: false,
-    pendingHistory: true,
-    positionTicket: input.positionTicket,
+    pendingHistory,
+    positionTicket,
     orderTicket: null,
     entryDealTicket: null,
     exitDealTicket: null,
@@ -121,28 +111,63 @@ export function reconstructClosedPositionFromDeals(input: {
     brokerReason: null,
     brokerReasonRaw: null
   };
-  if (!exits.length) return empty;
+}
 
+/**
+ * Reconstruct a closed position from MT5 deals.
+ *
+ * Ownership is established only from an IN/INOUT entry deal with the configured
+ * RegimeX magic. Once owned, all deals for that positionTicket are included
+ * (including OUT deals with magic 0, which MT5 often assigns on broker closes).
+ *
+ * Realized P&L / commission / swap come from broker deals, not local price math.
+ * Fail-closed when ownership cannot be verified, exit is missing, or history is empty.
+ */
+export function reconstructClosedPositionFromDeals(input: {
+  deals: Mt5HistoryDeal[];
+  positionTicket: number;
+  magic: number;
+}): Mt5ClosedPositionEvidence {
+  const forPosition = input.deals.filter((d) => d.positionTicket === input.positionTicket);
+  const ownedEntries = forPosition.filter(
+    (d) => (d.entry === "IN" || d.entry === "INOUT") && d.magic === input.magic
+  );
+
+  if (!ownedEntries.length) {
+    const foreignEntries = forPosition.filter((d) => d.entry === "IN" || d.entry === "INOUT");
+    // History present for this ticket but no RegimeX-magic entry → not ours (do not keep pending).
+    if (foreignEntries.length > 0) {
+      return emptyClosedEvidence(input.positionTicket, false);
+    }
+    // No entry visible yet (empty or OUT-only) → keep pending.
+    return emptyClosedEvidence(input.positionTicket, true);
+  }
+
+  const exits = forPosition.filter((d) => d.entry === "OUT" || d.entry === "INOUT");
+  if (!exits.length) {
+    return emptyClosedEvidence(input.positionTicket, true);
+  }
+
+  const firstEntry = ownedEntries[0]!;
   const lastExit = exits[exits.length - 1]!;
-  const firstEntry = entries[0];
   const sum = (pick: (d: Mt5HistoryDeal) => number | null | undefined) =>
-    owned.reduce((acc, d) => acc + (pick(d) ?? 0), 0);
+    forPosition.reduce((acc, d) => acc + (pick(d) ?? 0), 0);
   const brokerReason = mapDealReason(lastExit.reason ?? lastExit.reasonRaw);
   return {
     found: true,
     pendingHistory: false,
     positionTicket: input.positionTicket,
-    orderTicket: lastExit.orderTicket ?? firstEntry?.orderTicket ?? null,
-    entryDealTicket: firstEntry?.dealTicket ?? null,
+    orderTicket: lastExit.orderTicket ?? firstEntry.orderTicket ?? null,
+    entryDealTicket: firstEntry.dealTicket,
     exitDealTicket: lastExit.dealTicket,
     volume: lastExit.volume,
-    entryPrice: firstEntry?.price ?? null,
+    entryPrice: firstEntry.price,
     exitPrice: lastExit.price,
     realizedPnl: sum((d) => d.profit),
     commission: sum((d) => d.commission),
     swap: sum((d) => d.swap),
     fee: sum((d) => d.fee),
-    openedAt: firstEntry?.time ?? null,
+    openedAt: firstEntry.time,
     closedAt: lastExit.time,
     closeReason: mapBrokerReasonToCloseReason(brokerReason, lastExit.comment),
     brokerReason,

@@ -741,8 +741,10 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
   async reconstructClosedPosition(positionTicket: number): Promise<Mt5ClosedPositionEvidence> {
     let deals: Mt5HistoryDeal[] = [];
     try {
+      // magic: 0 matches EA HandleHistory (no magic filter). OUT deals from SL/TP/manual
+      // closes often carry magic 0 while the IN entry retains the RegimeX magic.
       deals = await this.getHistoryDeals({
-        magic: this.config.magic,
+        magic: 0,
         positionTicket
       });
     } catch {
