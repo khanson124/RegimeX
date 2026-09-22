@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-09-22T18:22:02.480Z",
+  "status": "NO_MT5_CANDLES_IN_REACHABLE_DB",
+  "continuity": {
+    "barCount": 0,
+    "firstIso": null,
+    "lastIso": null,
+    "sources": [],
+    "duplicateOpenTimes": [],
+    "gapCount": 0,
+    "gaps": [],
+    "nonAscending": false,
+    "incompleteRejected": 0,
+    "nonMt5Rejected": 0,
+    "continuous1m": false
+  },
+  "exportRequired": {
+    "symbol": "R_10",
+    "interval": "1m",
+    "sources": [
+      "MT5_LIVE_TICKS",
+      "MT5_HISTORY"
+    ],
+    "isComplete": true,
+    "openTimeInclusive": "2026-09-21T09:00:00.000Z",
+    "openTimeExclusive": "2026-09-21T15:00:00.000Z",
+    "rationale": [
+      "First open 2026-09-21T11:59:06.000Z needs ≥120 prior complete MT5 bars (vol percentile 100 + strategy min 80)",
+      "09:00–15:00 UTC covers warm-up, both entries (11:59, 13:49), and both ~17m holds",
+      "Do NOT include HISTORY_API / LIVE_TICKS / SEED in this export"
+    ],
+    "alsoExport": [
+      "Position rows for both brokerPositionIds",
+      "Linked Signal + DecisionLog by correlationId",
+      "Optional: DecisionLog ENGINE_DEGRADED/timeout 11:55–12:25 UTC only"
+    ],
+    "sqlFile": "research-datasets/sep21-squeeze-loss-investigation/export_mt5_replay.sql"
+  },
+  "procedure": [
+    "1. On DEMO host: run export_mt5_replay.sql (read-only) → mt5_r10_1m_sep21.csv + positions JSON",
+    "2. Verify continuity: duplicate openTimes=0, gaps=0 for 09:00–14:59 (360 expected hours×60 if full)",
+    "3. pnpm --filter @regimex/worker exec tsx scripts/replaySep21Mt5SqueezeLosses.ts --from-csv mt5_r10_1m_sep21.csv",
+    "4. Or run without --from-csv when DATABASE_URL points at DEMO with MT5 candles",
+    "5. Compare recomputedDecision.action/reasons to DecisionLog SIGNAL_PRODUCED (authoritative)",
+    "6. Apply relationship verdict using Donchian highs + entry proximity — not HISTORY_API"
+  ],
+  "reconstructionBoundaries": {
+    "fromCompleted1mMt5Candles": [
+      "OHLC path, Donchian/BB/ATR/recentReturn recomputed without look-ahead",
+      "Whether strategy.evaluate would BUY/HOLD/SELL on that closed bar",
+      "Structure stop/target from proposeCfdStopTarget at bar close or reported fill",
+      "Whether exit price level was touched on subsequent complete bars",
+      "Whether second entry shares Donchian high / price band with first"
+    ],
+    "requiresDecisionTimeOrBrokerRecords": [
+      "Exact fill vs bar close (slippage)",
+      "Bid/ask at open/close",
+      "Logged regime/features/reasons at decision time",
+      "Production cooldown / prior signal state",
+      "Commission, swap, deal tickets",
+      "Quote timeout causality"
+    ]
+  }
+}
