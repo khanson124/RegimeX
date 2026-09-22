@@ -3,44 +3,62 @@
     "symbol": "R_10",
     "interval": "1m",
     "source": "HISTORY_API",
-    "fromMs": 1789776000000,
-    "toMs": 1789927200000,
-    "fetched": 2446,
-    "inserted": 2445,
-    "duplicatesSkipped": 0,
-    "conflicts": 1,
+    "fromMs": 1789905600000,
+    "toMs": 1790035140000,
+    "fetched": 2710,
+    "inserted": 1424,
+    "duplicatesSkipped": 284,
+    "conflicts": 2,
     "invalid": 0,
     "dryRun": false,
     "conflictSamples": [
       {
-        "openTimeMs": 1789896000000,
+        "openTimeMs": 1789922700000,
         "existing": {
-          "openTimeMs": 1789896000000,
-          "open": 9458.7,
-          "high": 9458.7,
-          "low": 9458.7,
-          "close": 9458.7,
+          "openTimeMs": 1789922700000,
+          "open": 9498.08,
+          "high": 9498.29,
+          "low": 9497.86,
+          "close": 9497.86,
           "source": "HISTORY_API"
         },
         "incoming": {
-          "openTimeMs": 1789896000000,
-          "open": 9458.7,
-          "high": 9459.32,
-          "low": 9457.7,
-          "close": 9458.56
+          "openTimeMs": 1789922700000,
+          "open": 9498.08,
+          "high": 9498.74,
+          "low": 9496.96,
+          "close": 9497.24
+        }
+      },
+      {
+        "openTimeMs": 1789965600000,
+        "existing": {
+          "openTimeMs": 1789965600000,
+          "open": 9493.48,
+          "high": 9493.48,
+          "low": 9493.48,
+          "close": 9493.48,
+          "source": "HISTORY_API"
+        },
+        "incoming": {
+          "openTimeMs": 1789965600000,
+          "open": 9493.48,
+          "high": 9495.41,
+          "low": 9493.31,
+          "close": 9495.41
         }
       }
     ],
     "invalidSamples": []
   },
   "auditAfterHistoryApi": {
-    "actualCandleCount": 185153,
+    "actualCandleCount": 186577,
     "firstIso": "2026-05-01T00:01:00.000Z",
-    "lastIso": "2026-09-20T16:45:00.000Z",
-    "expectedContinuous1mCount": 205485,
+    "lastIso": "2026-09-21T16:29:00.000Z",
+    "expectedContinuous1mCount": 206909,
     "missingCandleCount": 20332,
-    "missingCandlePct": 0.098946,
-    "coveragePct": 0.901054,
+    "missingCandlePct": 0.098265,
+    "coveragePct": 0.901735,
     "gapCount": 84,
     "gapSizeDistribution": {
       "missing1": 22,
@@ -544,33 +562,33 @@
       {
         "index": 62,
         "startIso": "2026-09-19T00:01:00.000Z",
-        "endIso": "2026-09-20T16:45:00.000Z",
-        "candleCount": 2445
+        "endIso": "2026-09-21T16:29:00.000Z",
+        "candleCount": 3869
       }
     ]
   },
   "contiguous5m": {
-    "valid": 36965,
-    "excluded": 111
+    "valid": 37250,
+    "excluded": 110
   },
   "manifestPath": "/Users/kylehanson/Documents/GitHub/RegimeX/research-datasets/R_10_1m_manifest.json",
   "manifest": {
-    "datasetId": "R_10_1m_HISTORY_API_1789922711072",
+    "datasetId": "R_10_1m_HISTORY_API_1790008171000",
     "symbol": "R_10",
     "interval": "1m",
     "sources": [
       "HISTORY_API"
     ],
     "startOpenTime": 1777593660000,
-    "endOpenTime": 1789922700000,
+    "endOpenTime": 1790008140000,
     "startIso": "2026-05-01T00:01:00.000Z",
-    "endIso": "2026-09-20T16:45:00.000Z",
-    "rowCount": 185153,
-    "coveragePct": 0.901054,
+    "endIso": "2026-09-21T16:29:00.000Z",
+    "rowCount": 186577,
+    "coveragePct": 0.901735,
     "missingMinutes": 20332,
     "gapCount": 84,
-    "contentHash": "e8ab44c41991fcca88328f6380bb61e6cb6451e10e8b5b6eb1075aebda8731da",
-    "createdAt": "2026-09-20T16:45:11.178Z",
+    "contentHash": "187404c6ffba792407ab2a1716cc12301251fab57151a5e6cd2d9994633119c1",
+    "createdAt": "2026-09-21T16:29:31.134Z",
     "notes": "Deriv HISTORY_API candles. Prefer this source for research vs mixed LIVE_TICKS/MT5. Gaps are real source gaps, not interpolated."
   }
 }

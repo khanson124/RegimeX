@@ -1,0 +1,845 @@
+{
+  "generatedAt": "2026-09-21T16:31:15.700Z",
+  "scope": {
+    "objective": "Investigate two losing R_10 DEMO squeeze-breakout BUYs on 2026-09-21",
+    "tickets": [
+      {
+        "ticket": "5781810683",
+        "entry": 5021.924,
+        "exit": 5015.25,
+        "pnl": -3.34,
+        "direction": "BUY"
+      },
+      {
+        "ticket": "5781935022",
+        "entry": 5021.766,
+        "exit": 5014.839,
+        "pnl": -3.46,
+        "direction": "BUY"
+      }
+    ],
+    "dataLimitations": [
+      "Local PostgreSQL has no Position/Signal rows for these tickets (server DEMO DB only)",
+      "Reconstruction uses Deriv HISTORY_API complete 1m candles — not MT5 fill ticks",
+      "Entry fills are intra-bar; matched bars are those whose OHLC spans the reported fill",
+      "MT5 quote-timeout events not present in local DecisionLog — cannot confirm from this DB",
+      "Candidate backtests are closed-candle research simulations with ATR stops; costs not modeled as MT5 spreads/slippage",
+      "Sample window is short (~2.7 days continuous after Sep 19 gap) — underpowered for promotion decisions"
+    ]
+  },
+  "strategyBaseline": {
+    "id": "squeeze-breakout-v1",
+    "defaults": {
+      "squeezeWidthThreshold": 0.008,
+      "squeezeLookback": 10,
+      "maxSqueezeVolatilityPercentile": 30,
+      "minBreakoutReturn": 0.0008,
+      "cooldownCandles": 8,
+      "minimumConfidence": 0.6,
+      "expiryCandles": 5
+    },
+    "buyChecklist": [
+      "cooldown clear (8 bars)",
+      "BB squeeze in prior 10 bars (width<=0.008 and vol%<=30)",
+      "close > prior-20 Donchian high",
+      "10-bar recentReturn >= 0.0008 (~0.08%)",
+      "BB width > 1.1 × squeeze min width",
+      "confidence >= 0.6"
+    ],
+    "stopTarget": {
+      "structureBufferAtr": 0.25,
+      "stopAtrMultipleFallback": 1.5,
+      "targetRMultiple": 2
+    }
+  },
+  "candleCoverage": {
+    "loadedBars": 1710,
+    "first": "2026-09-20T12:00:00.000Z",
+    "last": "2026-09-21T16:29:00.000Z",
+    "sources": [
+      "HISTORY_API"
+    ]
+  },
+  "signalTraceSep21": [
+    {
+      "openTime": "2026-09-21T01:22:00.000Z",
+      "close": 9497.68,
+      "high": 9499.17,
+      "low": 9497.57,
+      "action": "SELL",
+      "confidence": 0.884,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0004 within the last 10 candles",
+        "Close broke below the consolidation low",
+        "Momentum confirms direction (recent return -0.08%)",
+        "Volatility expanding (width now 0.0010)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.65,
+      "donchianHigh": 9506.99,
+      "donchianLow": 9498.62,
+      "bollingerWidth": 0.0010418738599753472,
+      "recentReturn": -0.0008394998348351996,
+      "volatilityPercentile": 55.55555555555556,
+      "atr": 1.8603127740559597,
+      "stop": 9507.45507819,
+      "target": 9478.12984361,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T02:54:00.000Z",
+      "close": 9499.06,
+      "high": 9499.21,
+      "low": 9496.13,
+      "action": "BUY",
+      "confidence": 0.887,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0005 within the last 10 candles",
+        "Close broke above the consolidation high",
+        "Momentum confirms direction (recent return 0.09%)",
+        "Volatility expanding (width now 0.0011)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.85,
+      "donchianHigh": 9497.15,
+      "donchianLow": 9488.65,
+      "bollingerWidth": 0.0010504691086844612,
+      "recentReturn": 0.0008650436999846301,
+      "volatilityPercentile": 64.64646464646465,
+      "atr": 2.0123508673497197,
+      "stop": 9488.14691228,
+      "target": 9520.88617543,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T04:04:00.000Z",
+      "close": 9489.77,
+      "high": 9492.27,
+      "low": 9489.77,
+      "action": "SELL",
+      "confidence": 0.736,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0012 within the last 10 candles",
+        "Close broke below the consolidation low",
+        "Momentum confirms direction (recent return -0.12%)",
+        "Volatility expanding (width now 0.0014)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.65,
+      "donchianHigh": 9505.02,
+      "donchianLow": 9491.46,
+      "bollingerWidth": 0.0014020148024579523,
+      "recentReturn": -0.001187237200098814,
+      "volatilityPercentile": 46.464646464646464,
+      "atr": 1.872429408895714,
+      "stop": 9505.48810735,
+      "target": 9458.3337853,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T09:57:00.000Z",
+      "close": 9483.84,
+      "high": 9486.58,
+      "low": 9483.84,
+      "action": "SELL",
+      "confidence": 0.914,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0003 within the last 10 candles",
+        "Close broke below the consolidation low",
+        "Momentum confirms direction (recent return -0.11%)",
+        "Volatility expanding (width now 0.0014)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.65,
+      "donchianHigh": 9495.48,
+      "donchianLow": 9485.07,
+      "bollingerWidth": 0.0014477833495934245,
+      "recentReturn": -0.0011364318567441865,
+      "volatilityPercentile": 7.07070707070707,
+      "atr": 1.7958532492998562,
+      "stop": 9495.92896331,
+      "target": 9459.66207338,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T10:10:00.000Z",
+      "close": 9478.27,
+      "high": 9480.41,
+      "low": 9478.25,
+      "action": "SELL",
+      "confidence": 0.697,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0010 within the last 10 candles",
+        "Close broke below the consolidation low",
+        "Momentum confirms direction (recent return -0.09%)",
+        "Volatility expanding (width now 0.0012)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.65,
+      "donchianHigh": 9490.21,
+      "donchianLow": 9478.97,
+      "bollingerWidth": 0.0011736083866185664,
+      "recentReturn": -0.0009033566498433313,
+      "volatilityPercentile": 44.44444444444444,
+      "atr": 1.9153637909095325,
+      "stop": 9490.68884095,
+      "target": 9453.4323181,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T12:01:00.000Z",
+      "close": 9460.08,
+      "high": 9461.78,
+      "low": 9459.92,
+      "action": "SELL",
+      "confidence": 0.828,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0007 within the last 10 candles",
+        "Close broke below the consolidation low",
+        "Momentum confirms direction (recent return -0.09%)",
+        "Volatility expanding (width now 0.0011)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.65,
+      "donchianHigh": 9470.05,
+      "donchianLow": 9460.66,
+      "bollingerWidth": 0.0011015187173992677,
+      "recentReturn": -0.0009019265743055347,
+      "volatilityPercentile": 34.34343434343434,
+      "atr": 1.8246379440147467,
+      "stop": 9470.50615949,
+      "target": 9439.22768103,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T13:18:00.000Z",
+      "close": 9468.39,
+      "high": 9468.39,
+      "low": 9467.11,
+      "action": "BUY",
+      "confidence": 0.887,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0005 within the last 10 candles",
+        "Close broke above the consolidation high",
+        "Momentum confirms direction (recent return 0.09%)",
+        "Volatility expanding (width now 0.0010)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.65,
+      "donchianHigh": 9467.68,
+      "donchianLow": 9459.47,
+      "bollingerWidth": 0.0009731164969887093,
+      "recentReturn": 0.0008678481804785032,
+      "volatilityPercentile": 39.39393939393939,
+      "atr": 1.8137502747466543,
+      "stop": 9459.01656243,
+      "target": 9487.13687514,
+      "stopMethod": "squeeze_structure"
+    },
+    {
+      "openTime": "2026-09-21T15:22:00.000Z",
+      "close": 9476.48,
+      "high": 9479.16,
+      "low": 9476.03,
+      "action": "SELL",
+      "confidence": 0.887,
+      "entryReason": [
+        "Bollinger width squeezed to 0.0004 within the last 10 candles",
+        "Close broke below the consolidation low",
+        "Momentum confirms direction (recent return -0.09%)",
+        "Volatility expanding (width now 0.0009)"
+      ],
+      "regime": "BREAKOUT_EXPANSION",
+      "regimeConfidence": 0.85,
+      "donchianHigh": 9485.55,
+      "donchianLow": 9478.6,
+      "bollingerWidth": 0.0009320022199275345,
+      "recentReturn": -0.000871925986451982,
+      "volatilityPercentile": 72.72727272727273,
+      "atr": 1.8813204499197431,
+      "stop": 9486.02033011,
+      "target": 9457.39933978,
+      "stopMethod": "squeeze_structure"
+    }
+  ],
+  "detailedSetups": [
+    {
+      "ticket": "5781810683",
+      "error": "No complete candle spans reported entry price"
+    },
+    {
+      "ticket": "5781935022",
+      "error": "No complete candle spans reported entry price"
+    }
+  ],
+  "relationshipFirstVsSecond": {
+    "entryPriceDelta": -0.15800000000035652,
+    "entryPriceDeltaPct": -0.0031462045224172354,
+    "donchianHighFirst": null,
+    "donchianHighSecond": null,
+    "sameDonchianHigh": false,
+    "minutesBetweenMatchedBars": null
+  },
+  "variantBacktests": [
+    {
+      "variant": "baseline",
+      "label": "Unchanged squeeze-breakout-v1 defaults",
+      "window": {
+        "from": "2026-09-19T00:01:00.000Z",
+        "to": "2026-09-21T16:29:00.000Z",
+        "bars": 3869,
+        "source": "HISTORY_API complete 1m"
+      },
+      "summary": {
+        "trades": 8,
+        "netPnlPoints": 16.1856,
+        "wins": 3,
+        "losses": 5,
+        "winRate": 0.375,
+        "expectancyPoints": 2.0232,
+        "maxDrawdownPoints": 24.0078,
+        "avgWin": 25.886,
+        "avgLoss": -12.2945
+      },
+      "ticketOutcomes": [
+        {
+          "ticket": "5781810683",
+          "stillWouldEnter": null
+        },
+        {
+          "ticket": "5781935022",
+          "stillWouldEnter": null
+        }
+      ],
+      "sampleTrades": [
+        {
+          "entryIndex": 285,
+          "entryTimeIso": "2026-09-19T04:46:00.000Z",
+          "entryPrice": 9474.1,
+          "exitIndex": 341,
+          "exitTimeIso": "2026-09-19T05:42:00.000Z",
+          "exitPrice": 9463.38389442,
+          "pnlPoints": -10.716105580000658,
+          "exitReason": "STOP_LOSS",
+          "stop": 9463.38389442,
+          "target": 9495.53221117,
+          "donchianHighAtEntry": 9471.23,
+          "recentReturn": 0.000909620104189068,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 393,
+          "entryTimeIso": "2026-09-19T06:34:00.000Z",
+          "entryPrice": 9467.37,
+          "exitIndex": 770,
+          "exitTimeIso": "2026-09-19T12:51:00.000Z",
+          "exitPrice": 9456.93554223,
+          "pnlPoints": -10.434457770001245,
+          "exitReason": "STOP_LOSS",
+          "stop": 9456.93554223,
+          "target": 9488.23891553,
+          "donchianHighAtEntry": 9465.57,
+          "recentReturn": 0.0008235037919232009,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 995,
+          "entryTimeIso": "2026-09-19T16:36:00.000Z",
+          "entryPrice": 9466.71,
+          "exitIndex": 1147,
+          "exitTimeIso": "2026-09-19T19:08:00.000Z",
+          "exitPrice": 9494.46272651,
+          "pnlPoints": 27.752726510001594,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9452.83363675,
+          "target": 9494.46272651,
+          "donchianHighAtEntry": 9464.87,
+          "recentReturn": 0.0009283215249001458,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 1242,
+          "entryTimeIso": "2026-09-19T20:43:00.000Z",
+          "entryPrice": 9500.35,
+          "exitIndex": 1587,
+          "exitTimeIso": "2026-09-20T02:28:00.000Z",
+          "exitPrice": 9488.00703165,
+          "pnlPoints": -12.342968349999865,
+          "exitReason": "STOP_LOSS",
+          "stop": 9488.00703165,
+          "target": 9525.0359367,
+          "donchianHighAtEntry": 9499.15,
+          "recentReturn": 0.0008069367060337853,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 1960,
+          "entryTimeIso": "2026-09-20T08:41:00.000Z",
+          "entryPrice": 9465.3,
+          "exitIndex": 1981,
+          "exitTimeIso": "2026-09-20T09:02:00.000Z",
+          "exitPrice": 9453.63516358,
+          "pnlPoints": -11.66483641999912,
+          "exitReason": "STOP_LOSS",
+          "stop": 9453.63516358,
+          "target": 9488.62967284,
+          "donchianHighAtEntry": 9464.92,
+          "recentReturn": 0.0008078108115537478,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2029,
+          "entryTimeIso": "2026-09-20T09:50:00.000Z",
+          "entryPrice": 9466.92,
+          "exitIndex": 2268,
+          "exitTimeIso": "2026-09-20T13:49:00.000Z",
+          "exitPrice": 9491.77870596,
+          "pnlPoints": 24.858705959999497,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9454.49064702,
+          "target": 9491.77870596,
+          "donchianHighAtEntry": 9466.33,
+          "recentReturn": 0.0010743637355711527,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2273,
+          "entryTimeIso": "2026-09-20T13:54:00.000Z",
+          "entryPrice": 9499.61,
+          "exitIndex": 2789,
+          "exitTimeIso": "2026-09-20T22:30:00.000Z",
+          "exitPrice": 9483.29593735,
+          "pnlPoints": -16.31406265000078,
+          "exitReason": "STOP_LOSS",
+          "stop": 9483.29593735,
+          "target": 9532.2381253,
+          "donchianHighAtEntry": 9497.99,
+          "recentReturn": 0.0009208850189708405,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2813,
+          "entryTimeIso": "2026-09-20T22:54:00.000Z",
+          "entryPrice": 9485.91,
+          "exitIndex": 3353,
+          "exitTimeIso": "2026-09-21T07:54:00.000Z",
+          "exitPrice": 9510.95661162,
+          "pnlPoints": 25.046611620000476,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9473.38669419,
+          "target": 9510.95661162,
+          "donchianHighAtEntry": 9483.92,
+          "recentReturn": 0.0011334888978245016,
+          "regime": "BREAKOUT_EXPANSION"
+        }
+      ]
+    },
+    {
+      "variant": "stronger_confirmation",
+      "label": "Stronger momentum: minBreakoutReturn 0.0015 (≈0.15%)",
+      "window": {
+        "from": "2026-09-19T00:01:00.000Z",
+        "to": "2026-09-21T16:29:00.000Z",
+        "bars": 3869,
+        "source": "HISTORY_API complete 1m"
+      },
+      "summary": {
+        "trades": 0,
+        "netPnlPoints": 0,
+        "wins": 0,
+        "losses": 0,
+        "winRate": null,
+        "expectancyPoints": null,
+        "maxDrawdownPoints": 0,
+        "avgWin": null,
+        "avgLoss": null
+      },
+      "ticketOutcomes": [
+        {
+          "ticket": "5781810683",
+          "stillWouldEnter": null
+        },
+        {
+          "ticket": "5781935022",
+          "stillWouldEnter": null
+        }
+      ],
+      "sampleTrades": []
+    },
+    {
+      "variant": "failed_breakout_memory",
+      "label": "Suppress re-entry within 30 bars & 0.15% of a recent SL false breakout",
+      "window": {
+        "from": "2026-09-19T00:01:00.000Z",
+        "to": "2026-09-21T16:29:00.000Z",
+        "bars": 3869,
+        "source": "HISTORY_API complete 1m"
+      },
+      "summary": {
+        "trades": 8,
+        "netPnlPoints": 16.1856,
+        "wins": 3,
+        "losses": 5,
+        "winRate": 0.375,
+        "expectancyPoints": 2.0232,
+        "maxDrawdownPoints": 24.0078,
+        "avgWin": 25.886,
+        "avgLoss": -12.2945
+      },
+      "ticketOutcomes": [
+        {
+          "ticket": "5781810683",
+          "stillWouldEnter": null
+        },
+        {
+          "ticket": "5781935022",
+          "stillWouldEnter": null
+        }
+      ],
+      "sampleTrades": [
+        {
+          "entryIndex": 285,
+          "entryTimeIso": "2026-09-19T04:46:00.000Z",
+          "entryPrice": 9474.1,
+          "exitIndex": 341,
+          "exitTimeIso": "2026-09-19T05:42:00.000Z",
+          "exitPrice": 9463.38389442,
+          "pnlPoints": -10.716105580000658,
+          "exitReason": "STOP_LOSS",
+          "stop": 9463.38389442,
+          "target": 9495.53221117,
+          "donchianHighAtEntry": 9471.23,
+          "recentReturn": 0.000909620104189068,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 393,
+          "entryTimeIso": "2026-09-19T06:34:00.000Z",
+          "entryPrice": 9467.37,
+          "exitIndex": 770,
+          "exitTimeIso": "2026-09-19T12:51:00.000Z",
+          "exitPrice": 9456.93554223,
+          "pnlPoints": -10.434457770001245,
+          "exitReason": "STOP_LOSS",
+          "stop": 9456.93554223,
+          "target": 9488.23891553,
+          "donchianHighAtEntry": 9465.57,
+          "recentReturn": 0.0008235037919232009,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 995,
+          "entryTimeIso": "2026-09-19T16:36:00.000Z",
+          "entryPrice": 9466.71,
+          "exitIndex": 1147,
+          "exitTimeIso": "2026-09-19T19:08:00.000Z",
+          "exitPrice": 9494.46272651,
+          "pnlPoints": 27.752726510001594,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9452.83363675,
+          "target": 9494.46272651,
+          "donchianHighAtEntry": 9464.87,
+          "recentReturn": 0.0009283215249001458,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 1242,
+          "entryTimeIso": "2026-09-19T20:43:00.000Z",
+          "entryPrice": 9500.35,
+          "exitIndex": 1587,
+          "exitTimeIso": "2026-09-20T02:28:00.000Z",
+          "exitPrice": 9488.00703165,
+          "pnlPoints": -12.342968349999865,
+          "exitReason": "STOP_LOSS",
+          "stop": 9488.00703165,
+          "target": 9525.0359367,
+          "donchianHighAtEntry": 9499.15,
+          "recentReturn": 0.0008069367060337853,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 1960,
+          "entryTimeIso": "2026-09-20T08:41:00.000Z",
+          "entryPrice": 9465.3,
+          "exitIndex": 1981,
+          "exitTimeIso": "2026-09-20T09:02:00.000Z",
+          "exitPrice": 9453.63516358,
+          "pnlPoints": -11.66483641999912,
+          "exitReason": "STOP_LOSS",
+          "stop": 9453.63516358,
+          "target": 9488.62967284,
+          "donchianHighAtEntry": 9464.92,
+          "recentReturn": 0.0008078108115537478,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2029,
+          "entryTimeIso": "2026-09-20T09:50:00.000Z",
+          "entryPrice": 9466.92,
+          "exitIndex": 2268,
+          "exitTimeIso": "2026-09-20T13:49:00.000Z",
+          "exitPrice": 9491.77870596,
+          "pnlPoints": 24.858705959999497,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9454.49064702,
+          "target": 9491.77870596,
+          "donchianHighAtEntry": 9466.33,
+          "recentReturn": 0.0010743637355711527,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2273,
+          "entryTimeIso": "2026-09-20T13:54:00.000Z",
+          "entryPrice": 9499.61,
+          "exitIndex": 2789,
+          "exitTimeIso": "2026-09-20T22:30:00.000Z",
+          "exitPrice": 9483.29593735,
+          "pnlPoints": -16.31406265000078,
+          "exitReason": "STOP_LOSS",
+          "stop": 9483.29593735,
+          "target": 9532.2381253,
+          "donchianHighAtEntry": 9497.99,
+          "recentReturn": 0.0009208850189708405,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2813,
+          "entryTimeIso": "2026-09-20T22:54:00.000Z",
+          "entryPrice": 9485.91,
+          "exitIndex": 3353,
+          "exitTimeIso": "2026-09-21T07:54:00.000Z",
+          "exitPrice": 9510.95661162,
+          "pnlPoints": 25.046611620000476,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9473.38669419,
+          "target": 9510.95661162,
+          "donchianHighAtEntry": 9483.92,
+          "recentReturn": 0.0011334888978245016,
+          "regime": "BREAKOUT_EXPANSION"
+        }
+      ]
+    },
+    {
+      "variant": "post_entry_invalidation",
+      "label": "Exit if close reclaims below breakout Donchian high within 5 bars",
+      "window": {
+        "from": "2026-09-19T00:01:00.000Z",
+        "to": "2026-09-21T16:29:00.000Z",
+        "bars": 3869,
+        "source": "HISTORY_API complete 1m"
+      },
+      "summary": {
+        "trades": 10,
+        "netPnlPoints": 34.1953,
+        "wins": 3,
+        "losses": 7,
+        "winRate": 0.3,
+        "expectancyPoints": 3.4195,
+        "maxDrawdownPoints": 21.1506,
+        "avgWin": 25.033,
+        "avgLoss": -5.8434
+      },
+      "ticketOutcomes": [
+        {
+          "ticket": "5781810683",
+          "stillWouldEnter": null
+        },
+        {
+          "ticket": "5781935022",
+          "stillWouldEnter": null
+        }
+      ],
+      "sampleTrades": [
+        {
+          "entryIndex": 285,
+          "entryTimeIso": "2026-09-19T04:46:00.000Z",
+          "entryPrice": 9474.1,
+          "exitIndex": 341,
+          "exitTimeIso": "2026-09-19T05:42:00.000Z",
+          "exitPrice": 9463.38389442,
+          "pnlPoints": -10.716105580000658,
+          "exitReason": "STOP_LOSS",
+          "stop": 9463.38389442,
+          "target": 9495.53221117,
+          "donchianHighAtEntry": 9471.23,
+          "recentReturn": 0.000909620104189068,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 393,
+          "entryTimeIso": "2026-09-19T06:34:00.000Z",
+          "entryPrice": 9467.37,
+          "exitIndex": 770,
+          "exitTimeIso": "2026-09-19T12:51:00.000Z",
+          "exitPrice": 9456.93554223,
+          "pnlPoints": -10.434457770001245,
+          "exitReason": "STOP_LOSS",
+          "stop": 9456.93554223,
+          "target": 9488.23891553,
+          "donchianHighAtEntry": 9465.57,
+          "recentReturn": 0.0008235037919232009,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 995,
+          "entryTimeIso": "2026-09-19T16:36:00.000Z",
+          "entryPrice": 9466.71,
+          "exitIndex": 1147,
+          "exitTimeIso": "2026-09-19T19:08:00.000Z",
+          "exitPrice": 9494.46272651,
+          "pnlPoints": 27.752726510001594,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9452.83363675,
+          "target": 9494.46272651,
+          "donchianHighAtEntry": 9464.87,
+          "recentReturn": 0.0009283215249001458,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 1242,
+          "entryTimeIso": "2026-09-19T20:43:00.000Z",
+          "entryPrice": 9500.35,
+          "exitIndex": 1587,
+          "exitTimeIso": "2026-09-20T02:28:00.000Z",
+          "exitPrice": 9488.00703165,
+          "pnlPoints": -12.342968349999865,
+          "exitReason": "STOP_LOSS",
+          "stop": 9488.00703165,
+          "target": 9525.0359367,
+          "donchianHighAtEntry": 9499.15,
+          "recentReturn": 0.0008069367060337853,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 1960,
+          "entryTimeIso": "2026-09-20T08:41:00.000Z",
+          "entryPrice": 9465.3,
+          "exitIndex": 1961,
+          "exitTimeIso": "2026-09-20T08:42:00.000Z",
+          "exitPrice": 9464.3,
+          "pnlPoints": -1,
+          "exitReason": "BREAKOUT_INVALIDATION",
+          "stop": 9453.63516358,
+          "target": 9488.62967284,
+          "donchianHighAtEntry": 9464.92,
+          "recentReturn": 0.0008078108115537478,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2029,
+          "entryTimeIso": "2026-09-20T09:50:00.000Z",
+          "entryPrice": 9466.92,
+          "exitIndex": 2030,
+          "exitTimeIso": "2026-09-20T09:51:00.000Z",
+          "exitPrice": 9465.43,
+          "pnlPoints": -1.4899999999997817,
+          "exitReason": "BREAKOUT_INVALIDATION",
+          "stop": 9454.49064702,
+          "target": 9491.77870596,
+          "donchianHighAtEntry": 9466.33,
+          "recentReturn": 0.0010743637355711527,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2150,
+          "entryTimeIso": "2026-09-20T11:51:00.000Z",
+          "entryPrice": 9483.24,
+          "exitIndex": 2153,
+          "exitTimeIso": "2026-09-20T11:54:00.000Z",
+          "exitPrice": 9480.08,
+          "pnlPoints": -3.1599999999998545,
+          "exitReason": "BREAKOUT_INVALIDATION",
+          "stop": 9471.0476664,
+          "target": 9507.6246672,
+          "donchianHighAtEntry": 9482.4,
+          "recentReturn": 0.0011549465282983552,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2220,
+          "entryTimeIso": "2026-09-20T13:01:00.000Z",
+          "entryPrice": 9487.02,
+          "exitIndex": 2288,
+          "exitTimeIso": "2026-09-20T14:09:00.000Z",
+          "exitPrice": 9509.31954145,
+          "pnlPoints": 22.299541450000106,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9475.87022928,
+          "target": 9509.31954145,
+          "donchianHighAtEntry": 9486.02,
+          "recentReturn": 0.0010076528862661756,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2724,
+          "entryTimeIso": "2026-09-20T21:25:00.000Z",
+          "entryPrice": 9494.87,
+          "exitIndex": 2728,
+          "exitTimeIso": "2026-09-20T21:29:00.000Z",
+          "exitPrice": 9493.11,
+          "pnlPoints": -1.7600000000002183,
+          "exitReason": "BREAKOUT_INVALIDATION",
+          "stop": 9483.57612192,
+          "target": 9517.45775616,
+          "donchianHighAtEntry": 9494.34,
+          "recentReturn": 0.000957221275191621,
+          "regime": "BREAKOUT_EXPANSION"
+        },
+        {
+          "entryIndex": 2813,
+          "entryTimeIso": "2026-09-20T22:54:00.000Z",
+          "entryPrice": 9485.91,
+          "exitIndex": 3353,
+          "exitTimeIso": "2026-09-21T07:54:00.000Z",
+          "exitPrice": 9510.95661162,
+          "pnlPoints": 25.046611620000476,
+          "exitReason": "TAKE_PROFIT",
+          "stop": 9473.38669419,
+          "target": 9510.95661162,
+          "donchianHighAtEntry": 9483.92,
+          "recentReturn": 0.0011334888978245016,
+          "regime": "BREAKOUT_EXPANSION"
+        }
+      ]
+    }
+  ],
+  "comparisonsVsBaseline": [
+    {
+      "variant": "baseline",
+      "label": "Unchanged squeeze-breakout-v1 defaults",
+      "deltaTrades": 0,
+      "deltaNetPnlPoints": 0,
+      "deltaExpectancy": 0,
+      "deltaMaxDD": 0,
+      "sep21TicketsAvoided": []
+    },
+    {
+      "variant": "stronger_confirmation",
+      "label": "Stronger momentum: minBreakoutReturn 0.0015 (≈0.15%)",
+      "deltaTrades": -8,
+      "deltaNetPnlPoints": -16.1856,
+      "deltaExpectancy": null,
+      "deltaMaxDD": -24.0078,
+      "sep21TicketsAvoided": []
+    },
+    {
+      "variant": "failed_breakout_memory",
+      "label": "Suppress re-entry within 30 bars & 0.15% of a recent SL false breakout",
+      "deltaTrades": 0,
+      "deltaNetPnlPoints": 0,
+      "deltaExpectancy": 0,
+      "deltaMaxDD": 0,
+      "sep21TicketsAvoided": []
+    },
+    {
+      "variant": "post_entry_invalidation",
+      "label": "Exit if close reclaims below breakout Donchian high within 5 bars",
+      "deltaTrades": 2,
+      "deltaNetPnlPoints": 18.009700000000002,
+      "deltaExpectancy": 1.3963,
+      "deltaMaxDD": -2.857199999999999,
+      "sep21TicketsAvoided": []
+    }
+  ],
+  "quoteTimeoutNote": "No local ENGINE_DEGRADED/timeout DecisionLog for these tickets. Treat quote timeout as independent of P&L path unless server logs show otherwise; both losses hit SL ~17–18m later per user report, which is consistent with price path rather than an immediate timeout-forced exit."
+}
