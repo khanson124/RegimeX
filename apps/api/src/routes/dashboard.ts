@@ -1,11 +1,12 @@
 import { type FastifyInstance } from "fastify";
-import { utcDayStart, isAutonomousDecisionCode, type AutonomousDecisionCode, type DecisionLogEventType } from "@regimex/shared";
+import { utcDayStart, isAutonomousDecisionCode, type AutonomousDecisionCode, type AutoDecisionOutcome, type DecisionLogEventType } from "@regimex/shared";
 import {
   describeMt5AutonomousAvailability,
   gateMt5EngineSubmission,
   parseCsvAllowlist,
   publicMt5RolloutSnapshot,
-  resolveLiveTradingCapability
+  resolveLiveTradingCapability,
+  decisionOutcomeFromFeatureSummary
 } from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
@@ -39,22 +40,54 @@ function buildCurrentSignal(
   action: string | null;
   strategyId: string | null;
   status: string | null;
+  decisionOutcome: AutoDecisionOutcome | null;
   reasons: string[];
+  alternativeSignals: unknown[];
   updatedAt: string | null;
 } {
   const activeStrategy = strategySelected?.strategyId ?? outcome?.strategyId ?? null;
   if (!outcome) {
-    return { action: null, strategyId: activeStrategy, status: null, reasons: [], updatedAt: null };
+    return {
+      action: null,
+      strategyId: activeStrategy,
+      status: null,
+      decisionOutcome: null,
+      reasons: [],
+      alternativeSignals: [],
+      updatedAt: null
+    };
   }
 
   const reasons = Array.isArray(outcome.reasons) ? (outcome.reasons as string[]) : [];
+  const decisionOutcome = decisionOutcomeFromFeatureSummary(outcome.featureSummary);
+  const altRaw =
+    outcome.featureSummary &&
+    typeof outcome.featureSummary === "object" &&
+    !Array.isArray(outcome.featureSummary)
+      ? (outcome.featureSummary as { alternativeSignals?: unknown }).alternativeSignals
+      : undefined;
+  const alternativeSignals = Array.isArray(altRaw) ? altRaw : [];
 
   if (outcome.eventType === "NO_TRADE") {
+    const status =
+      decisionOutcome === "NO_SIGNAL" ||
+      decisionOutcome === "STRATEGY_COOLDOWN" ||
+      decisionOutcome === "ALTERNATIVE_SIGNAL_OBSERVED"
+        ? decisionOutcome
+        : decisionOutcome === "NO_STRATEGY" ||
+            decisionOutcome === "REGIME_CONFIDENCE_REJECTED" ||
+            decisionOutcome === "DIRECTION_BLOCKED"
+          ? decisionOutcome
+          : outcome.strategyId || outcome.action === "HOLD"
+            ? "HOLD"
+            : "NO_TRADE";
     return {
       action: outcome.strategyId || outcome.action === "HOLD" ? "HOLD" : null,
       strategyId: activeStrategy,
-      status: "NO_TRADE",
+      status,
+      decisionOutcome,
       reasons,
+      alternativeSignals,
       updatedAt: outcome.createdAt.toISOString()
     };
   }
@@ -63,8 +96,16 @@ function buildCurrentSignal(
     return {
       action: outcome.action,
       strategyId: outcome.strategyId ?? activeStrategy,
-      status: outcome.eventType === "SIGNAL_PRODUCED" ? "PRODUCED" : "RISK_REJECTED",
+      status:
+        outcome.eventType === "RISK_REJECTED"
+          ? "RISK_REJECTED"
+          : outcome.eventType === "SIGNAL_PRODUCED"
+            ? "PRODUCED"
+            : outcome.eventType,
+      decisionOutcome:
+        outcome.eventType === "RISK_REJECTED" ? (decisionOutcome ?? "RISK_REJECTED") : decisionOutcome,
       reasons,
+      alternativeSignals,
       updatedAt: outcome.createdAt.toISOString()
     };
   }
@@ -73,7 +114,9 @@ function buildCurrentSignal(
     action: outcome.action,
     strategyId: outcome.strategyId ?? activeStrategy,
     status: outcome.eventType,
+    decisionOutcome,
     reasons,
+    alternativeSignals,
     updatedAt: outcome.createdAt.toISOString()
   };
 }
@@ -230,6 +273,15 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
           eligibilityRejections: Array.isArray(selectionFeature?.eligibilityRejections)
             ? (selectionFeature.eligibilityRejections as string[])
             : [],
+          candidateEligibility: Array.isArray(selectionFeature?.candidateEligibility)
+            ? selectionFeature.candidateEligibility
+            : [],
+          selectionWhy: Array.isArray(selectionFeature?.selectionWhy)
+            ? (selectionFeature.selectionWhy as string[])
+            : [],
+          selectionComparison: Array.isArray(selectionFeature?.selectionComparison)
+            ? selectionFeature.selectionComparison
+            : [],
           evidence:
             selectionFeature?.evidence && typeof selectionFeature.evidence === "object"
               ? (selectionFeature.evidence as Record<string, unknown>)
@@ -356,6 +408,7 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
         };
     const recentAutonomousDecisions = recentDecisions.map((row) => ({
       code: autonomousCodeFromLog(row),
+      decisionOutcome: decisionOutcomeFromFeatureSummary(row.featureSummary),
       eventType: row.eventType,
       strategyId: row.strategyId,
       action: row.action,
@@ -366,7 +419,12 @@ export function registerDashboardRoutes(app: FastifyInstance, ctx: AppContext): 
         : null,
       brokerSymbol: typeof (row.featureSummary as { brokerSymbol?: unknown } | undefined)?.brokerSymbol === "string"
         ? (row.featureSummary as { brokerSymbol: string }).brokerSymbol
-        : null
+        : null,
+      alternativeSignals: Array.isArray(
+        (row.featureSummary as { alternativeSignals?: unknown } | undefined)?.alternativeSignals
+      )
+        ? (row.featureSummary as { alternativeSignals: unknown[] }).alternativeSignals
+        : []
     }));
 
     return {

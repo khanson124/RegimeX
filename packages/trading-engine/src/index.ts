@@ -43,6 +43,7 @@ export * from "./selection/sampleConfidence.js";
 export * from "./selection/strategyVersioning.js";
 export * from "./selection/cfdPerformanceRecords.js";
 export * from "./selection/autoShadowEvaluator.js";
+export * from "./selection/autoDecisionVisibility.js";
 export * from "./ensemble/ensemble.js";
 
 // Candles

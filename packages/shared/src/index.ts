@@ -5,6 +5,7 @@ export * from "./types/engine.js";
 export * from "./types/risk.js";
 export * from "./types/events.js";
 export * from "./types/research.js";
+export * from "./types/autoDecisionOutcome.js";
 export * from "./types/instrument.js";
 export * from "./types/position.js";
 export * from "./types/broker.js";

@@ -3,6 +3,7 @@ import { type PrismaClient } from "@regimex/database";
 import { type AppConfig } from "@regimex/config";
 import {
   utcDayStart,
+  type AutoCandidateEligibilityRow,
   type Candle,
   type CandleInterval,
   type EngineState,
@@ -37,7 +38,6 @@ import {
   aggregatePaperForwardPerformance,
   gateMt5EngineOrders,
   resolveLiveTradingCapability,
-  applyMt5StrategySelectionAllowlist,
   gateMt5FixedStrategySelection,
   resolveMt5EngineStrategyAllowlist,
   isMt5MarketDataReady,
@@ -62,6 +62,12 @@ import {
   evaluateAutoShadowCandidates,
   applyAutoShadowCooldownUpdates,
   type AutoShadowEvaluationReport,
+  alternativeSignalsFromShadowCandidates,
+  buildSelectionWhy,
+  capCandidateEligibility,
+  classifyNoStrategyOutcome,
+  resolveHoldDecisionOutcome,
+  toSelectionComparisonRows,
   createMt5QuotePollHealth,
   evaluateMt5QuoteWatchdog,
   isBrokerQuoteTimestampStale,
@@ -1092,7 +1098,11 @@ export class LiveEngineSession {
     latest: NonNullable<typeof this.lastFeatures>,
     regime: { regime: string; confidence: number },
     correlationId: string,
-    reasons: string[]
+    reasons: string[],
+    visibility?: {
+      candidateEligibility?: AutoCandidateEligibilityRow[];
+      decisionOutcome?: "NO_STRATEGY" | "REGIME_CONFIDENCE_REJECTED";
+    }
   ): Promise<void> {
     const { publish } = this.deps;
     await this.recordCandidate(latest, correlationId, {
@@ -1102,21 +1112,81 @@ export class LiveEngineSession {
       strategyId: null,
       direction: null
     });
+    const candidateEligibility = capCandidateEligibility(visibility?.candidateEligibility ?? []);
+    const decisionOutcome =
+      visibility?.decisionOutcome ??
+      (candidateEligibility.length > 0
+        ? classifyNoStrategyOutcome(candidateEligibility)
+        : "NO_STRATEGY");
     const regimeIncompatible = reasons.some((r) => r.includes("regime-incompatible"));
+    const featureSummary = {
+      decisionOutcome,
+      candidateEligibility,
+      selectionMode: this.engineSelectionMode,
+      engineSelectionMode: this.engineSelectionMode
+    };
     if (this.isMt5Backend()) {
       await this.logAutonomousDecision(regimeIncompatible ? "REGIME_INCOMPATIBLE" : "NO_TRADE", reasons, {
         regime: regime.regime,
         regimeConfidence: regime.confidence,
-        correlationId
+        correlationId,
+        featureSummary
       });
     } else {
       await this.logDecision("NO_TRADE", reasons, {
         regime: regime.regime,
         regimeConfidence: regime.confidence,
-        correlationId
+        correlationId,
+        featureSummary
       });
     }
     await publish(this.userId, "strategy.noTrade", { regime: regime.regime, reasons });
+  }
+
+  /** Pre-filter audit: every registered strategy with a specific rejection (or eligible). */
+  private buildCandidateEligibilityAudit(input: {
+    regime: string;
+    regimeConfidence: number;
+    cfdVenue: boolean;
+    config: import("@regimex/config").AppConfig;
+  }): { rows: AutoCandidateEligibilityRow[]; eligible: LoadedStrategy[] } {
+    const allowlist = resolveMt5EngineStrategyAllowlist(input.config);
+    const mt5Backend =
+      this.executionBackend === "broker_demo_mt5" || this.executionBackend === "broker_real_mt5";
+    const rows: AutoCandidateEligibilityRow[] = [];
+    const eligible: LoadedStrategy[] = [];
+
+    for (const s of this.strategies) {
+      let rejectionReason: string | null = null;
+      if (!s.enabled) {
+        rejectionReason = "disabled";
+      } else if (!s.strategy.supportedRegimes.includes(input.regime as never)) {
+        rejectionReason = `regime-incompatible with ${input.regime}`;
+      } else if (input.regimeConfidence < s.strategy.eligibility.minimumRegimeConfidence) {
+        rejectionReason = `regime confidence ${input.regimeConfidence.toFixed(2)} below minimumRegimeConfidence ${s.strategy.eligibility.minimumRegimeConfidence}`;
+      } else if (this.candles.length < s.strategy.minimumHistory) {
+        rejectionReason = `insufficient history (${this.candles.length}/${s.strategy.minimumHistory})`;
+      } else if (input.cfdVenue && !isCfdCapableStrategy(s.strategy.id)) {
+        rejectionReason = "not CFD-capable for this venue";
+      } else if (
+        !strategyAppliesToSession(s.strategy, { symbol: this.symbol, interval: this.interval })
+      ) {
+        rejectionReason = `session-inapplicable for ${this.symbol}/${this.interval}`;
+      } else if (mt5Backend && allowlist.length === 0) {
+        rejectionReason = "MT5_ENGINE_STRATEGY_ALLOWLIST empty (fail-closed)";
+      } else if (mt5Backend && !allowlist.includes(s.strategy.id)) {
+        rejectionReason = "not on MT5_ENGINE_STRATEGY_ALLOWLIST";
+      }
+
+      if (rejectionReason) {
+        rows.push({ strategyId: s.strategy.id, eligible: false, rejectionReason });
+      } else {
+        rows.push({ strategyId: s.strategy.id, eligible: true, rejectionReason: null });
+        eligible.push(s);
+      }
+    }
+
+    return { rows: capCandidateEligibility(rows), eligible };
   }
 
   private async analyze(candle: Candle): Promise<void> {
@@ -1173,28 +1243,16 @@ export class LiveEngineSession {
       }
     });
 
-    // Strategy selection.
+    // Strategy selection — audit every candidate before filters collapse to eligible set.
     const paperCfd = isPaperCfdExecution(config);
     const cfdVenue = paperCfd || this.isMt5Backend();
-    let eligible = this.strategies.filter(
-      (s) =>
-        s.enabled &&
-        s.strategy.supportedRegimes.includes(regime.regime) &&
-        regime.confidence >= s.strategy.eligibility.minimumRegimeConfidence &&
-        this.candles.length >= s.strategy.minimumHistory &&
-        (!cfdVenue || isCfdCapableStrategy(s.strategy.id))
-    );
-    // Same applicability rules as MTF warm-up — never select/evaluate a strategy
-    // that cannot run on this session's symbol + interval.
-    eligible = eligible.filter((s) =>
-      strategyAppliesToSession(s.strategy, { symbol: this.symbol, interval: this.interval })
-    );
-    eligible = applyMt5StrategySelectionAllowlist(
-      eligible,
-      (s) => s.strategy.id,
-      this.executionBackend,
+    const eligibilityAudit = this.buildCandidateEligibilityAudit({
+      regime: regime.regime,
+      regimeConfidence: regime.confidence,
+      cfdVenue,
       config
-    );
+    });
+    let eligible = eligibilityAudit.eligible;
 
     const sessionEligibleStrategyIds = eligible.map((s) => s.strategy.id);
     this.log.info(
@@ -1224,7 +1282,9 @@ export class LiveEngineSession {
             ? `Fixed strategy ${this.fixedStrategyId} is not in MT5_ENGINE_STRATEGY_ALLOWLIST`
             : (fixedGate.reason ?? "Fixed strategy blocked by MT5 rollout")
         ];
-        await this.recordNoStrategySelection(latest, regime, correlationId, reasons);
+        await this.recordNoStrategySelection(latest, regime, correlationId, reasons, {
+          candidateEligibility: eligibilityAudit.rows
+        });
         return;
       }
 
@@ -1236,9 +1296,15 @@ export class LiveEngineSession {
           interval: this.interval
         })
       ) {
-        await this.recordNoStrategySelection(latest, regime, correlationId, [
-          `Fixed strategy ${this.fixedStrategyId} does not apply to session ${this.symbol}/${this.interval}`
-        ]);
+        await this.recordNoStrategySelection(
+          latest,
+          regime,
+          correlationId,
+          [
+            `Fixed strategy ${this.fixedStrategyId} does not apply to session ${this.symbol}/${this.interval}`
+          ],
+          { candidateEligibility: eligibilityAudit.rows }
+        );
         return;
       }
     }
@@ -1271,9 +1337,15 @@ export class LiveEngineSession {
       const fixed = eligible.find((s) => s.strategy.id === this.fixedStrategyId);
       if (!fixed) {
         // Fail closed — never fall back to another strategy in SINGLE mode.
-        await this.recordNoStrategySelection(latest, regime, correlationId, [
-          `Fixed strategy ${this.fixedStrategyId} is not eligible for session ${this.symbol}/${this.interval}`
-        ]);
+        await this.recordNoStrategySelection(
+          latest,
+          regime,
+          correlationId,
+          [
+            `Fixed strategy ${this.fixedStrategyId} is not eligible for session ${this.symbol}/${this.interval}`
+          ],
+          { candidateEligibility: eligibilityAudit.rows }
+        );
         return;
       }
       selectionResult = {
@@ -1293,15 +1365,34 @@ export class LiveEngineSession {
     }
 
     if (!selectionResult.selectedStrategyId) {
-      await this.recordNoStrategySelection(latest, regime, correlationId, selectionResult.reasons);
+      const mergedEligibility = [
+        ...eligibilityAudit.rows,
+        ...(selectionResult.eligibilityRejections ?? []).map((r) => {
+          const id = r.split(":")[0]?.trim() || "unknown";
+          return {
+            strategyId: id,
+            eligible: false as const,
+            rejectionReason: r
+          };
+        })
+      ];
+      await this.recordNoStrategySelection(latest, regime, correlationId, selectionResult.reasons, {
+        candidateEligibility: mergedEligibility
+      });
       return;
     }
 
     // Defense in depth: never evaluate a strategy outside session eligibility.
     if (!sessionEligibleStrategyIds.includes(selectionResult.selectedStrategyId)) {
-      await this.recordNoStrategySelection(latest, regime, correlationId, [
-        `Selected strategy ${selectionResult.selectedStrategyId} is not session-eligible for ${this.symbol}/${this.interval}`
-      ]);
+      await this.recordNoStrategySelection(
+        latest,
+        regime,
+        correlationId,
+        [
+          `Selected strategy ${selectionResult.selectedStrategyId} is not session-eligible for ${this.symbol}/${this.interval}`
+        ],
+        { candidateEligibility: eligibilityAudit.rows }
+      );
       return;
     }
 
@@ -1364,6 +1455,19 @@ export class LiveEngineSession {
         selectionScore: selectionResult.selectionScore,
         componentScores: selectionResult.componentScores,
         eligibilityRejections: selectionResult.eligibilityRejections?.slice(0, 8),
+        candidateEligibility: eligibilityAudit.rows,
+        selectionComparison: toSelectionComparisonRows({
+          selectedStrategyId: chosen.strategy.id,
+          selectionScore: selectionResult.selectionScore,
+          alternatives: selectionResult.alternatives ?? []
+        }),
+        selectionWhy: buildSelectionWhy({
+          selectedStrategyId: chosen.strategy.id,
+          selectionMode: selectionResult.selectionMode ?? null,
+          selectionScore: selectionResult.selectionScore,
+          reasons: selectionResult.reasons,
+          alternatives: selectionResult.alternatives ?? []
+        }),
         evidence: evidenceSummary,
         symbol: this.symbol,
         interval: this.interval,
@@ -1388,9 +1492,10 @@ export class LiveEngineSession {
     });
 
     // Opt-in observational shadow — never submits, never touches production cooldown/selection.
+    let shadowReport: AutoShadowEvaluationReport | null = null;
     if (this.deps.config.FEATURE_AUTO_SHADOW_EVAL && this.engineSelectionMode === "AUTO") {
       try {
-        await this.runAutoShadowEval({
+        shadowReport = await this.runAutoShadowEval({
           eligible,
           selectionResult,
           productionDecision: decision,
@@ -1405,6 +1510,13 @@ export class LiveEngineSession {
     }
 
     if (decision.action === "HOLD") {
+      const alternativeSignals = shadowReport
+        ? alternativeSignalsFromShadowCandidates(shadowReport.candidates)
+        : [];
+      const decisionOutcome = resolveHoldDecisionOutcome({
+        invalidationReasons: decision.invalidationReason,
+        alternativeSignals
+      });
       await this.recordCandidate(latest, correlationId, {
         decisionCode: "NO_SIGNAL",
         rejectionCode: "STRATEGY_HOLD",
@@ -1412,6 +1524,20 @@ export class LiveEngineSession {
         strategyId: chosen.strategy.id,
         direction: null
       });
+      const holdSummary = {
+        interval: this.interval,
+        internalSymbol: this.symbol,
+        strategyDecision: "HOLD",
+        decisionOutcome,
+        lifecycle: mt5Forward?.lifecycle ?? null,
+        evidence: evidenceSummary,
+        ...(alternativeSignals.length > 0
+          ? {
+              alternativeSignals,
+              productionHoldWithAlternativeSignals: true
+            }
+          : { productionHoldWithAlternativeSignals: false })
+      };
       if (this.isMt5Backend()) {
         await this.logAutonomousDecision("STRATEGY_HOLD", decision.invalidationReason, {
           regime: regime.regime,
@@ -1419,13 +1545,7 @@ export class LiveEngineSession {
           strategyId: chosen.strategy.id,
           action: "HOLD",
           correlationId,
-          featureSummary: {
-            interval: this.interval,
-            internalSymbol: this.symbol,
-            strategyDecision: "HOLD",
-            lifecycle: mt5Forward?.lifecycle ?? null,
-            evidence: evidenceSummary
-          }
+          featureSummary: holdSummary
         });
       } else {
         await this.logDecision("NO_TRADE", decision.invalidationReason, {
@@ -1433,12 +1553,14 @@ export class LiveEngineSession {
           regimeConfidence: regime.confidence,
           strategyId: chosen.strategy.id,
           action: "HOLD",
-          correlationId
+          correlationId,
+          featureSummary: holdSummary
         });
       }
       await publish(this.userId, "strategy.noTrade", {
         strategyId: chosen.strategy.id,
-        reasons: decision.invalidationReason
+        reasons: decision.invalidationReason,
+        decisionOutcome
       });
       return;
     }
@@ -1546,7 +1668,8 @@ export class LiveEngineSession {
               interval: this.interval,
               internalSymbol: this.symbol,
               forwardTrialDirectionalGuard: true,
-              reason: R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON
+              reason: R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON,
+              decisionOutcome: "DIRECTION_BLOCKED"
             }
           });
           return;
@@ -1586,7 +1709,8 @@ export class LiveEngineSession {
               interval: this.interval,
               internalSymbol: this.symbol,
               xauForwardTrialExperimental: true,
-              reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON
+              reason: XAU_FORWARD_TRIAL_EXPERIMENTAL_REASON,
+              decisionOutcome: "DIRECTION_BLOCKED"
             }
           });
           return;
@@ -1738,6 +1862,9 @@ export class LiveEngineSession {
             strategyDecision: decision.action,
             volumePreflight: result.preflight ?? null,
             entryFeatureTelemetry: result.entryFeatureTelemetry ?? null,
+            ...(result.decisionCode === "RISK_BLOCKED"
+              ? { decisionOutcome: "RISK_REJECTED" as const }
+              : {}),
             ...xauTrialTag,
             ...(result.preflight ?? {}),
             ...(this.mt5Cfd?.getHealthSnapshot() ?? {})
@@ -2690,7 +2817,11 @@ export class LiveEngineSession {
       featureSummary: {
         shadowOnly: true,
         executionReadiness: "NOT_ASSESSED",
+        decisionOutcome: report.productionHoldWithAlternativeSignals
+          ? "ALTERNATIVE_SIGNAL_OBSERVED"
+          : undefined,
         productionHoldWithAlternativeSignals: report.productionHoldWithAlternativeSignals,
+        alternativeSignals: alternativeSignalsFromShadowCandidates(report.candidates),
         alternativeSignalStrategyIds: report.alternativeSignalStrategyIds,
         independentAlternativeSignalStrategyIds: report.independentAlternativeSignalStrategyIds,
         repeatedAlternativeSignalStrategyIds: report.repeatedAlternativeSignalStrategyIds,
