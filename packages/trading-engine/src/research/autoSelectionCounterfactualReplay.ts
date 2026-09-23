@@ -151,8 +151,9 @@ export function replayForwardTrialBlockReason(input: {
     return null;
   }
   if (input.action !== "BUY" && input.action !== "SELL") return null;
-  const executable = input.interval === "1m" && input.action === "BUY";
-  return executable ? null : "R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY";
+  const executable =
+    input.interval === "1m" && (input.action === "BUY" || input.action === "SELL");
+  return executable ? null : "R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY";
 }
 
 export function defaultR10ReplayStrategies(): ReplayStrategyDefinition[] {

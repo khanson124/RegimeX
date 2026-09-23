@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+  R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON,
   isR10SqueezeForwardTrialExecutable,
   shouldBlockR10SqueezeForwardTrial
 } from "./r10SqueezeForwardTrialGuard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-describe("R10 squeeze forward-trial 1m BUY-only guard", () => {
+describe("R10 squeeze forward-trial 1m BUY|SELL guard", () => {
   const base = {
     executionBackend: "broker_demo_mt5",
     symbol: "R_10",
@@ -19,14 +20,17 @@ describe("R10 squeeze forward-trial 1m BUY-only guard", () => {
     action: "BUY"
   } as const;
 
-  it("allows only R_10 1m squeeze-breakout-v1 BUY on broker_demo_mt5", () => {
+  it("allows R_10 1m squeeze-breakout-v1 BUY on broker_demo_mt5", () => {
     expect(isR10SqueezeForwardTrialExecutable(base)).toBe(true);
     expect(shouldBlockR10SqueezeForwardTrial(base)).toBe(false);
-    expect(R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON).toBe("R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY");
+    expect(R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON).toBe("R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY");
+    expect(R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON).toBe(R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON);
   });
 
-  it("blocks 1m SELL", () => {
-    expect(shouldBlockR10SqueezeForwardTrial({ ...base, action: "SELL" })).toBe(true);
+  it("allows R_10 1m squeeze-breakout-v1 SELL on broker_demo_mt5 (proceeds past FT guard)", () => {
+    const sell = { ...base, action: "SELL" as const };
+    expect(isR10SqueezeForwardTrialExecutable(sell)).toBe(true);
+    expect(shouldBlockR10SqueezeForwardTrial(sell)).toBe(false);
   });
 
   it("blocks 5m BUY and 5m SELL", () => {
@@ -59,11 +63,21 @@ describe("R10 squeeze forward-trial 1m BUY-only guard", () => {
     ).toBe(false);
   });
 
+  it("does not apply to REAL backends", () => {
+    expect(
+      shouldBlockR10SqueezeForwardTrial({ ...base, executionBackend: "broker_real_mt5", action: "SELL" })
+    ).toBe(false);
+    expect(
+      isR10SqueezeForwardTrialExecutable({ ...base, executionBackend: "broker_real_mt5", action: "SELL" })
+    ).toBe(false);
+  });
+
   it("session places guard after SIGNAL_PRODUCED and before executeCfdSignal", () => {
     const src = readFileSync(join(here, "liveEngineSession.ts"), "utf8");
     expect(src).toContain("shouldBlockR10SqueezeForwardTrial");
-    expect(src).toContain("R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON");
-    expect(src).toContain("Temporary DEMO forward-trial guard: R_10");
+    expect(src).toContain("R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON");
+    expect(src).toContain("Temporary DEMO forward-trial guards");
+    expect(src).toContain("only 1m BUY|SELL may execute on MT5");
 
     const produced = src.indexOf('await this.logDecision("SIGNAL_PRODUCED"');
     const guard = src.indexOf("shouldBlockR10SqueezeForwardTrial({");

@@ -1,16 +1,22 @@
 /**
- * Temporary DEMO forward-trial directional / interval guard for R_10.
+ * Temporary DEMO forward-trial interval guard for R_10 squeeze.
  *
  * For broker_demo_mt5 + R_10 + squeeze-breakout-v1 the ONLY executable
- * combination is: interval === "1m" && action === "BUY".
+ * combinations are: interval === "1m" && action === "BUY" | "SELL".
  *
- * 1m SELL, 5m BUY/SELL, and every other interval are blocked.
+ * 5m BUY/SELL and every other interval are blocked.
  * Signals remain persisted/logged but must not reach Mt5CfdRuntime.executeCfdSignal().
  */
-export const R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON = "R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY";
+export const R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON = "R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY";
 
-/** @deprecated Use R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON */
-export const R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON = R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON;
+/**
+ * @deprecated Prefer R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON.
+ * Kept as an alias so existing imports keep compiling after the BUY-only trial ended.
+ */
+export const R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON = R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON;
+
+/** @deprecated Use R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON */
+export const R10_SQUEEZE_FORWARD_TRIAL_BUY_ONLY_REASON = R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON;
 
 export function isR10SqueezeForwardTrialExecutable(input: {
   executionBackend: string;
@@ -24,13 +30,13 @@ export function isR10SqueezeForwardTrialExecutable(input: {
     input.symbol === "R_10" &&
     input.interval === "1m" &&
     input.strategyId === "squeeze-breakout-v1" &&
-    input.action === "BUY"
+    (input.action === "BUY" || input.action === "SELL")
   );
 }
 
 /**
  * When the R_10 + squeeze-breakout-v1 + broker_demo_mt5 combo is in play,
- * block anything that is not 1m BUY.
+ * block anything that is not 1m BUY or 1m SELL.
  */
 export function shouldBlockR10SqueezeForwardTrial(input: {
   executionBackend: string;

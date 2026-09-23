@@ -35,7 +35,10 @@ const WINDOW_START = "2026-09-18T00:00:00.000Z";
 const WINDOW_END = "2026-09-24T00:00:00.000Z";
 const WARMUP_BARS = 120;
 const PATH_BARS = 120; // ~2h after entry for SL/TP race
-const FT_REASON = "R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY";
+const FT_REASONS = [
+  "R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY",
+  "R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY" // historical BUY-only trial logs
+] as const;
 
 function loadEnv(): void {
   for (const p of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
@@ -184,7 +187,12 @@ async function loadAuthoritativeLogs(): Promise<{
     for (const d of windowLogs) {
       if (d.action !== "SELL") continue;
       const blob = `${JSON.stringify(d.reasons)}\n${JSON.stringify(d.featureSummary)}`;
-      if (!blob.includes(FT_REASON) && !blob.includes("forwardTrialDirectionalGuard")) continue;
+      if (
+        !FT_REASONS.some((r) => blob.includes(r)) &&
+        !blob.includes("forwardTrialDirectionalGuard")
+      ) {
+        continue;
+      }
       blockedSells.push({
         kind: "production_blocked_sell",
         createdAt: d.createdAt.toISOString(),

@@ -289,7 +289,7 @@ describe("autoSelectionCounterfactualReplay", () => {
     }
   });
 
-  it("mirrors R10 squeeze forward-trial block reason", () => {
+  it("mirrors R10 squeeze forward-trial block reason (1m BUY|SELL allowed)", () => {
     expect(
       replayForwardTrialBlockReason({
         executionBackend: "broker_demo_mt5",
@@ -307,7 +307,16 @@ describe("autoSelectionCounterfactualReplay", () => {
         strategyId: "squeeze-breakout-v1",
         action: "SELL"
       })
-    ).toBe("R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY");
+    ).toBeNull();
+    expect(
+      replayForwardTrialBlockReason({
+        executionBackend: "broker_demo_mt5",
+        symbol: "R_10",
+        interval: "5m",
+        strategyId: "squeeze-breakout-v1",
+        action: "SELL"
+      })
+    ).toBe("R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY");
   });
 
   it("formats a markdown report with counts and limitations", () => {

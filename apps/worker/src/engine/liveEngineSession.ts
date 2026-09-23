@@ -93,7 +93,7 @@ import {
 } from "./liveEngineMarketData.js";
 import { Mt5QuotePollInFlightGate } from "./mt5QuotePollInFlight.js";
 import {
-  R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+  R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON,
   shouldBlockR10SqueezeForwardTrial
 } from "./r10SqueezeForwardTrialGuard.js";
 import {
@@ -1525,17 +1525,17 @@ export class LiveEngineSession {
           await this.deps.prisma.signal.update({ where: { id: signal.id }, data: { status: "SKIPPED" } });
           await this.recordCandidate(latest, correlationId, {
             decisionCode: "REJECT_STRATEGY",
-            rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
+            rejectionCode: R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON,
             reasons: [
-              R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
-              "DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY may execute on MT5"
+              R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON,
+              "DEMO forward-trial guard: R_10 squeeze-breakout-v1 only 1m BUY|SELL may execute on MT5"
             ],
             strategyId: chosen.strategy.id,
             direction: decision.action
           });
           await this.logAutonomousDecision("NO_TRADE", [
-            R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON,
-            "DEMO forward-trial guard — not 1m BUY; not submitted to MT5"
+            R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON,
+            "DEMO forward-trial guard — not 1m BUY|SELL; not submitted to MT5"
           ], {
             strategyId: chosen.strategy.id,
             action: decision.action,
@@ -1546,7 +1546,7 @@ export class LiveEngineSession {
               interval: this.interval,
               internalSymbol: this.symbol,
               forwardTrialDirectionalGuard: true,
-              reason: R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON
+              reason: R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON
             }
           });
           return;
@@ -2643,7 +2643,7 @@ export class LiveEngineSession {
       previousAlternativeSignalIds: this.previousShadowAlternativeSignalIds,
       forwardTrialBlockReason: (ftInput) => {
         if (shouldBlockR10SqueezeForwardTrial(ftInput)) {
-          return R10_SQUEEZE_FORWARD_TRIAL_1M_BUY_ONLY_REASON;
+          return R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY_REASON;
         }
         if (
           shouldBlockXauUsdForwardTrialExecution({

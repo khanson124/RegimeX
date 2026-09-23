@@ -259,7 +259,7 @@ describe("autoShadowEvaluator", () => {
       kind: "squeeze-breakout",
       action: "SELL"
     });
-    const { report } = evaluateAutoShadowCandidates({
+    const { report: allowedReport } = evaluateAutoShadowCandidates({
       timestampMs: ts + 60_000,
       openTimeMs: ts,
       candleIndex: 50,
@@ -284,12 +284,44 @@ describe("autoShadowEvaluator", () => {
       shadowLastSignalCandle: new Map()
     });
 
-    const c = report.candidates[0]!;
-    expect(c.action).toBe("SELL");
-    expect(c.forwardTrialBlocked).toBe(true);
-    expect(c.shadowSignalEligible).toBe(false);
-    expect(c.executionReadiness).toBe("NOT_ASSESSED");
-    expect(report.productionHoldWithAlternativeSignals).toBe(false);
+    const allowed = allowedReport.candidates[0]!;
+    expect(allowed.action).toBe("SELL");
+    expect(allowed.forwardTrialBlocked).toBe(false);
+    expect(allowed.shadowSignalEligible).toBe(true);
+    expect(allowed.executionReadiness).toBe("NOT_ASSESSED");
+
+    const { report: blockedReport } = evaluateAutoShadowCandidates({
+      timestampMs: ts + 60_000,
+      openTimeMs: ts,
+      candleIndex: 50,
+      symbol: "R_10",
+      interval: "5m",
+      executionBackend: "broker_demo_mt5",
+      regime: "VOLATILITY_COMPRESSION",
+      regimeConfidence: 0.7,
+      selectionResult: {
+        selectedStrategyId: seller.id,
+        selectionScore: 50,
+        selectionMode: "BOOTSTRAP",
+        alternatives: []
+      },
+      productionDecision: holdLike(seller, ts + 60_000, "HOLD", ["prod hold"]),
+      eligible: [{ strategy: seller, parameters: {} }],
+      context: {
+        candles: [candle(ts)],
+        features: [feature(ts + 60_000)],
+        regime: { ...regime(ts + 60_000), regime: "VOLATILITY_COMPRESSION" }
+      },
+      shadowLastSignalCandle: new Map()
+    });
+
+    const blocked = blockedReport.candidates[0]!;
+    expect(blocked.action).toBe("SELL");
+    expect(blocked.forwardTrialBlocked).toBe(true);
+    expect(blocked.shadowSignalEligible).toBe(false);
+    expect(blocked.forwardTrialReason).toBe("R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY");
+    expect(blocked.executionReadiness).toBe("NOT_ASSESSED");
+    expect(blockedReport.productionHoldWithAlternativeSignals).toBe(false);
   });
 
   it("shadow evaluation result contains no executable intent fields", () => {
