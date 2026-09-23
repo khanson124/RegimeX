@@ -1,0 +1,61 @@
+{
+  "generatedAtIso": "2026-09-23T01:44:00.000Z",
+  "investigatorHost": "local Mac workspace (DATABASE_URL → localhost:5432/regimex)",
+  "windowRequested": {
+    "fromInclusive": "2026-09-18T00:00:00.000Z",
+    "toExclusive": "2026-09-24T00:00:00.000Z",
+    "symbol": "R_10",
+    "interval": "1m",
+    "priceSourcesAllowed": ["MT5_LIVE_TICKS", "MT5_HISTORY"]
+  },
+  "localReachableDb": {
+    "r10CompleteCandlesInWindow": [
+      {
+        "interval": "1m",
+        "source": "HISTORY_API",
+        "count": 3869,
+        "minOpenTime": "2026-09-19T00:01:00.000Z",
+        "maxOpenTime": "2026-09-21T16:29:00.000Z",
+        "usableForThisAudit": false,
+        "reason": "HISTORY_API forbidden; price scale ~9500 diverges from DEMO MT5 ~5021"
+      }
+    ],
+    "r10Mt5LiveOrHistoryInWindow": {
+      "count": 0
+    },
+    "r10Mt5AnyTime": {
+      "count": 0
+    },
+    "decisionLog": {
+      "totalRows": 15513,
+      "minCreatedAt": "2026-07-13T15:36:24.399Z",
+      "maxCreatedAt": "2026-08-22T22:43:46.703Z",
+      "rowsInRequestedWindow": 0,
+      "autoShadowEvalCount": 0,
+      "note": "Local DecisionLog ends ~4 weeks before the investigation window; no Sep 2026 production state"
+    },
+    "positionsOpenedFrom2026-09-18": 0,
+    "mt5CsvExportsOnDisk": []
+  },
+  "priorArtifactsReviewed": [
+    {
+      "path": "research-datasets/auto-selection-counterfactual/r10_auto_counterfactual_latest.json",
+      "window": "2026-09-20T14:00–17:00Z analysis (candles from 2026-09-19T12:00)",
+      "authoritativeForThisAudit": false,
+      "reason": "Mechanical BOOTSTRAP replay; not joined to DecisionLog; candle source not MT5-verified for DEMO fills (~9505 closes)"
+    },
+    {
+      "path": "research-datasets/sep21-squeeze-loss-investigation/",
+      "authoritativeForThisAudit": false,
+      "reason": "MT5 replay blocked: NO_MT5_CANDLES_IN_REACHABLE_DB; tickets only on server DEMO"
+    }
+  ],
+  "blockingGaps": [
+    "DEMO MT5_LIVE_TICKS/MT5_HISTORY 1m R_10 for 2026-09-18 → 2026-09-24",
+    "Production DecisionLog including STRATEGY_HOLD, SIGNAL_PRODUCED, NO_TRADE, RISK_REJECTED, ENGINE_DEGRADED, AUTO_SHADOW_EVAL for the window",
+    "Position/Signal rows for Sep 21 breakout losses and any other R_10 fills in window",
+    "Confirmation of Sep 22 MT5 outage interval via ENGINE_DEGRADED / bridge logs (not inventable)",
+    "Untouched later MT5 OOS sample for any promotion recommendation"
+  ],
+  "status": "AUDIT_BLOCKED_PENDING_DEMO_EXPORT"
+}

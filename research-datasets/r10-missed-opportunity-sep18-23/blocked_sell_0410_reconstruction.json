@@ -1,0 +1,68 @@
+{
+  "generatedAt": "2026-09-23T02:04:44.270Z",
+  "status": "NO_MT5_CANDLES",
+  "dataIntegrity": {
+    "sourcesAllowed": [
+      "MT5_LIVE_TICKS",
+      "MT5_HISTORY"
+    ],
+    "continuity": {
+      "barCount": 0,
+      "firstIso": null,
+      "lastIso": null,
+      "sources": [],
+      "duplicateOpenTimes": [],
+      "gapCount": 0,
+      "gaps": [],
+      "nonAscending": false,
+      "incompleteRejected": 0,
+      "nonMt5Rejected": 0,
+      "continuous1m": false
+    },
+    "authoritativeLogsLoaded": true,
+    "authoritativeError": null,
+    "dbHostHint": "postgresql://kylehanson:***@localhost:5432/regimex?schema=public",
+    "note": "Reject local Mac DB if DecisionLog max(createdAt) < 2026-09-18 or MT5 bar count is 0 for Sep 21"
+  },
+  "codeFacts": {
+    "forwardTrialBlocksBeforeExecuteCfdSignal": true,
+    "signalStopLossPersistedOnFtBlock": false,
+    "cooldownAdvancesOnFtBlock": false,
+    "implication0411": "04:11 can fire as a repeated opportunity on consecutive bars because FT block returns before lastSignalCandle update"
+  },
+  "focus0410": {
+    "label": "production_focus_0410_utc",
+    "aroundIso": "2026-09-21T04:10:00.000Z",
+    "reconstructable": false,
+    "limitations": [
+      "No MT5 decision bar matched"
+    ]
+  },
+  "focus0411": {
+    "label": "production_focus_0411_utc",
+    "aroundIso": "2026-09-21T04:11:00.000Z",
+    "reconstructable": false,
+    "limitations": [
+      "No MT5 decision bar matched"
+    ]
+  },
+  "relationship0410_0411": {
+    "sameDonchianStructure": false,
+    "classification": "NEEDS_MANUAL_COMPARE_OR_INSUFFICIENT_MT5",
+    "note": "Not an independent second trade under an 8-bar cooldown if production had opened; FT block skips cooldown"
+  },
+  "productionBlockedSellsInWindow": [],
+  "shadowSellObservationsInWindow": [],
+  "pnlReliability": {
+    "dollarPnlEstablished": false,
+    "reasons": [
+      "No broker fill — signal SKIPPED before submit",
+      "R_10_mt5_empirical_cost_calibration unlockGates.profilesUnlocked=false",
+      "Intra-bar SL/TP race can be SAME_BAR_AMBIGUOUS on 1m OHLC",
+      "Entry at bar close ≠ ask/bid at submit"
+    ]
+  },
+  "artifacts": {
+    "outDir": "/Users/kylehanson/Documents/GitHub/RegimeX/research-datasets/r10-missed-opportunity-sep18-23"
+  }
+}
