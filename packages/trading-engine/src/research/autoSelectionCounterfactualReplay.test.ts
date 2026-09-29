@@ -1,16 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { type Candle, type MarketRegime, type StrategyDecision } from "@regimex/shared";
+import {
+  type Candle,
+  type MarketFeatureSnapshot,
+  type MarketRegime,
+  type StrategyDecision
+} from "@regimex/shared";
 import { type TradingStrategy, type StrategyContext } from "../strategies/types.js";
 import { syntheticCandles } from "../testing/fixtures.js";
 import { minimumCandlesForFeatures, DEFAULT_FEATURE_CONFIG } from "../features/featureExtractor.js";
 import {
+  aggregatePassEconomicMetrics,
   computeWarmupNeed,
   formatAutoSelectionReplayMarkdown,
   replayForwardTrialBlockReason,
   runAutoSelectionCounterfactualReplay,
+  simulatePassEconomicOutcomes,
+  simulateStopTargetWalk,
   strategiesForWarmupNeed,
+  type ReplaySimulatedTrade,
   type ReplayStrategyDefinition
 } from "./autoSelectionCounterfactualReplay.js";
+import { buildReplayTradePlan } from "./autoSelectionReplayOutcomes.js";
 
 const ALL_REGIMES: MarketRegime[] = [
   "STRONG_UPTREND",
@@ -603,7 +613,7 @@ describe("autoSelectionCounterfactualReplay", () => {
     expect(computeWarmupNeed(defs([r10, xauListedElsewhere]), cfg)).toBe(Math.max(featureFloor, 80));
   });
 
-  it("formats a markdown report with production, fallback, and missed BUY/SELL counts", () => {
+  it("formats a markdown report with production, fallback, missed BUY/SELL, and Pass A vs C economics", () => {
     const candles = syntheticCandles({ count: 80, seed: 1, drift: 0.2 });
     const report = runAutoSelectionCounterfactualReplay(candles, {
       symbol: "R_10",
@@ -631,6 +641,390 @@ describe("autoSelectionCounterfactualReplay", () => {
     expect(md).toContain("Missed BUY opportunity bars");
     expect(md).toContain("Missed SELL opportunity bars");
     expect(md).toContain("Fallback by strategy:");
-    expect(md).toContain("Selector-mechanics only");
+    expect(md).toContain("Pass A vs Pass C (economic R)");
+    expect(md).toContain("R-multiple comparison only");
+    expect(report.economic).toBeDefined();
+    expect(report.economic.entryConvention).toBe("NEXT_CANDLE_OPEN");
+  });
+});
+
+function candleAt(
+  openTime: number,
+  open: number,
+  high: number,
+  low: number,
+  close: number
+): Candle {
+  return {
+    symbol: "R_10",
+    interval: "1m",
+    openTime,
+    closeTime: openTime + 60_000,
+    open,
+    high,
+    low,
+    close,
+    tickCount: 10,
+    isComplete: true,
+    source: "SEED"
+  };
+}
+
+describe("autoSelectionReplayOutcomes", () => {
+  it("BUY target hit before stop", () => {
+    const walk = simulateStopTargetWalk({
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 95,
+      takeProfit: 110,
+      forwardBars: [
+        candleAt(0, 100, 105, 99, 104),
+        candleAt(60_000, 104, 111, 103, 110)
+      ]
+    });
+    expect(walk.outcome).toBe("TARGET");
+    expect(walk.exitPrice).toBe(110);
+    expect(walk.realizedR).toBe(2);
+    expect(walk.barsHeld).toBe(2);
+  });
+
+  it("BUY stop hit before target", () => {
+    const walk = simulateStopTargetWalk({
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 95,
+      takeProfit: 110,
+      forwardBars: [candleAt(0, 100, 101, 94, 96)]
+    });
+    expect(walk.outcome).toBe("STOP");
+    expect(walk.exitPrice).toBe(95);
+    expect(walk.realizedR).toBe(-1);
+  });
+
+  it("SELL target hit before stop", () => {
+    const walk = simulateStopTargetWalk({
+      direction: "SELL",
+      entryPrice: 100,
+      stopLoss: 105,
+      takeProfit: 90,
+      forwardBars: [
+        candleAt(0, 100, 101, 97, 98),
+        candleAt(60_000, 98, 99, 89, 90)
+      ]
+    });
+    expect(walk.outcome).toBe("TARGET");
+    expect(walk.realizedR).toBe(2);
+  });
+
+  it("SELL stop hit before target", () => {
+    const walk = simulateStopTargetWalk({
+      direction: "SELL",
+      entryPrice: 100,
+      stopLoss: 105,
+      takeProfit: 90,
+      forwardBars: [candleAt(0, 100, 106, 99, 104)]
+    });
+    expect(walk.outcome).toBe("STOP");
+    expect(walk.realizedR).toBe(-1);
+  });
+
+  it("both stop and target touched in same candle => AMBIGUOUS", () => {
+    const walk = simulateStopTargetWalk({
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 95,
+      takeProfit: 110,
+      forwardBars: [candleAt(0, 100, 111, 94, 100)]
+    });
+    expect(walk.outcome).toBe("AMBIGUOUS");
+    expect(walk.realizedR).toBeNull();
+    expect(walk.exitPrice).toBeNull();
+  });
+
+  it("open trade at analysis end => OPEN_AT_END", () => {
+    const walk = simulateStopTargetWalk({
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 90,
+      takeProfit: 120,
+      forwardBars: [
+        candleAt(0, 100, 105, 98, 103),
+        candleAt(60_000, 103, 106, 101, 104)
+      ]
+    });
+    expect(walk.outcome).toBe("OPEN_AT_END");
+    expect(walk.realizedR).toBeNull();
+    expect(walk.exitPrice).toBe(104);
+  });
+
+  it("missing stop/target => UNSCORABLE via buildReplayTradePlan", () => {
+    const features = {
+      atr: null,
+      donchianLow: null,
+      donchianHigh: null
+    } as MarketFeatureSnapshot;
+    const plan = buildReplayTradePlan({
+      strategyId: "squeeze-breakout-v1",
+      action: "BUY",
+      confidence: 0.8,
+      signalTimestampMs: 1,
+      entryPrice: 100,
+      features,
+      candles: [],
+      metadata: {},
+      tickSize: 0.01
+    });
+    expect(plan.scorable).toBe(false);
+    expect(plan.unscorableReason).toBe("CFD_STOP_TARGET_UNAVAILABLE");
+  });
+
+  it("uses next-candle-open entry convention", () => {
+    const candles = [
+      candleAt(0, 10, 11, 9, 10.5),
+      candleAt(60_000, 10.5, 11, 10, 10.8),
+      candleAt(120_000, 42, 50, 40, 45), // entry open = 42
+      candleAt(180_000, 45, 80, 44, 70) // target path with wide range
+    ];
+    // Force a scorable plan by using features with ATR for squeeze
+    const richFeatures = {
+      atr: 2,
+      donchianLow: 35,
+      donchianHigh: 50
+    } as MarketFeatureSnapshot;
+
+    // Unit-level: build plan at next open
+    const plan = buildReplayTradePlan({
+      strategyId: "squeeze-breakout-v1",
+      action: "BUY",
+      confidence: 0.9,
+      signalTimestampMs: candles[1]!.closeTime,
+      entryPrice: candles[2]!.open,
+      features: richFeatures,
+      candles: candles.slice(0, 2),
+      metadata: { squeezeLow: 35, squeezeHigh: 50 },
+      tickSize: 0.01
+    });
+    expect(plan.scorable).toBe(true);
+    expect(plan.entryPrice).toBe(42);
+
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals: [
+        {
+          pass: "A",
+          signalCandleIndex: 1,
+          evaluation: {
+            strategyId: "squeeze-breakout-v1",
+            action: "BUY",
+            confidence: 0.9,
+            signalTimestampMs: candles[1]!.closeTime,
+            decisionMetadata: { squeezeLow: 35, squeezeHigh: 50 }
+          },
+          fromProductionHold: false
+        }
+      ],
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01
+    });
+    const trade = comparison.trades.find((t) => t.pass === "A");
+    expect(trade).toBeDefined();
+    expect(trade!.entryPrice).toBe(42);
+    expect(trade!.entryCandleIndex).toBe(2);
+    expect(comparison.entryConvention).toBe("NEXT_CANDLE_OPEN");
+  });
+
+  it("Pass A and Pass C position state are independent", () => {
+    // Narrow stop/target so each pass can score independently
+    const candlesResolved = [
+      candleAt(0, 100, 101, 99, 100),
+      candleAt(60_000, 100, 101, 99, 100),
+      candleAt(120_000, 100, 101, 99, 100), // entry for both at open 100
+      candleAt(180_000, 100, 112, 99, 110) // BUY target 110 if stop 95
+    ];
+
+    const evalBuy = {
+      strategyId: "squeeze-breakout-v1",
+      action: "BUY" as const,
+      confidence: 0.8,
+      signalTimestampMs: candlesResolved[1]!.closeTime,
+      decisionMetadata: { squeezeLow: 95, squeezeHigh: 105 }
+    };
+    const comparison = simulatePassEconomicOutcomes({
+      candles: candlesResolved,
+      signals: [
+        { pass: "A", signalCandleIndex: 1, evaluation: evalBuy, fromProductionHold: false },
+        {
+          pass: "C",
+          signalCandleIndex: 1,
+          evaluation: { ...evalBuy, strategyId: "ema-pullback-v1" },
+          fromProductionHold: true
+        }
+      ],
+      parametersByStrategyId: new Map([
+        ["squeeze-breakout-v1", {}],
+        ["ema-pullback-v1", {}]
+      ]),
+      tickSize: 0.01
+    });
+
+    const a = comparison.trades.filter((t) => t.pass === "A");
+    const c = comparison.trades.filter((t) => t.pass === "C");
+    expect(a.length).toBe(1);
+    expect(c.length).toBe(1);
+    expect(a[0]!.entryCandleIndex).toBe(c[0]!.entryCandleIndex);
+    // Both can be open/resolved without blocking each other
+    expect(a[0]!.outcome === "UNSCORABLE" || a[0]!.entryPrice != null).toBe(true);
+    expect(c[0]!.outcome === "UNSCORABLE" || c[0]!.entryPrice != null).toBe(true);
+  });
+
+  it("cumulative R and max drawdown math", () => {
+    const mk = (
+      outcome: ReplaySimulatedTrade["outcome"],
+      realizedR: number | null
+    ): ReplaySimulatedTrade => ({
+      pass: "A",
+      strategyId: "ema-pullback-v1",
+      direction: "BUY",
+      signalCandleIndex: 0,
+      signalTimeMs: 0,
+      entryCandleIndex: 1,
+      entryTimeMs: 1,
+      entryPrice: 100,
+      stopPrice: 95,
+      targetPrice: 110,
+      exitCandleIndex: 2,
+      exitTimeMs: 2,
+      exitPrice: 110,
+      outcome,
+      realizedR,
+      barsHeld: 1,
+      tradePlan: {
+        action: "BUY",
+        strategyId: "ema-pullback-v1",
+        signalTimestampMs: 0,
+        entryPrice: 100,
+        stopLoss: 95,
+        takeProfit: 110,
+        stopDistance: 5,
+        targetDistance: 10,
+        riskRewardRatio: 2,
+        stopMethod: "test",
+        targetMethod: "test",
+        confidence: 1,
+        scorable: true,
+        unscorableReason: null,
+        proposalReasons: []
+      },
+      fromProductionHold: false,
+      confidence: 1
+    });
+
+    const metrics = aggregatePassEconomicMetrics([
+      mk("TARGET", 2),
+      mk("STOP", -1),
+      mk("TARGET", 2),
+      mk("AMBIGUOUS", null),
+      mk("STOP", -1)
+    ]);
+    // Cumulative R path: 2 → 1 → 3 → (skip amb) → 2; peak 3; dd = 3-2 = 1 after last stop? 
+    // After T2: cum=2 peak=2 dd=0
+    // After S-1: cum=1 peak=2 dd=1
+    // After T2: cum=3 peak=3 dd=1
+    // Ambiguous skipped
+    // After S-1: cum=2 peak=3 dd=1
+    expect(metrics.totalRealizedR).toBe(2);
+    expect(metrics.targetHits).toBe(2);
+    expect(metrics.stopHits).toBe(2);
+    expect(metrics.ambiguous).toBe(1);
+    expect(metrics.winRate).toBe(0.5);
+    expect(metrics.maxDrawdownR).toBe(1);
+    expect(metrics.longestLosingStreak).toBe(1);
+  });
+
+  it("fallback trade from production HOLD is attributed correctly", () => {
+    const candles = [
+      candleAt(0, 100, 101, 99, 100),
+      candleAt(60_000, 100, 101, 99, 100),
+      candleAt(120_000, 100, 101, 99, 100),
+      candleAt(180_000, 100, 112, 99, 110)
+    ];
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals: [
+        {
+          pass: "C",
+          signalCandleIndex: 1,
+          evaluation: {
+            strategyId: "squeeze-breakout-v1",
+            action: "BUY",
+            confidence: 0.8,
+            signalTimestampMs: candles[1]!.closeTime,
+            decisionMetadata: { squeezeLow: 95, squeezeHigh: 105 }
+          },
+          fromProductionHold: true
+        }
+      ],
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01
+    });
+    expect(comparison.passC.fromProductionHoldSignals).toBe(1);
+    const t = comparison.trades[0]!;
+    expect(t.fromProductionHold).toBe(true);
+    if (t.outcome === "TARGET" || t.outcome === "STOP") {
+      expect(comparison.passC.fromProductionHoldResolvedTrades).toBe(1);
+      expect(comparison.passC.fromProductionHoldResolvedR).toBe(t.realizedR);
+    }
+  });
+
+  it("no-lookahead still holds with economic fields present", () => {
+    const candles = syntheticCandles({ count: 150, seed: 5, drift: 0.45, volatility: 2 });
+    const analysisStartMs = candles[110]!.openTime;
+    const mid = candles[120]!;
+    const analysisEndMs = mid.openTime + 60_000;
+
+    const strategies = defs([
+      mockStrategy({
+        id: "breakout-momentum-v1",
+        kind: "breakout-momentum",
+        supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "BREAKOUT_EXPANSION"],
+        action: "HOLD"
+      }),
+      mockStrategy({
+        id: "ema-pullback-v1",
+        kind: "ema-pullback",
+        supportedRegimes: ALL_REGIMES,
+        action: "BUY"
+      })
+    ]);
+
+    const cfg = {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs,
+      analysisEndMs,
+      selectionMode: "BOOTSTRAP" as const,
+      executionBackend: "paper_cfd" as const,
+      strategyAllowlist: [] as string[],
+      strategies
+    };
+
+    const before = runAutoSelectionCounterfactualReplay(candles.slice(0, 121), cfg);
+    const future = {
+      ...candles[121]!,
+      openTime: mid.openTime + 60_000,
+      closeTime: mid.closeTime + 60_000,
+      close: mid.close + 50
+    };
+    const after = runAutoSelectionCounterfactualReplay([...candles.slice(0, 121), future], cfg);
+
+    expect(before.bars).toHaveLength(after.bars.length);
+    for (let i = 0; i < before.bars.length; i++) {
+      expect(after.bars[i]!.fallback.action).toBe(before.bars[i]!.fallback.action);
+      expect(after.bars[i]!.production.evaluation?.action).toBe(
+        before.bars[i]!.production.evaluation?.action
+      );
+    }
+    // Signal-side decisions unchanged; economic may differ only for trades that need the future entry/exit candle
+    expect(before.economic.entryConvention).toBe(after.economic.entryConvention);
   });
 });

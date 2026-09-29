@@ -29,9 +29,34 @@ import { BreakoutMomentumStrategy, BREAKOUT_MOMENTUM_DEFAULTS } from "../strateg
 import { EmaPullbackStrategy, EMA_PULLBACK_DEFAULTS } from "../strategies/emaPullback.js";
 import { SqueezeBreakoutStrategy, SQUEEZE_BREAKOUT_DEFAULTS } from "../strategies/squeezeBreakout.js";
 import { BollingerReversionStrategy, BOLLINGER_REVERSION_DEFAULTS } from "../strategies/bollingerReversion.js";
+import {
+  REPLAY_ENTRY_CONVENTION,
+  simulatePassEconomicOutcomes,
+  type ReplayEconomicComparison,
+  type ReplayEconomicSignal,
+  type ReplayTradePlanSnapshot
+} from "./autoSelectionReplayOutcomes.js";
+
+export type {
+  ReplayEconomicComparison,
+  ReplayPassEconomicMetrics,
+  ReplaySimulatedTrade,
+  ReplayTradeOutcome,
+  ReplayTradePlanSnapshot
+} from "./autoSelectionReplayOutcomes.js";
+export {
+  REPLAY_ENTRY_CONVENTION,
+  aggregatePassEconomicMetrics,
+  buildReplayTradePlan,
+  simulatePassEconomicOutcomes,
+  simulateStopTargetWalk
+} from "./autoSelectionReplayOutcomes.js";
 
 /** Matches LiveEngineSession CANDLE_BUFFER_BASE. */
 export const REPLAY_CANDLE_BUFFER_CAPACITY = 1500;
+
+/** Default tick size for R_10 / Volatility Index offline stop geometry. */
+export const REPLAY_DEFAULT_TICK_SIZE = 0.01;
 
 export interface ReplayStrategyDefinition {
   strategy: TradingStrategy;
@@ -59,6 +84,8 @@ export interface AutoSelectionReplayConfig {
   candleBufferCapacity?: number;
   /** Defaults to DEFAULT_REGIME_THRESHOLDS; pass DB RegimeConfiguration when available. */
   regimeThresholds?: RegimeThresholds;
+  /** Tick size for strategy CFD stop/target proposal (default 0.01 for R_10). */
+  tickSize?: number;
 }
 
 export interface StrategyEvalSnapshot {
@@ -72,6 +99,15 @@ export interface StrategyEvalSnapshot {
   forwardTrialReason: string | null;
   /** Dry known submission blockers (allowlist already applied for eligibility). */
   submissionBlockers: string[];
+  /** Candle close time that produced the decision (ms). */
+  signalTimestampMs: number;
+  /** Strategy decision metadata (structure levels etc.) for CFD stop/target proposal. */
+  decisionMetadata: Record<string, unknown>;
+  /**
+   * Filled during economic simulation when this eval opened a scorable/unscorable trade plan.
+   * Null when this eval did not produce an executable signal used by Pass A/C economics.
+   */
+  tradePlan: ReplayTradePlanSnapshot | null;
 }
 
 export interface FallbackEvalSnapshot {
@@ -163,6 +199,8 @@ export interface AutoSelectionReplayReport {
   };
   examples: AutoSelectionReplayBarResult[];
   bars: AutoSelectionReplayBarResult[];
+  /** Pass A vs Pass C economic outcomes (R-multiples; no stake/lot PnL). */
+  economic: ReplayEconomicComparison;
 }
 
 /** Mirrors apps/worker/src/engine/r10SqueezeForwardTrialGuard.ts — keep in sync via tests. */
@@ -311,7 +349,10 @@ function evaluateStrategy(input: {
     candlesSinceLastSignal: input.candlesSinceLastSignal,
     forwardTrialBlocked: forwardTrialReason != null,
     forwardTrialReason,
-    submissionBlockers
+    submissionBlockers,
+    signalTimestampMs: decision.signalTimestamp,
+    decisionMetadata: { ...(decision.metadata ?? {}) },
+    tradePlan: null
   };
 }
 
@@ -710,6 +751,77 @@ export function runAutoSelectionCounterfactualReplay(
     .filter((b) => b.missedBuyOpportunity || b.missedSellOpportunity || b.fallback.action === "BUY" || b.fallback.action === "SELL")
     .slice(0, 25);
 
+  const economicSignals: ReplayEconomicSignal[] = [];
+  for (const b of bars) {
+    const prod = b.production.evaluation;
+    if (prod && isExecutableTrade(prod)) {
+      economicSignals.push({
+        pass: "A",
+        signalCandleIndex: b.candleIndex,
+        evaluation: {
+          strategyId: prod.strategyId,
+          action: prod.action as "BUY" | "SELL",
+          confidence: prod.confidence,
+          signalTimestampMs: prod.signalTimestampMs,
+          decisionMetadata: prod.decisionMetadata
+        },
+        fromProductionHold: false
+      });
+    }
+    const fb = b.fallback.evaluation;
+    if (fb && isExecutableTrade(fb)) {
+      economicSignals.push({
+        pass: "C",
+        signalCandleIndex: b.candleIndex,
+        evaluation: {
+          strategyId: fb.strategyId,
+          action: fb.action as "BUY" | "SELL",
+          confidence: fb.confidence,
+          signalTimestampMs: fb.signalTimestampMs,
+          decisionMetadata: fb.decisionMetadata
+        },
+        fromProductionHold: isProductionHoldOrNoTrade(b.production.evaluation)
+      });
+    }
+  }
+
+  const parametersByStrategyId = new Map(
+    strategies.map((s) => [s.strategy.id, s.parameters] as const)
+  );
+  const tickSize = config.tickSize ?? REPLAY_DEFAULT_TICK_SIZE;
+  const economic = simulatePassEconomicOutcomes({
+    candles,
+    signals: economicSignals,
+    parametersByStrategyId,
+    tickSize,
+    featureLookback: bufferCapacity
+  });
+
+  // Attach trade plans back onto bar eval snapshots for inspectability.
+  const planByKey = new Map<string, ReplayTradePlanSnapshot>();
+  for (const t of economic.trades) {
+    planByKey.set(`${t.pass}:${t.signalCandleIndex}`, t.tradePlan);
+  }
+  for (const b of bars) {
+    const aPlan = planByKey.get(`A:${b.candleIndex}`);
+    if (aPlan && b.production.evaluation) b.production.evaluation.tradePlan = aPlan;
+    const cPlan = planByKey.get(`C:${b.candleIndex}`);
+    if (cPlan && b.fallback.evaluation) b.fallback.evaluation.tradePlan = cPlan;
+  }
+
+  limitations.push(
+    `Economic entry convention: ${economic.entryConvention} — ${economic.entryConventionNote}`
+  );
+  limitations.push(`Economic position model: ${economic.positionModel} — ${economic.positionModelNote}`);
+  limitations.push(
+    "OHLC cannot resolve intrabar ordering when both stop and target are touched in the same candle (outcome=AMBIGUOUS; excluded from win rate / total R)"
+  );
+  limitations.push("No slippage modeled in economic R replay");
+  limitations.push("No spread/commission modeled in economic R replay");
+  limitations.push(
+    "Historical economic replay is not a live-fill guarantee (live enters at contemporaneous quote)"
+  );
+
   return {
     generatedAtIso: new Date().toISOString(),
     config: {
@@ -760,7 +872,8 @@ export function runAutoSelectionCounterfactualReplay(
       fallbackFromProductionHoldByStrategy
     },
     examples,
-    bars
+    bars,
+    economic
   };
 }
 
@@ -789,6 +902,40 @@ function emptyCounts(): AutoSelectionReplayReport["counts"] {
     fallbackByStrategy: {},
     fallbackFromProductionHold: 0,
     fallbackFromProductionHoldByStrategy: {}
+  };
+}
+
+function emptyEconomic(): ReplayEconomicComparison {
+  const emptyPass = {
+    totalSignals: 0,
+    scorableTrades: 0,
+    unscorable: 0,
+    targetHits: 0,
+    stopHits: 0,
+    ambiguous: 0,
+    openAtEnd: 0,
+    winRate: null,
+    totalRealizedR: 0,
+    avgRPerResolvedTrade: null,
+    medianR: null,
+    maxDrawdownR: 0,
+    longestLosingStreak: 0,
+    avgBarsHeld: null,
+    byStrategy: {},
+    fromProductionHoldSignals: 0,
+    fromProductionHoldResolvedR: 0,
+    fromProductionHoldResolvedTrades: 0
+  };
+  return {
+    entryConvention: REPLAY_ENTRY_CONVENTION,
+    entryConventionNote:
+      "Enter at the next closed candle's open after the signal candle.",
+    positionModel: "SINGLE_POSITION_PER_PASS",
+    positionModelNote: "Pass A and Pass C each allow at most one open position (independent).",
+    tickSize: REPLAY_DEFAULT_TICK_SIZE,
+    passA: emptyPass,
+    passC: emptyPass,
+    trades: []
   };
 }
 
@@ -821,7 +968,8 @@ function emptyReport(
     limitations,
     counts: emptyCounts(),
     examples: [],
-    bars: []
+    bars: [],
+    economic: emptyEconomic()
   };
 }
 
@@ -884,9 +1032,58 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   );
   lines.push(`- Missed SELL by strategy: ${JSON.stringify(report.counts.missedSellByStrategy)}`);
   lines.push("");
+  lines.push(`## Pass A vs Pass C (economic R)`);
+  lines.push(`Entry: ${report.economic.entryConvention} — ${report.economic.entryConventionNote}`);
+  lines.push(`Positions: ${report.economic.positionModel} — ${report.economic.positionModelNote}`);
+  lines.push("");
+  const pct = (n: number | null) => (n == null ? "—" : `${(n * 100).toFixed(1)}%`);
+  const num = (n: number | null, digits = 2) => (n == null ? "—" : n.toFixed(digits));
+  const row = (label: string, a: string, c: string) => `- ${label}: A ${a} | C ${c}`;
+  lines.push(
+    row("Trades (signals)", String(report.economic.passA.totalSignals), String(report.economic.passC.totalSignals))
+  );
+  lines.push(
+    row(
+      "Resolved trades (TARGET+STOP)",
+      String(report.economic.passA.targetHits + report.economic.passA.stopHits),
+      String(report.economic.passC.targetHits + report.economic.passC.stopHits)
+    )
+  );
+  lines.push(row("Win rate", pct(report.economic.passA.winRate), pct(report.economic.passC.winRate)));
+  lines.push(
+    row("Total R", num(report.economic.passA.totalRealizedR), num(report.economic.passC.totalRealizedR))
+  );
+  lines.push(
+    row(
+      "Avg R/trade",
+      num(report.economic.passA.avgRPerResolvedTrade),
+      num(report.economic.passC.avgRPerResolvedTrade)
+    )
+  );
+  lines.push(
+    row("Max drawdown (R)", num(report.economic.passA.maxDrawdownR), num(report.economic.passC.maxDrawdownR))
+  );
+  lines.push(
+    row("Ambiguous", String(report.economic.passA.ambiguous), String(report.economic.passC.ambiguous))
+  );
+  lines.push(
+    row("Unscorable", String(report.economic.passA.unscorable), String(report.economic.passC.unscorable))
+  );
+  lines.push(
+    row("Open at end", String(report.economic.passA.openAtEnd), String(report.economic.passC.openAtEnd))
+  );
+  lines.push(
+    `- Pass C from production HOLD: signals ${report.economic.passC.fromProductionHoldSignals}; resolved trades ${report.economic.passC.fromProductionHoldResolvedTrades}; resolved R ${num(report.economic.passC.fromProductionHoldResolvedR)}`
+  );
+  lines.push(`- Pass A by strategy: ${JSON.stringify(report.economic.passA.byStrategy)}`);
+  lines.push(`- Pass C by strategy: ${JSON.stringify(report.economic.passC.byStrategy)}`);
+  lines.push("");
   lines.push(`## Note`);
   lines.push(
-    `- Selector-mechanics only — no profitability, expectancy, or fill claims in this report.`
+    `- R-multiple comparison only — no stake/lot money PnL; not a profitability claim.`
+  );
+  lines.push(
+    `- Selector-mechanics counts above remain valid independently of economic scoring.`
   );
   lines.push("");
   lines.push(`## Examples (up to 25)`);

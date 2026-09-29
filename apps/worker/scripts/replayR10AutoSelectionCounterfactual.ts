@@ -318,7 +318,13 @@ async function main(): Promise<void> {
       "Live DecisionLog / production winner history not joined — this is a mechanical replay, not a log reconstruction"
     );
     extraLimitations.push(
-      "Pass C is selector-mechanics only — fallback trade counts are not profitability, expectancy, or fill claims"
+      "Pass C is selector-mechanics only for signal counts — economic R comparison is separate and not a money-PnL claim"
+    );
+    extraLimitations.push(
+      "OHLC cannot resolve intrabar stop vs target order (AMBIGUOUS); no slippage/spread/commission in R replay; not a live-fill guarantee"
+    );
+    extraLimitations.push(
+      "BOOTSTRAP selection limitation still applies unless historical StrategyRegimeMetric is loaded"
     );
 
     const report = runAutoSelectionCounterfactualReplay(candles, {
