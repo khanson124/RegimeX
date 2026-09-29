@@ -7,6 +7,7 @@
 import {
   type Candle,
   type MarketFeatureSnapshot,
+  type MarketRegime,
   type PositionDirection,
   type StrategyDecision
 } from "@regimex/shared";
@@ -80,6 +81,8 @@ export interface ReplaySimulatedTrade {
   tradePlan: ReplayTradePlanSnapshot;
   /** Pass C only: true when production eval was HOLD/absent on the signal bar. */
   fromProductionHold: boolean;
+  /** Regime classified on the signal candle (candles[0..signal] only). */
+  regime: MarketRegime | null;
   confidence: number;
 }
 
@@ -114,6 +117,49 @@ export interface ReplayPassEconomicMetrics {
   fromProductionHoldResolvedTrades: number;
 }
 
+export interface ReplayDiagnosticGroupStats {
+  trades: number;
+  /** TARGET + STOP only. */
+  resolvedTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  totalR: number;
+  avgR: number | null;
+  ambiguous: number;
+  openAtEnd: number;
+  unscorable: number;
+  avgBarsHeld: number | null;
+}
+
+export type ReplayTradeDirection = "BUY" | "SELL";
+
+/** Regime key used when a trade has no signal-candle regime attached. */
+export const REPLAY_UNATTRIBUTED_REGIME = "UNATTRIBUTED" as const;
+
+export interface ReplayDiagnosticGroupRow extends ReplayDiagnosticGroupStats {
+  strategyId: string;
+  direction: ReplayTradeDirection;
+  regime: string;
+}
+
+export interface ReplayFallbackFromHoldDiagnostics {
+  /** Resolved-trade floor for worstGroups / bestGroups. */
+  minResolvedForRanking: number;
+  rankingLimit: number;
+  totals: ReplayDiagnosticGroupStats;
+  byStrategy: Record<string, ReplayDiagnosticGroupStats>;
+  byStrategyDirection: Record<string, Partial<Record<ReplayTradeDirection, ReplayDiagnosticGroupStats>>>;
+  byStrategyDirectionRegime: Record<
+    string,
+    Partial<Record<ReplayTradeDirection, Record<string, ReplayDiagnosticGroupStats>>>
+  >;
+  /** Strategy+direction+regime groups sorted by totalR ascending. */
+  worstGroups: ReplayDiagnosticGroupRow[];
+  /** Strategy+direction+regime groups sorted by totalR descending. */
+  bestGroups: ReplayDiagnosticGroupRow[];
+}
+
 export interface ReplayEconomicComparison {
   entryConvention: ReplayEntryConvention;
   entryConventionNote: string;
@@ -122,6 +168,8 @@ export interface ReplayEconomicComparison {
   tickSize: number;
   passA: ReplayPassEconomicMetrics;
   passC: ReplayPassEconomicMetrics;
+  /** Diagnostic-only breakdown of Pass C trades where fromProductionHold === true. */
+  passCFallbackFromHold: ReplayFallbackFromHoldDiagnostics;
   trades: ReplaySimulatedTrade[];
 }
 
@@ -130,6 +178,8 @@ export interface ReplayEconomicSignal {
   signalCandleIndex: number;
   evaluation: ReplayEconomicEvalSnapshot;
   fromProductionHold: boolean;
+  /** Regime classified on the signal candle; never recomputed from later candles. */
+  regime?: MarketRegime | null;
 }
 
 /**
@@ -459,11 +509,160 @@ export function aggregatePassEconomicMetrics(
   return m;
 }
 
+class GroupAccumulator {
+  trades = 0;
+  wins = 0;
+  losses = 0;
+  totalR = 0;
+  ambiguous = 0;
+  openAtEnd = 0;
+  unscorable = 0;
+  private barsHeldSum = 0;
+  private barsHeldCount = 0;
+
+  add(t: ReplaySimulatedTrade): void {
+    this.trades += 1;
+    if (t.barsHeld != null) {
+      this.barsHeldSum += t.barsHeld;
+      this.barsHeldCount += 1;
+    }
+    switch (t.outcome) {
+      case "TARGET":
+        this.wins += 1;
+        this.totalR += t.realizedR ?? 0;
+        break;
+      case "STOP":
+        this.losses += 1;
+        this.totalR += t.realizedR ?? 0;
+        break;
+      case "AMBIGUOUS":
+        this.ambiguous += 1;
+        break;
+      case "OPEN_AT_END":
+        this.openAtEnd += 1;
+        break;
+      case "UNSCORABLE":
+        this.unscorable += 1;
+        break;
+    }
+  }
+
+  stats(): ReplayDiagnosticGroupStats {
+    const resolved = this.wins + this.losses;
+    return {
+      trades: this.trades,
+      resolvedTrades: resolved,
+      wins: this.wins,
+      losses: this.losses,
+      winRate: resolved > 0 ? this.wins / resolved : null,
+      totalR: this.totalR,
+      avgR: resolved > 0 ? this.totalR / resolved : null,
+      ambiguous: this.ambiguous,
+      openAtEnd: this.openAtEnd,
+      unscorable: this.unscorable,
+      avgBarsHeld: this.barsHeldCount > 0 ? this.barsHeldSum / this.barsHeldCount : null
+    };
+  }
+}
+
+/**
+ * Diagnostic breakdown of Pass C fallback-from-production-HOLD trades by
+ * strategy / direction / signal-candle regime. Reporting only — no gating.
+ */
+export function buildFallbackFromHoldDiagnostics(
+  trades: ReadonlyArray<ReplaySimulatedTrade>,
+  options?: { minResolvedForRanking?: number; rankingLimit?: number }
+): ReplayFallbackFromHoldDiagnostics {
+  const minResolvedForRanking = options?.minResolvedForRanking ?? 2;
+  const rankingLimit = options?.rankingLimit ?? 10;
+  const scoped = trades.filter((t) => t.pass === "C" && t.fromProductionHold);
+
+  const totals = new GroupAccumulator();
+  const byStrategy = new Map<string, GroupAccumulator>();
+  const byStrategyDirection = new Map<string, Map<ReplayTradeDirection, GroupAccumulator>>();
+  const byGroup = new Map<
+    string,
+    Map<ReplayTradeDirection, Map<string, GroupAccumulator>>
+  >();
+
+  for (const t of scoped) {
+    const direction = t.direction as ReplayTradeDirection;
+    const regime = t.regime ?? REPLAY_UNATTRIBUTED_REGIME;
+    totals.add(t);
+
+    let s = byStrategy.get(t.strategyId);
+    if (!s) byStrategy.set(t.strategyId, (s = new GroupAccumulator()));
+    s.add(t);
+
+    let dirs = byStrategyDirection.get(t.strategyId);
+    if (!dirs) byStrategyDirection.set(t.strategyId, (dirs = new Map()));
+    let d = dirs.get(direction);
+    if (!d) dirs.set(direction, (d = new GroupAccumulator()));
+    d.add(t);
+
+    let gDirs = byGroup.get(t.strategyId);
+    if (!gDirs) byGroup.set(t.strategyId, (gDirs = new Map()));
+    let regimes = gDirs.get(direction);
+    if (!regimes) gDirs.set(direction, (regimes = new Map()));
+    let g = regimes.get(regime);
+    if (!g) regimes.set(regime, (g = new GroupAccumulator()));
+    g.add(t);
+  }
+
+  const byStrategyOut: ReplayFallbackFromHoldDiagnostics["byStrategy"] = {};
+  for (const [id, acc] of byStrategy) byStrategyOut[id] = acc.stats();
+
+  const byStrategyDirectionOut: ReplayFallbackFromHoldDiagnostics["byStrategyDirection"] = {};
+  for (const [id, dirs] of byStrategyDirection) {
+    const out: Partial<Record<ReplayTradeDirection, ReplayDiagnosticGroupStats>> = {};
+    for (const [dir, acc] of dirs) out[dir] = acc.stats();
+    byStrategyDirectionOut[id] = out;
+  }
+
+  const byGroupOut: ReplayFallbackFromHoldDiagnostics["byStrategyDirectionRegime"] = {};
+  const rows: ReplayDiagnosticGroupRow[] = [];
+  for (const [id, dirs] of byGroup) {
+    const dirOut: Partial<Record<ReplayTradeDirection, Record<string, ReplayDiagnosticGroupStats>>> = {};
+    for (const [dir, regimes] of dirs) {
+      const regimeOut: Record<string, ReplayDiagnosticGroupStats> = {};
+      for (const [regime, acc] of regimes) {
+        const stats = acc.stats();
+        regimeOut[regime] = stats;
+        rows.push({ strategyId: id, direction: dir, regime, ...stats });
+      }
+      dirOut[dir] = regimeOut;
+    }
+    byGroupOut[id] = dirOut;
+  }
+
+  const rankable = rows.filter((r) => r.resolvedTrades >= minResolvedForRanking);
+  const tieBreak = (a: ReplayDiagnosticGroupRow, b: ReplayDiagnosticGroupRow) =>
+    `${a.strategyId}|${a.direction}|${a.regime}`.localeCompare(`${b.strategyId}|${b.direction}|${b.regime}`);
+  const worstGroups = [...rankable]
+    .sort((a, b) => a.totalR - b.totalR || tieBreak(a, b))
+    .slice(0, rankingLimit);
+  const bestGroups = [...rankable]
+    .sort((a, b) => b.totalR - a.totalR || tieBreak(a, b))
+    .slice(0, rankingLimit);
+
+  return {
+    minResolvedForRanking,
+    rankingLimit,
+    totals: totals.stats(),
+    byStrategy: byStrategyOut,
+    byStrategyDirection: byStrategyDirectionOut,
+    byStrategyDirectionRegime: byGroupOut,
+    worstGroups,
+    bestGroups
+  };
+}
+
 interface PendingSignal {
   pass: ReplaySelectorPass;
   signalCandleIndex: number;
   evaluation: ReplayEconomicEvalSnapshot;
   fromProductionHold: boolean;
+  regime: MarketRegime | null;
   parameters: Record<string, number | boolean | string>;
 }
 
@@ -480,6 +679,7 @@ interface OpenPosition {
   targetPrice: number;
   tradePlan: ReplayTradePlanSnapshot;
   fromProductionHold: boolean;
+  regime: MarketRegime | null;
   confidence: number;
 }
 
@@ -552,6 +752,7 @@ export function simulatePassEconomicOutcomes(input: {
           barsHeld: null,
           tradePlan: plan,
           fromProductionHold: pending.fromProductionHold,
+          regime: pending.regime,
           confidence: pending.evaluation.confidence
         }
       };
@@ -602,6 +803,7 @@ export function simulatePassEconomicOutcomes(input: {
           barsHeld: null,
           tradePlan: plan,
           fromProductionHold: pending.fromProductionHold,
+          regime: pending.regime,
           confidence: pending.evaluation.confidence
         }
       };
@@ -644,6 +846,7 @@ export function simulatePassEconomicOutcomes(input: {
           barsHeld: null,
           tradePlan: plan,
           fromProductionHold: pending.fromProductionHold,
+          regime: pending.regime,
           confidence: pending.evaluation.confidence
         }
       };
@@ -663,6 +866,7 @@ export function simulatePassEconomicOutcomes(input: {
         targetPrice: plan.takeProfit,
         tradePlan: plan,
         fromProductionHold: pending.fromProductionHold,
+        regime: pending.regime,
         confidence: pending.evaluation.confidence
       },
       trade: null
@@ -703,6 +907,7 @@ export function simulatePassEconomicOutcomes(input: {
       barsHeld: walk.barsHeld,
       tradePlan: open.tradePlan,
       fromProductionHold: open.fromProductionHold,
+      regime: open.regime,
       confidence: open.confidence
     };
   };
@@ -739,6 +944,7 @@ export function simulatePassEconomicOutcomes(input: {
         barsHeld: walk.barsHeld,
         tradePlan: open.tradePlan,
         fromProductionHold: open.fromProductionHold,
+        regime: open.regime,
         confidence: open.confidence
       };
     }
@@ -762,6 +968,7 @@ export function simulatePassEconomicOutcomes(input: {
       barsHeld: walk.barsHeld,
       tradePlan: open.tradePlan,
       fromProductionHold: open.fromProductionHold,
+      regime: open.regime,
       confidence: open.confidence
     };
   };
@@ -798,7 +1005,7 @@ export function simulatePassEconomicOutcomes(input: {
     }
 
     // Queue new signals (single position: only if flat and no pending).
-    const signalsHere = byIndex.get(i) ?? [];
+    const signalsHere: ReplayEconomicSignal[] = byIndex.get(i) ?? [];
     for (const sig of signalsHere) {
       if (sig.evaluation.action !== "BUY" && sig.evaluation.action !== "SELL") continue;
       if (sig.pass === "A") {
@@ -808,6 +1015,7 @@ export function simulatePassEconomicOutcomes(input: {
             signalCandleIndex: i,
             evaluation: sig.evaluation,
             fromProductionHold: sig.fromProductionHold,
+            regime: sig.regime ?? null,
             parameters: input.parametersByStrategyId.get(sig.evaluation.strategyId) ?? {}
           };
         }
@@ -817,6 +1025,7 @@ export function simulatePassEconomicOutcomes(input: {
           signalCandleIndex: i,
           evaluation: sig.evaluation,
           fromProductionHold: sig.fromProductionHold,
+          regime: sig.regime ?? null,
           parameters: input.parametersByStrategyId.get(sig.evaluation.strategyId) ?? {}
         };
       }
@@ -861,6 +1070,7 @@ export function simulatePassEconomicOutcomes(input: {
     tickSize: input.tickSize,
     passA: aggregatePassEconomicMetrics(passATrades),
     passC: aggregatePassEconomicMetrics(passCTrades),
+    passCFallbackFromHold: buildFallbackFromHoldDiagnostics(passCTrades),
     trades
   };
 }

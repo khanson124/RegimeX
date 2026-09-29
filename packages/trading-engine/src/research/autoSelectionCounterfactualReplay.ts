@@ -33,8 +33,12 @@ import {
   REPLAY_ENTRY_CONVENTION,
   simulatePassEconomicOutcomes,
   type ReplayEconomicComparison,
+  type ReplayDiagnosticGroupRow,
+  type ReplayDiagnosticGroupStats,
+  type ReplayFallbackFromHoldDiagnostics,
   type ReplayEconomicSignal,
-  type ReplayTradePlanSnapshot
+  type ReplayTradePlanSnapshot,
+  buildFallbackFromHoldDiagnostics
 } from "./autoSelectionReplayOutcomes.js";
 
 export type {
@@ -42,14 +46,19 @@ export type {
   ReplayPassEconomicMetrics,
   ReplaySimulatedTrade,
   ReplayTradeOutcome,
-  ReplayTradePlanSnapshot
+  ReplayTradePlanSnapshot,
+  ReplayDiagnosticGroupRow,
+  ReplayDiagnosticGroupStats,
+  ReplayFallbackFromHoldDiagnostics
 } from "./autoSelectionReplayOutcomes.js";
 export {
   REPLAY_ENTRY_CONVENTION,
   aggregatePassEconomicMetrics,
   buildReplayTradePlan,
+  buildFallbackFromHoldDiagnostics,
   simulatePassEconomicOutcomes,
-  simulateStopTargetWalk
+  simulateStopTargetWalk,
+  REPLAY_UNATTRIBUTED_REGIME
 } from "./autoSelectionReplayOutcomes.js";
 
 /** Matches LiveEngineSession CANDLE_BUFFER_BASE. */
@@ -765,7 +774,8 @@ export function runAutoSelectionCounterfactualReplay(
           signalTimestampMs: prod.signalTimestampMs,
           decisionMetadata: prod.decisionMetadata
         },
-        fromProductionHold: false
+        fromProductionHold: false,
+        regime: b.regime
       });
     }
     const fb = b.fallback.evaluation;
@@ -780,7 +790,8 @@ export function runAutoSelectionCounterfactualReplay(
           signalTimestampMs: fb.signalTimestampMs,
           decisionMetadata: fb.decisionMetadata
         },
-        fromProductionHold: isProductionHoldOrNoTrade(b.production.evaluation)
+        fromProductionHold: isProductionHoldOrNoTrade(b.production.evaluation),
+        regime: b.regime
       });
     }
   }
@@ -935,6 +946,7 @@ function emptyEconomic(): ReplayEconomicComparison {
     tickSize: REPLAY_DEFAULT_TICK_SIZE,
     passA: emptyPass,
     passC: emptyPass,
+    passCFallbackFromHold: buildFallbackFromHoldDiagnostics([]),
     trades: []
   };
 }
@@ -971,6 +983,66 @@ function emptyReport(
     bars: [],
     economic: emptyEconomic()
   };
+}
+
+function formatDiagnosticStats(s: ReplayDiagnosticGroupStats): string {
+  const wr = s.winRate == null ? "—" : `${(s.winRate * 100).toFixed(1)}%`;
+  const avg = s.avgR == null ? "—" : s.avgR.toFixed(2);
+  return (
+    `trades ${s.trades}; resolved ${s.resolvedTrades} (W ${s.wins} / L ${s.losses}); win rate ${wr}; ` +
+    `total R ${s.totalR.toFixed(2)}; avg R ${avg}; ambiguous ${s.ambiguous}; open ${s.openAtEnd}; unscorable ${s.unscorable}`
+  );
+}
+
+function formatDiagnosticRow(r: ReplayDiagnosticGroupRow): string {
+  const wr = r.winRate == null ? "—" : `${(r.winRate * 100).toFixed(1)}%`;
+  const avg = r.avgR == null ? "—" : r.avgR.toFixed(2);
+  return (
+    `- ${r.strategyId} ${r.direction} ${r.regime}: resolved ${r.resolvedTrades} (W ${r.wins} / L ${r.losses}); ` +
+    `win rate ${wr}; total R ${r.totalR.toFixed(2)}; avg R ${avg}`
+  );
+}
+
+/** Markdown summary of Pass C fallback-from-HOLD diagnostics (full nesting stays in JSON). */
+export function formatFallbackFromHoldDiagnosticsMarkdown(
+  d: ReplayFallbackFromHoldDiagnostics
+): string[] {
+  const lines: string[] = [];
+  lines.push(`## Pass C fallback-from-HOLD diagnostics`);
+  lines.push(
+    `Diagnostic only — no gating or strategy disablement is derived from these numbers. Regime is the signal-candle regime.`
+  );
+  lines.push(`- Total: ${formatDiagnosticStats(d.totals)}`);
+  lines.push("");
+  lines.push(`### By strategy`);
+  const strategies = Object.keys(d.byStrategy).sort();
+  if (strategies.length === 0) lines.push(`- None`);
+  for (const id of strategies) lines.push(`- ${id}: ${formatDiagnosticStats(d.byStrategy[id]!)}`);
+  lines.push("");
+  lines.push(`### By strategy + direction`);
+  if (strategies.length === 0) lines.push(`- None`);
+  for (const id of strategies) {
+    const dirs = d.byStrategyDirection[id] ?? {};
+    for (const dir of ["BUY", "SELL"] as const) {
+      const s = dirs[dir];
+      if (s) lines.push(`- ${id} ${dir}: ${formatDiagnosticStats(s)}`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    `### Worst groups (strategy + direction + regime, ≥${d.minResolvedForRanking} resolved, total R ascending, top ${d.rankingLimit})`
+  );
+  if (d.worstGroups.length === 0) lines.push(`- None meet the resolved-trade threshold`);
+  for (const r of d.worstGroups) lines.push(formatDiagnosticRow(r));
+  lines.push("");
+  lines.push(
+    `### Best groups (strategy + direction + regime, ≥${d.minResolvedForRanking} resolved, total R descending, top ${d.rankingLimit})`
+  );
+  if (d.bestGroups.length === 0) lines.push(`- None meet the resolved-trade threshold`);
+  for (const r of d.bestGroups) lines.push(formatDiagnosticRow(r));
+  lines.push("");
+  lines.push(`Full strategy → direction → regime breakdown: JSON \`economic.passCFallbackFromHold.byStrategyDirectionRegime\`.`);
+  return lines;
 }
 
 /** Format a concise markdown summary from a report. */
@@ -1077,6 +1149,8 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   );
   lines.push(`- Pass A by strategy: ${JSON.stringify(report.economic.passA.byStrategy)}`);
   lines.push(`- Pass C by strategy: ${JSON.stringify(report.economic.passC.byStrategy)}`);
+  lines.push("");
+  lines.push(...formatFallbackFromHoldDiagnosticsMarkdown(report.economic.passCFallbackFromHold));
   lines.push("");
   lines.push(`## Note`);
   lines.push(

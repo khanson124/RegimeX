@@ -10,8 +10,10 @@ import { syntheticCandles } from "../testing/fixtures.js";
 import { minimumCandlesForFeatures, DEFAULT_FEATURE_CONFIG } from "../features/featureExtractor.js";
 import {
   aggregatePassEconomicMetrics,
+  buildFallbackFromHoldDiagnostics,
   computeWarmupNeed,
   formatAutoSelectionReplayMarkdown,
+  formatFallbackFromHoldDiagnosticsMarkdown,
   replayForwardTrialBlockReason,
   runAutoSelectionCounterfactualReplay,
   simulatePassEconomicOutcomes,
@@ -77,9 +79,14 @@ function mockStrategy(input: {
     supportedRegimes: input.supportedRegimes,
     minimumHistory: input.minimumHistory ?? 5,
     eligibility: {
+      supportedRegimes: input.supportedRegimes,
+      requiredIndicators: [],
+      minimumHistory: input.minimumHistory ?? 5,
       minimumRegimeConfidence: 0.1,
-      ...(input.allowedSymbols ? { allowedSymbols: input.allowedSymbols } : {}),
-      ...(input.allowedIntervals ? { allowedIntervals: input.allowedIntervals } : {})
+      minimumStrategyConfidence: 0,
+      allowedSymbols: input.allowedSymbols ?? [],
+      allowedIntervals: input.allowedIntervals ?? [],
+      cooldownCandles: cooldown
     },
     validateParameters: (raw) => raw as Record<string, number | boolean | string>,
     evaluate(ctx: StrategyContext): StrategyDecision {
@@ -642,6 +649,7 @@ describe("autoSelectionCounterfactualReplay", () => {
     expect(md).toContain("Missed SELL opportunity bars");
     expect(md).toContain("Fallback by strategy:");
     expect(md).toContain("Pass A vs Pass C (economic R)");
+    expect(md).toContain("## Pass C fallback-from-HOLD diagnostics");
     expect(md).toContain("R-multiple comparison only");
     expect(report.economic).toBeDefined();
     expect(report.economic.entryConvention).toBe("NEXT_CANDLE_OPEN");
@@ -916,6 +924,7 @@ describe("autoSelectionReplayOutcomes", () => {
         proposalReasons: []
       },
       fromProductionHold: false,
+      regime: null,
       confidence: 1
     });
 
@@ -1026,5 +1035,304 @@ describe("autoSelectionReplayOutcomes", () => {
     }
     // Signal-side decisions unchanged; economic may differ only for trades that need the future entry/exit candle
     expect(before.economic.entryConvention).toBe(after.economic.entryConvention);
+  });
+});
+
+function diagTrade(input: {
+  strategyId: string;
+  direction: "BUY" | "SELL";
+  regime: MarketRegime | null;
+  outcome: ReplaySimulatedTrade["outcome"];
+  realizedR?: number | null;
+  fromProductionHold?: boolean;
+  pass?: "A" | "C";
+}): ReplaySimulatedTrade {
+  const resolved = input.outcome === "TARGET" || input.outcome === "STOP";
+  return {
+    pass: input.pass ?? "C",
+    strategyId: input.strategyId,
+    direction: input.direction,
+    signalCandleIndex: 0,
+    signalTimeMs: 0,
+    entryCandleIndex: 1,
+    entryTimeMs: 1,
+    entryPrice: 100,
+    stopPrice: 95,
+    targetPrice: 110,
+    exitCandleIndex: 2,
+    exitTimeMs: 2,
+    exitPrice: resolved ? 110 : null,
+    outcome: input.outcome,
+    realizedR: resolved ? (input.realizedR ?? 0) : null,
+    barsHeld: input.outcome === "UNSCORABLE" ? null : 3,
+    tradePlan: {
+      action: input.direction,
+      strategyId: input.strategyId,
+      signalTimestampMs: 0,
+      entryPrice: 100,
+      stopLoss: 95,
+      takeProfit: 110,
+      stopDistance: 5,
+      targetDistance: 10,
+      riskRewardRatio: 2,
+      stopMethod: "test",
+      targetMethod: "test",
+      confidence: 1,
+      scorable: input.outcome !== "UNSCORABLE",
+      unscorableReason: input.outcome === "UNSCORABLE" ? "TEST" : null,
+      proposalReasons: []
+    },
+    fromProductionHold: input.fromProductionHold ?? true,
+    regime: input.regime,
+    confidence: 1
+  };
+}
+
+function diagnosticFixture(): ReplaySimulatedTrade[] {
+  const ema = "ema-pullback-v1";
+  const sq = "squeeze-breakout-v1";
+  return [
+    diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "TARGET", realizedR: 2 }),
+    diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "STOP", realizedR: -1 }),
+    diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "AMBIGUOUS" }),
+    diagTrade({ strategyId: ema, direction: "BUY", regime: "WEAK_UPTREND", outcome: "STOP", realizedR: -1 }),
+    diagTrade({ strategyId: ema, direction: "BUY", regime: "WEAK_UPTREND", outcome: "OPEN_AT_END" }),
+    diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "STOP", realizedR: -1 }),
+    diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "STOP", realizedR: -1 }),
+    diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "UNSCORABLE" }),
+    diagTrade({ strategyId: sq, direction: "BUY", regime: "BREAKOUT_EXPANSION", outcome: "TARGET", realizedR: 2 }),
+    diagTrade({ strategyId: sq, direction: "BUY", regime: "BREAKOUT_EXPANSION", outcome: "TARGET", realizedR: 2 }),
+    // Excluded: Pass C but production was not HOLD
+    diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "STOP", realizedR: -1, fromProductionHold: false }),
+    // Excluded: Pass A
+    diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "STOP", realizedR: -1, pass: "A" })
+  ];
+}
+
+describe("Pass C fallback-from-HOLD diagnostics", () => {
+  it("fallback-from-HOLD trade retains the signal-candle regime", () => {
+    const candles = [
+      candleAt(0, 100, 101, 99, 100),
+      candleAt(60_000, 100, 101, 99, 100),
+      candleAt(120_000, 100, 101, 99, 100),
+      candleAt(180_000, 100, 112, 99, 110)
+    ];
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals: [
+        {
+          pass: "C",
+          signalCandleIndex: 1,
+          evaluation: {
+            strategyId: "squeeze-breakout-v1",
+            action: "BUY",
+            confidence: 0.8,
+            signalTimestampMs: candles[1]!.closeTime,
+            decisionMetadata: { squeezeLow: 95, squeezeHigh: 105 }
+          },
+          fromProductionHold: true,
+          regime: "VOLATILITY_COMPRESSION"
+        }
+      ],
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01
+    });
+    expect(comparison.trades[0]!.regime).toBe("VOLATILITY_COMPRESSION");
+    expect(
+      comparison.passCFallbackFromHold.byStrategyDirectionRegime["squeeze-breakout-v1"]?.BUY?.[
+        "VOLATILITY_COMPRESSION"
+      ]?.trades
+    ).toBe(1);
+  });
+
+  it("full replay attributes each fallback-from-HOLD trade to its signal bar's regime", () => {
+    const candles = syntheticCandles({ count: 160, seed: 11, drift: 0.5, volatility: 2 });
+    const report = runAutoSelectionCounterfactualReplay(candles, {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[100]!.openTime,
+      analysisEndMs: candles[140]!.openTime + 60_000,
+      selectionMode: "BOOTSTRAP",
+      executionBackend: "paper_cfd",
+      strategyAllowlist: [],
+      strategies: defs([
+        mockStrategy({
+          id: "breakout-momentum-v1",
+          kind: "breakout-momentum",
+          supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "BREAKOUT_EXPANSION"],
+          action: "HOLD"
+        }),
+        mockStrategy({
+          id: "ema-pullback-v1",
+          kind: "ema-pullback",
+          supportedRegimes: ALL_REGIMES,
+          action: "BUY"
+        })
+      ])
+    });
+    const fromHold = report.economic.trades.filter((t) => t.pass === "C" && t.fromProductionHold);
+    expect(fromHold.length).toBeGreaterThan(0);
+    for (const t of fromHold) {
+      const bar = report.bars.find((b) => b.candleIndex === t.signalCandleIndex);
+      expect(bar).toBeDefined();
+      expect(t.regime).toBe(bar!.regime);
+    }
+    expect(report.economic.passCFallbackFromHold.totals.trades).toBe(fromHold.length);
+  });
+
+  it("separates BUY and SELL and excludes non-HOLD / Pass A trades", () => {
+    const d = buildFallbackFromHoldDiagnostics(diagnosticFixture());
+    const ema = d.byStrategyDirection["ema-pullback-v1"]!;
+    expect(ema.BUY!.trades).toBe(5);
+    expect(ema.SELL!.trades).toBe(3);
+    expect(ema.BUY!.totalR).toBe(0);
+    expect(ema.SELL!.totalR).toBe(-2);
+    expect(d.byStrategyDirection["squeeze-breakout-v1"]!.SELL).toBeUndefined();
+    expect(d.totals.trades).toBe(10);
+  });
+
+  it("aggregates strategy / direction / regime math", () => {
+    const d = buildFallbackFromHoldDiagnostics(diagnosticFixture());
+
+    const ema = d.byStrategy["ema-pullback-v1"]!;
+    expect(ema.trades).toBe(8);
+    expect(ema.resolvedTrades).toBe(5);
+    expect(ema.wins).toBe(1);
+    expect(ema.losses).toBe(4);
+    expect(ema.totalR).toBe(-2);
+    expect(ema.avgR).toBeCloseTo(-0.4);
+    expect(ema.winRate).toBeCloseTo(0.2);
+
+    const sq = d.byStrategy["squeeze-breakout-v1"]!;
+    expect(sq.totalR).toBe(4);
+    expect(sq.winRate).toBe(1);
+
+    const strongUp = d.byStrategyDirectionRegime["ema-pullback-v1"]!.BUY!["STRONG_UPTREND"]!;
+    expect(strongUp).toMatchObject({
+      trades: 3,
+      resolvedTrades: 2,
+      wins: 1,
+      losses: 1,
+      winRate: 0.5,
+      totalR: 1,
+      avgR: 0.5,
+      ambiguous: 1,
+      openAtEnd: 0,
+      unscorable: 0,
+      avgBarsHeld: 3
+    });
+    const weakUp = d.byStrategyDirectionRegime["ema-pullback-v1"]!.BUY!["WEAK_UPTREND"]!;
+    expect(weakUp.openAtEnd).toBe(1);
+    expect(weakUp.resolvedTrades).toBe(1);
+  });
+
+  it("counts resolved separately from ambiguous / open-at-end / unscorable", () => {
+    const d = buildFallbackFromHoldDiagnostics(diagnosticFixture());
+    expect(d.totals.resolvedTrades).toBe(7);
+    expect(d.totals.ambiguous).toBe(1);
+    expect(d.totals.openAtEnd).toBe(1);
+    expect(d.totals.unscorable).toBe(1);
+    expect(
+      d.totals.resolvedTrades + d.totals.ambiguous + d.totals.openAtEnd + d.totals.unscorable
+    ).toBe(d.totals.trades);
+    // Unresolved outcomes contribute no R
+    expect(d.totals.totalR).toBe(2);
+    const sell = d.byStrategyDirectionRegime["ema-pullback-v1"]!.SELL!["STRONG_DOWNTREND"]!;
+    expect(sell.unscorable).toBe(1);
+    expect(sell.avgBarsHeld).toBe(3);
+  });
+
+  it("sorts worst groups by total R ascending and best groups descending", () => {
+    const d = buildFallbackFromHoldDiagnostics(diagnosticFixture());
+    expect(d.worstGroups.map((g) => `${g.strategyId}|${g.direction}|${g.regime}`)).toEqual([
+      "ema-pullback-v1|SELL|STRONG_DOWNTREND",
+      "ema-pullback-v1|BUY|STRONG_UPTREND",
+      "squeeze-breakout-v1|BUY|BREAKOUT_EXPANSION"
+    ]);
+    expect(d.bestGroups.map((g) => `${g.strategyId}|${g.direction}|${g.regime}`)).toEqual([
+      "squeeze-breakout-v1|BUY|BREAKOUT_EXPANSION",
+      "ema-pullback-v1|BUY|STRONG_UPTREND",
+      "ema-pullback-v1|SELL|STRONG_DOWNTREND"
+    ]);
+    expect(d.worstGroups[0]).toMatchObject({ resolvedTrades: 2, wins: 0, losses: 2, totalR: -2, avgR: -1 });
+    expect(buildFallbackFromHoldDiagnostics(diagnosticFixture(), { rankingLimit: 1 }).worstGroups).toHaveLength(1);
+  });
+
+  it("applies the minimum-2-resolved-trade threshold to rankings", () => {
+    const d = buildFallbackFromHoldDiagnostics(diagnosticFixture());
+    expect(d.minResolvedForRanking).toBe(2);
+    const keys = [...d.worstGroups, ...d.bestGroups].map((g) => g.regime);
+    // WEAK_UPTREND has only 1 resolved trade → excluded from rankings but present in JSON breakdown
+    expect(keys).not.toContain("WEAK_UPTREND");
+    expect(d.byStrategyDirectionRegime["ema-pullback-v1"]!.BUY!["WEAK_UPTREND"]).toBeDefined();
+    expect(d.worstGroups.every((g) => g.resolvedTrades >= 2)).toBe(true);
+
+    const strict = buildFallbackFromHoldDiagnostics(diagnosticFixture(), { minResolvedForRanking: 3 });
+    expect(strict.worstGroups).toHaveLength(0);
+    expect(strict.bestGroups).toHaveLength(0);
+  });
+
+  it("keeps signal-bar regime attribution unchanged when a future candle is appended", () => {
+    const candles = syntheticCandles({ count: 150, seed: 5, drift: 0.45, volatility: 2 });
+    const mid = candles[120]!;
+    const cfg = {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[110]!.openTime,
+      analysisEndMs: mid.openTime + 60_000,
+      selectionMode: "BOOTSTRAP" as const,
+      executionBackend: "paper_cfd" as const,
+      strategyAllowlist: [] as string[],
+      strategies: defs([
+        mockStrategy({
+          id: "breakout-momentum-v1",
+          kind: "breakout-momentum",
+          supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "BREAKOUT_EXPANSION"],
+          action: "HOLD"
+        }),
+        mockStrategy({
+          id: "ema-pullback-v1",
+          kind: "ema-pullback",
+          supportedRegimes: ALL_REGIMES,
+          action: "BUY"
+        })
+      ])
+    };
+    const before = runAutoSelectionCounterfactualReplay(candles.slice(0, 121), cfg);
+    const future = {
+      ...candles[121]!,
+      openTime: mid.openTime + 60_000,
+      closeTime: mid.closeTime + 60_000,
+      close: mid.close + 50
+    };
+    const after = runAutoSelectionCounterfactualReplay([...candles.slice(0, 121), future], cfg);
+
+    const regimeBySignal = (r: typeof before) =>
+      new Map(
+        r.economic.trades
+          .filter((t) => t.pass === "C")
+          .map((t) => [t.signalCandleIndex, t.regime] as const)
+      );
+    const b = regimeBySignal(before);
+    const a = regimeBySignal(after);
+    for (const [idx, regime] of b) {
+      if (a.has(idx)) expect(a.get(idx)).toBe(regime);
+    }
+    for (let i = 0; i < before.bars.length; i++) {
+      expect(after.bars[i]!.regime).toBe(before.bars[i]!.regime);
+    }
+  });
+
+  it("renders the diagnostics section in markdown", () => {
+    const md = formatFallbackFromHoldDiagnosticsMarkdown(
+      buildFallbackFromHoldDiagnostics(diagnosticFixture())
+    ).join("\n");
+    expect(md).toContain("## Pass C fallback-from-HOLD diagnostics");
+    expect(md).toContain("### By strategy");
+    expect(md).toContain("### By strategy + direction");
+    expect(md).toContain("### Worst groups");
+    expect(md).toContain("### Best groups");
+    expect(md).toContain("ema-pullback-v1 SELL STRONG_DOWNTREND");
+    expect(md).not.toContain("WEAK_UPTREND: resolved");
   });
 });
