@@ -40,6 +40,15 @@ import {
   type ReplayTradePlanSnapshot,
   buildFallbackFromHoldDiagnostics
 } from "./autoSelectionReplayOutcomes.js";
+import {
+  EXTENSION_BUCKETS,
+  STOP_DISTANCE_BUCKETS,
+  buildEmaFallbackFromHoldDiagnostics,
+  type EmaDiagnosticGroupStats,
+  type EmaFallbackFromHoldDiagnostics
+} from "./autoSelectionEmaFallbackDiagnostics.js";
+
+export * from "./autoSelectionEmaFallbackDiagnostics.js";
 
 export type {
   ReplayEconomicComparison,
@@ -775,7 +784,8 @@ export function runAutoSelectionCounterfactualReplay(
           decisionMetadata: prod.decisionMetadata
         },
         fromProductionHold: false,
-        regime: b.regime
+        regime: b.regime,
+        regimeConfidence: b.regimeConfidence
       });
     }
     const fb = b.fallback.evaluation;
@@ -791,7 +801,8 @@ export function runAutoSelectionCounterfactualReplay(
           decisionMetadata: fb.decisionMetadata
         },
         fromProductionHold: isProductionHoldOrNoTrade(b.production.evaluation),
-        regime: b.regime
+        regime: b.regime,
+        regimeConfidence: b.regimeConfidence
       });
     }
   }
@@ -947,6 +958,11 @@ function emptyEconomic(): ReplayEconomicComparison {
     passA: emptyPass,
     passC: emptyPass,
     passCFallbackFromHold: buildFallbackFromHoldDiagnostics([]),
+    emaFallbackFromHold: buildEmaFallbackFromHoldDiagnostics({
+      trades: [],
+      candles: [],
+      contextBySignal: new Map()
+    }),
     trades: []
   };
 }
@@ -1042,6 +1058,80 @@ export function formatFallbackFromHoldDiagnosticsMarkdown(
   for (const r of d.bestGroups) lines.push(formatDiagnosticRow(r));
   lines.push("");
   lines.push(`Full strategy → direction → regime breakdown: JSON \`economic.passCFallbackFromHold.byStrategyDirectionRegime\`.`);
+  return lines;
+}
+
+function formatEmaStats(s: EmaDiagnosticGroupStats): string {
+  const pct = (n: number | null) => (n == null ? "—" : `${(n * 100).toFixed(0)}%`);
+  const f2 = (n: number | null) => (n == null ? "—" : n.toFixed(2));
+  return (
+    `trades ${s.trades}; resolved ${s.resolvedTrades} (W ${s.wins} / L ${s.losses}); win ${pct(s.winRate)}; ` +
+    `total R ${s.totalR.toFixed(2)}; avg R ${f2(s.avgR)}; stop ${f2(s.avgStopDistanceAtr)} ATR; ` +
+    `target ${f2(s.avgTargetDistanceAtr)} ATR; MFE avg ${f2(s.avgMfeR)}R / med ${f2(s.medianMfeR)}R; MAE avg ${f2(s.avgMaeR)}R`
+  );
+}
+
+/** Markdown summary of EMA fallback-from-HOLD diagnostics (per-trade records stay in JSON). */
+export function formatEmaFallbackFromHoldMarkdown(d: EmaFallbackFromHoldDiagnostics): string[] {
+  const pct = (n: number | null) => (n == null ? "—" : `${(n * 100).toFixed(0)}%`);
+  const lines: string[] = [];
+  lines.push(`## EMA fallback-from-HOLD diagnostics`);
+  lines.push(
+    `Scope: Pass C, fromProductionHold, ${d.strategyId}. Diagnostic only — no filter or parameter change is derived from this.`
+  );
+  lines.push(`- Overall: ${formatEmaStats(d.overall)}`);
+  lines.push("");
+  lines.push(`### BUY vs SELL`);
+  for (const dir of ["BUY", "SELL"] as const) {
+    const s = d.byDirection[dir];
+    lines.push(`- ${dir}: ${s ? formatEmaStats(s) : "none"}`);
+  }
+  lines.push("");
+  lines.push(`### By regime`);
+  const regimes = Object.keys(d.byRegime).sort();
+  if (regimes.length === 0) lines.push(`- None`);
+  for (const r of regimes) lines.push(`- ${r}: ${formatEmaStats(d.byRegime[r]!)}`);
+  lines.push("");
+  lines.push(`### By direction + regime`);
+  let anyDirRegime = false;
+  for (const dir of ["BUY", "SELL"] as const) {
+    const byRegime = d.byDirectionRegime[dir] ?? {};
+    for (const r of Object.keys(byRegime).sort()) {
+      anyDirRegime = true;
+      lines.push(`- ${dir} ${r}: ${formatEmaStats(byRegime[r]!)}`);
+    }
+  }
+  if (!anyDirRegime) lines.push(`- None`);
+  lines.push("");
+  lines.push(`### Extension from fast EMA (ATR, direction-signed)`);
+  for (const b of EXTENSION_BUCKETS) {
+    const s = d.byExtensionBucket[b];
+    if (s) lines.push(`- ${b}: ${formatEmaStats(s)}`);
+  }
+  if (Object.keys(d.byExtensionBucket).length === 0) lines.push(`- None`);
+  lines.push("");
+  lines.push(`### Stop distance (ATR)`);
+  for (const b of STOP_DISTANCE_BUCKETS) {
+    const s = d.byStopDistanceBucket[b];
+    if (s) lines.push(`- ${b}: ${formatEmaStats(s)}`);
+  }
+  if (Object.keys(d.byStopDistanceBucket).length === 0) lines.push(`- None`);
+  lines.push("");
+  lines.push(`### Favorable-before-stop (STOP trades, bars before the stop bar)`);
+  const o = d.overall;
+  lines.push(
+    `- Stopped trades ${o.stoppedTrades}: reached +0.25R ${pct(o.stoppedReached025RPct)}; +0.5R ${pct(o.stoppedReached05RPct)}; +1.0R ${pct(o.stoppedReached10RPct)}`
+  );
+  for (const dir of ["BUY", "SELL"] as const) {
+    const s = d.byDirection[dir];
+    if (s && s.stoppedTrades > 0) {
+      lines.push(
+        `- ${dir} stopped ${s.stoppedTrades}: +0.25R ${pct(s.stoppedReached025RPct)}; +0.5R ${pct(s.stoppedReached05RPct)}; +1.0R ${pct(s.stoppedReached10RPct)}`
+      );
+    }
+  }
+  lines.push("");
+  lines.push(`Per-trade records: JSON \`economic.emaFallbackFromHold.trades\`.`);
   return lines;
 }
 
@@ -1151,6 +1241,8 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   lines.push(`- Pass C by strategy: ${JSON.stringify(report.economic.passC.byStrategy)}`);
   lines.push("");
   lines.push(...formatFallbackFromHoldDiagnosticsMarkdown(report.economic.passCFallbackFromHold));
+  lines.push("");
+  lines.push(...formatEmaFallbackFromHoldMarkdown(report.economic.emaFallbackFromHold));
   lines.push("");
   lines.push(`## Note`);
   lines.push(

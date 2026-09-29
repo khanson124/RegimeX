@@ -7,9 +7,20 @@ import {
 } from "@regimex/shared";
 import { type TradingStrategy, type StrategyContext } from "../strategies/types.js";
 import { syntheticCandles } from "../testing/fixtures.js";
-import { minimumCandlesForFeatures, DEFAULT_FEATURE_CONFIG } from "../features/featureExtractor.js";
+import {
+  extractFeatures,
+  minimumCandlesForFeatures,
+  DEFAULT_FEATURE_CONFIG
+} from "../features/featureExtractor.js";
 import {
   aggregatePassEconomicMetrics,
+  buildEmaFallbackFromHoldDiagnostics,
+  buildEmaTradeDiagnostic,
+  computeExcursions,
+  computeFavorableBeforeStop,
+  extensionBucket,
+  formatEmaFallbackFromHoldMarkdown,
+  stopDistanceBucket,
   buildFallbackFromHoldDiagnostics,
   computeWarmupNeed,
   formatAutoSelectionReplayMarkdown,
@@ -1334,5 +1345,409 @@ describe("Pass C fallback-from-HOLD diagnostics", () => {
     expect(md).toContain("### Best groups");
     expect(md).toContain("ema-pullback-v1 SELL STRONG_DOWNTREND");
     expect(md).not.toContain("WEAK_UPTREND: resolved");
+  });
+});
+
+function signalFeatures(overrides: Partial<MarketFeatureSnapshot>): MarketFeatureSnapshot {
+  return {
+    symbol: "R_10",
+    interval: "1m",
+    timestamp: 0,
+    close: 100,
+    emaFast: null,
+    emaSlow: null,
+    emaLong: null,
+    emaFastSlope: null,
+    emaSlowSlope: null,
+    rsi: null,
+    atr: null,
+    atrPercent: null,
+    adx: null,
+    macd: null,
+    macdSignal: null,
+    macdHistogram: null,
+    bollingerUpper: null,
+    bollingerMiddle: null,
+    bollingerLower: null,
+    bollingerWidth: null,
+    priceDistanceFromEma: null,
+    recentReturn: null,
+    higherHighCount: 0,
+    lowerLowCount: 0,
+    donchianHigh: null,
+    donchianLow: null,
+    trendDirection: 1,
+    volatilityPercentile: null,
+    momentumScore: null,
+    trendScore: null,
+    rangeScore: null,
+    breakoutScore: null,
+    ...overrides
+  };
+}
+
+describe("EMA fallback-from-HOLD diagnostics", () => {
+  it("computes BUY MFE/MAE in price, R and ATR", () => {
+    const x = computeExcursions({
+      direction: "BUY",
+      entryPrice: 100,
+      stopDistance: 5,
+      atr: 2,
+      bars: [
+        { high: 104, low: 98 },
+        { high: 103, low: 97 }
+      ]
+    });
+    expect(x).toEqual({ mfePrice: 4, maePrice: 3, mfeR: 0.8, maeR: 0.6, mfeAtr: 2, maeAtr: 1.5 });
+  });
+
+  it("computes SELL MFE/MAE mirrored", () => {
+    const x = computeExcursions({
+      direction: "SELL",
+      entryPrice: 100,
+      stopDistance: 5,
+      atr: 2,
+      bars: [
+        { high: 102, low: 95 },
+        { high: 103, low: 97 }
+      ]
+    });
+    expect(x.mfePrice).toBe(5);
+    expect(x.maePrice).toBe(3);
+    expect(x.mfeR).toBe(1);
+    expect(x.maeAtr).toBe(1.5);
+  });
+
+  it("uses only entry→exit candles for MFE/MAE", () => {
+    const candles = [
+      candleAt(0, 100, 100, 100, 100),
+      candleAt(60_000, 100, 500, 1, 100), // signal candle spike — must be ignored
+      candleAt(120_000, 100, 104, 98, 101), // entry
+      candleAt(180_000, 101, 103, 95, 96), // exit (stop)
+      candleAt(240_000, 96, 900, 1, 100) // after exit — must be ignored
+    ];
+    const trade = diagTrade({
+      strategyId: "ema-pullback-v1",
+      direction: "BUY",
+      regime: "STRONG_UPTREND",
+      outcome: "STOP",
+      realizedR: -1
+    });
+    trade.signalCandleIndex = 1;
+    trade.entryCandleIndex = 2;
+    trade.exitCandleIndex = 3;
+    const d = buildEmaTradeDiagnostic({
+      trade,
+      candles,
+      context: { features: signalFeatures({ atr: 2 }), decisionMetadata: {}, regimeConfidence: 0.7 }
+    });
+    expect(d.mfePrice).toBe(4);
+    expect(d.maePrice).toBe(5);
+    expect(d.mfeR).toBeCloseTo(0.8);
+    expect(d.maeR).toBeCloseTo(1);
+    expect(d.regimeConfidence).toBe(0.7);
+  });
+
+  it("reports favorable-before-stop thresholds from bars before the stop bar", () => {
+    const fav = computeFavorableBeforeStop({
+      direction: "BUY",
+      entryPrice: 100,
+      stopDistance: 5,
+      bars: [
+        { high: 101.5, low: 99 },
+        { high: 103, low: 99 },
+        { high: 106, low: 94 } // stop bar: its 1.2R high is intrabar-ambiguous and excluded
+      ]
+    });
+    expect(fav.maxFavorableRBeforeStop).toBeCloseTo(0.6);
+    expect(fav).toMatchObject({ reached025R: true, reached05R: true, reached10R: false });
+
+    const exact = computeFavorableBeforeStop({
+      direction: "SELL",
+      entryPrice: 100,
+      stopDistance: 4,
+      bars: [{ high: 100.5, low: 99 }, { high: 105, low: 99.5 }]
+    });
+    expect(exact.maxFavorableRBeforeStop).toBe(0.25);
+    expect(exact.reached025R).toBe(true);
+    expect(exact.reached05R).toBe(false);
+
+    const immediate = computeFavorableBeforeStop({
+      direction: "BUY",
+      entryPrice: 100,
+      stopDistance: 5,
+      bars: [{ high: 110, low: 90 }]
+    });
+    expect(immediate.maxFavorableRBeforeStop).toBe(0);
+    expect(immediate.reached025R).toBe(false);
+  });
+
+  it("normalizes geometry and EMA distances by signal-candle ATR", () => {
+    const candles = [
+      candleAt(0, 100, 100, 100, 100),
+      candleAt(60_000, 100, 100, 100, 100),
+      candleAt(120_000, 100, 101, 99, 100),
+      candleAt(180_000, 100, 110, 99, 110)
+    ];
+    const trade = diagTrade({
+      strategyId: "ema-pullback-v1",
+      direction: "BUY",
+      regime: "STRONG_UPTREND",
+      outcome: "TARGET",
+      realizedR: 2
+    });
+    trade.signalCandleIndex = 1;
+    trade.entryCandleIndex = 2;
+    trade.exitCandleIndex = 3;
+    const d = buildEmaTradeDiagnostic({
+      trade,
+      candles,
+      context: {
+        features: signalFeatures({
+          atr: 2,
+          emaFast: 98,
+          emaSlow: 96,
+          emaLong: 90,
+          emaFastSlope: 0.001,
+          emaSlowSlope: 0.0005,
+          adx: 25,
+          rsi: 52,
+          donchianHigh: 105,
+          donchianLow: 90
+        }),
+        decisionMetadata: { pullbackLow: 97, pullbackHigh: 101 },
+        regimeConfidence: 0.8
+      }
+    });
+    expect(d.stopDistanceAtr).toBe(2.5);
+    expect(d.targetDistanceAtr).toBe(5);
+    expect(d.riskRewardRatio).toBe(2);
+    expect(d.entryMinusEmaFastAtr).toBe(1);
+    expect(d.entryMinusEmaSlowAtr).toBe(2);
+    expect(d.entryMinusEmaLongAtr).toBe(5);
+    expect(d.extensionFromFastAtr).toBe(1);
+    expect(d.extensionFromSlowAtr).toBe(2);
+    expect(d.expectedSideOfEmaFast).toBe(true);
+    expect(d.pullbackDepthFastAtr).toBe(0.5);
+    expect(d.distanceFromPullbackExtremeAtr).toBe(1.5);
+    expect(d.distanceToDonchianHighAtr).toBe(2.5);
+    expect(d.distanceToDonchianLowAtr).toBe(5);
+    expect(d.emaFastSlope).toBe(0.001);
+    expect(d.adx).toBe(25);
+    expect(d.extensionBucket).toBe("0.5-1.0");
+    expect(d.stopDistanceBucket).toBe(">2.0");
+
+    const sell = diagTrade({
+      strategyId: "ema-pullback-v1",
+      direction: "SELL",
+      regime: "STRONG_DOWNTREND",
+      outcome: "STOP",
+      realizedR: -1
+    });
+    sell.stopPrice = 104;
+    sell.targetPrice = 92;
+    const s = buildEmaTradeDiagnostic({
+      trade: sell,
+      candles,
+      context: {
+        features: signalFeatures({ atr: 2, emaFast: 101, emaSlow: 99 }),
+        decisionMetadata: { pullbackHigh: 102 },
+        regimeConfidence: null
+      }
+    });
+    expect(s.extensionFromFastAtr).toBe(0.5);
+    expect(s.expectedSideOfEmaFast).toBe(true);
+    expect(s.expectedSideOfEmaSlow).toBe(false);
+    expect(s.extensionFromSlowAtr).toBe(-0.5);
+    expect(s.pullbackDepthFastAtr).toBe(0.5);
+    expect(s.stopDistanceAtr).toBe(2);
+  });
+
+  it("buckets extension at the documented boundaries", () => {
+    expect(extensionBucket(-0.3)).toBe("<=0.25");
+    expect(extensionBucket(0.25)).toBe("<=0.25");
+    expect(extensionBucket(0.2501)).toBe("0.25-0.5");
+    expect(extensionBucket(0.5)).toBe("0.25-0.5");
+    expect(extensionBucket(1.0)).toBe("0.5-1.0");
+    expect(extensionBucket(1.5)).toBe("1.0-1.5");
+    expect(extensionBucket(1.5001)).toBe(">1.5");
+    expect(extensionBucket(null)).toBe("UNKNOWN");
+    expect(extensionBucket(Number.NaN)).toBe("UNKNOWN");
+  });
+
+  it("buckets stop distance at the documented boundaries", () => {
+    expect(stopDistanceBucket(0.5)).toBe("<=0.5");
+    expect(stopDistanceBucket(0.5001)).toBe("0.5-1.0");
+    expect(stopDistanceBucket(1.0)).toBe("0.5-1.0");
+    expect(stopDistanceBucket(1.5)).toBe("1.0-1.5");
+    expect(stopDistanceBucket(2.0)).toBe("1.5-2.0");
+    expect(stopDistanceBucket(2.0001)).toBe(">2.0");
+    expect(stopDistanceBucket(null)).toBe("UNKNOWN");
+  });
+
+  it("stores null / UNKNOWN when signal features are missing", () => {
+    const candles = [
+      candleAt(0, 100, 100, 100, 100),
+      candleAt(60_000, 100, 102, 99, 101),
+      candleAt(120_000, 101, 103, 94, 95)
+    ];
+    const trade = diagTrade({
+      strategyId: "ema-pullback-v1",
+      direction: "BUY",
+      regime: null,
+      outcome: "STOP",
+      realizedR: -1
+    });
+    for (const features of [null, signalFeatures({ atr: 0, emaFast: 99 })]) {
+      const d = buildEmaTradeDiagnostic({
+        trade,
+        candles,
+        context: { features, decisionMetadata: {}, regimeConfidence: null }
+      });
+      expect(d.atr).toBeNull();
+      expect(d.stopDistanceAtr).toBeNull();
+      expect(d.extensionFromFastAtr).toBeNull();
+      expect(d.pullbackDepthFastAtr).toBeNull();
+      expect(d.mfeAtr).toBeNull();
+      expect(d.extensionBucket).toBe("UNKNOWN");
+      expect(d.stopDistanceBucket).toBe("UNKNOWN");
+      // R-based excursions still work without ATR
+      expect(d.mfeR).not.toBeNull();
+    }
+    const noFeatures = buildEmaTradeDiagnostic({
+      trade,
+      candles,
+      context: { features: null, decisionMetadata: {}, regimeConfidence: null }
+    });
+    expect(noFeatures.emaFast).toBeNull();
+    expect(noFeatures.expectedSideOfEmaFast).toBeNull();
+    expect(noFeatures.adx).toBeNull();
+
+    const unscorable = buildEmaTradeDiagnostic({
+      trade: { ...trade, outcome: "UNSCORABLE", entryPrice: null, stopPrice: null, targetPrice: null },
+      candles,
+      context: { features: null, decisionMetadata: {}, regimeConfidence: null }
+    });
+    expect(unscorable.mfeR).toBeNull();
+    expect(unscorable.favorableBeforeStop).toBeNull();
+  });
+
+  it("aggregates by direction, regime and direction+regime, scoped to EMA fallback-from-HOLD", () => {
+    const candles = [
+      candleAt(0, 100, 100, 100, 100),
+      candleAt(60_000, 100, 102, 99, 101),
+      candleAt(120_000, 101, 103, 94, 95)
+    ];
+    const ema = "ema-pullback-v1";
+    const d = buildEmaFallbackFromHoldDiagnostics({
+      candles,
+      contextBySignal: new Map(),
+      trades: [
+        diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "TARGET", realizedR: 2 }),
+        diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "STOP", realizedR: -1 }),
+        diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "STOP", realizedR: -1 }),
+        diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "AMBIGUOUS" }),
+        diagTrade({ strategyId: "squeeze-breakout-v1", direction: "BUY", regime: "BREAKOUT_EXPANSION", outcome: "STOP", realizedR: -1 }),
+        diagTrade({ strategyId: ema, direction: "BUY", regime: "STRONG_UPTREND", outcome: "STOP", realizedR: -1, fromProductionHold: false }),
+        diagTrade({ strategyId: ema, direction: "SELL", regime: "STRONG_DOWNTREND", outcome: "STOP", realizedR: -1, pass: "A" })
+      ]
+    });
+
+    expect(d.trades).toHaveLength(4);
+    expect(d.overall).toMatchObject({
+      trades: 4,
+      resolvedTrades: 3,
+      wins: 1,
+      losses: 2,
+      totalR: 0,
+      stoppedTrades: 2,
+      stoppedReached025RPct: 0.5,
+      stoppedReached05RPct: 0,
+      stoppedReached10RPct: 0
+    });
+    expect(d.overall.avgMfeR).toBeCloseTo(0.9);
+    expect(d.overall.medianMfeR).toBeCloseTo(0.9);
+    expect(d.byDirection.BUY).toMatchObject({ trades: 2, totalR: 1, wins: 1, losses: 1 });
+    expect(d.byDirection.SELL).toMatchObject({ trades: 2, totalR: -1, stoppedReached025RPct: 0 });
+    expect(d.byRegime["STRONG_UPTREND"]!.trades).toBe(2);
+    expect(d.byRegime["BREAKOUT_EXPANSION"]).toBeUndefined();
+    expect(d.byDirectionRegime.SELL!["STRONG_DOWNTREND"]).toMatchObject({ trades: 2, resolvedTrades: 1 });
+    expect(d.byDirectionRegime.BUY!["STRONG_DOWNTREND"]).toBeUndefined();
+    expect(d.byExtensionBucket.UNKNOWN!.trades).toBe(4);
+    expect(d.byStopDistanceBucket.UNKNOWN!.trades).toBe(4);
+  });
+
+  it("is populated by the full replay using signal-time features only (no lookahead)", () => {
+    const candles = syntheticCandles({ count: 160, seed: 11, drift: 0.5, volatility: 2 });
+    const mid = candles[130]!;
+    const cfg = {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[100]!.openTime,
+      analysisEndMs: mid.openTime + 60_000,
+      selectionMode: "BOOTSTRAP" as const,
+      executionBackend: "paper_cfd" as const,
+      strategyAllowlist: [] as string[],
+      strategies: defs([
+        mockStrategy({
+          id: "breakout-momentum-v1",
+          kind: "breakout-momentum",
+          supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "BREAKOUT_EXPANSION"],
+          action: "HOLD"
+        }),
+        mockStrategy({
+          id: "ema-pullback-v1",
+          kind: "ema-pullback",
+          supportedRegimes: ALL_REGIMES,
+          action: "BUY"
+        })
+      ])
+    };
+    const before = runAutoSelectionCounterfactualReplay(candles.slice(0, 131), cfg);
+    const scoped = before.economic.trades.filter(
+      (t) => t.pass === "C" && t.fromProductionHold && t.strategyId === "ema-pullback-v1"
+    );
+    expect(scoped.length).toBeGreaterThan(0);
+    const diag = before.economic.emaFallbackFromHold;
+    expect(diag.trades).toHaveLength(scoped.length);
+    for (const rec of diag.trades) {
+      const expected = extractFeatures(candles.slice(0, rec.signalCandleIndex + 1), DEFAULT_FEATURE_CONFIG).at(-1)!;
+      expect(rec.emaFast).toBe(expected.emaFast);
+      expect(rec.atr).toBe(expected.atr);
+      const bar = before.bars.find((b) => b.candleIndex === rec.signalCandleIndex)!;
+      expect(rec.regime).toBe(bar.regime);
+      expect(rec.regimeConfidence).toBe(bar.regimeConfidence);
+    }
+
+    const future = {
+      ...candles[131]!,
+      openTime: mid.openTime + 60_000,
+      closeTime: mid.closeTime + 60_000,
+      close: mid.close + 500,
+      high: mid.close + 500
+    };
+    const after = runAutoSelectionCounterfactualReplay([...candles.slice(0, 131), future], cfg);
+    const afterBySignal = new Map(
+      after.economic.emaFallbackFromHold.trades.map((r) => [r.signalCandleIndex, r] as const)
+    );
+    for (const rec of diag.trades) {
+      const other = afterBySignal.get(rec.signalCandleIndex);
+      if (!other) continue;
+      expect(other.emaFast).toBe(rec.emaFast);
+      expect(other.emaSlow).toBe(rec.emaSlow);
+      expect(other.atr).toBe(rec.atr);
+      expect(other.extensionFromFastAtr).toBe(rec.extensionFromFastAtr);
+      expect(other.regime).toBe(rec.regime);
+    }
+
+    const md = formatEmaFallbackFromHoldMarkdown(diag).join("\n");
+    expect(md).toContain("## EMA fallback-from-HOLD diagnostics");
+    expect(md).toContain("### BUY vs SELL");
+    expect(md).toContain("### By regime");
+    expect(md).toContain("### By direction + regime");
+    expect(md).toContain("### Extension from fast EMA");
+    expect(md).toContain("### Stop distance (ATR)");
+    expect(md).toContain("### Favorable-before-stop");
+    expect(formatAutoSelectionReplayMarkdown(before)).toContain("## EMA fallback-from-HOLD diagnostics");
   });
 });

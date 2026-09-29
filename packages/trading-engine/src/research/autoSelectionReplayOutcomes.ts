@@ -16,6 +16,12 @@ import {
   extractFeatures
 } from "../features/featureExtractor.js";
 import { proposeCfdStopTarget } from "../strategies/cfdCapability.js";
+import {
+  EMA_FALLBACK_STRATEGY_ID,
+  buildEmaFallbackFromHoldDiagnostics,
+  type EmaFallbackFromHoldDiagnostics,
+  type EmaSignalContext
+} from "./autoSelectionEmaFallbackDiagnostics.js";
 
 /** Minimal eval fields needed to open a replay trade (avoids circular imports). */
 export interface ReplayEconomicEvalSnapshot {
@@ -170,6 +176,8 @@ export interface ReplayEconomicComparison {
   passC: ReplayPassEconomicMetrics;
   /** Diagnostic-only breakdown of Pass C trades where fromProductionHold === true. */
   passCFallbackFromHold: ReplayFallbackFromHoldDiagnostics;
+  /** Diagnostic-only EMA pullback geometry / excursion breakdown for Pass C fallback-from-HOLD. */
+  emaFallbackFromHold: EmaFallbackFromHoldDiagnostics;
   trades: ReplaySimulatedTrade[];
 }
 
@@ -180,6 +188,7 @@ export interface ReplayEconomicSignal {
   fromProductionHold: boolean;
   /** Regime classified on the signal candle; never recomputed from later candles. */
   regime?: MarketRegime | null;
+  regimeConfidence?: number | null;
 }
 
 /**
@@ -1060,6 +1069,23 @@ export function simulatePassEconomicOutcomes(input: {
   const passATrades = trades.filter((t) => t.pass === "A");
   const passCTrades = trades.filter((t) => t.pass === "C");
 
+  // Signal-time context (candles[0..signal] only) for EMA fallback-from-HOLD diagnostics.
+  const emaSignalContexts = new Map<number, EmaSignalContext>();
+  const lookback = input.featureLookback ?? 1500;
+  for (const s of input.signals) {
+    if (s.pass !== "C" || !s.fromProductionHold) continue;
+    if (s.evaluation.strategyId !== EMA_FALLBACK_STRATEGY_ID) continue;
+    if (!passCTrades.some((t) => t.signalCandleIndex === s.signalCandleIndex)) continue;
+    const start = Math.max(0, s.signalCandleIndex + 1 - lookback);
+    const window = input.candles.slice(start, s.signalCandleIndex + 1);
+    const features = window.length > 0 ? extractFeatures(window, DEFAULT_FEATURE_CONFIG) : [];
+    emaSignalContexts.set(s.signalCandleIndex, {
+      features: features[features.length - 1] ?? null,
+      decisionMetadata: s.evaluation.decisionMetadata,
+      regimeConfidence: s.regimeConfidence ?? null
+    });
+  }
+
   return {
     entryConvention: REPLAY_ENTRY_CONVENTION,
     entryConventionNote:
@@ -1071,6 +1097,11 @@ export function simulatePassEconomicOutcomes(input: {
     passA: aggregatePassEconomicMetrics(passATrades),
     passC: aggregatePassEconomicMetrics(passCTrades),
     passCFallbackFromHold: buildFallbackFromHoldDiagnostics(passCTrades),
+    emaFallbackFromHold: buildEmaFallbackFromHoldDiagnostics({
+      trades: passCTrades,
+      candles: input.candles,
+      contextBySignal: emaSignalContexts
+    }),
     trades
   };
 }
