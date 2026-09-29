@@ -4,8 +4,10 @@
  *
  * Pass A: production mirror (rank eligible → evaluate winner only).
  * Pass B: shadow (evaluate every eligible strategy on the same closed candle).
+ * Pass C: fallback (walk selector rank order until first executable BUY/SELL).
  *
- * Does NOT place orders, mutate production AUTO, or enable REAL trading.
+ * Selector-mechanics only — no profitability claims. Does NOT place orders,
+ * mutate production AUTO, write trade rows, or enable REAL trading.
  *
  * Usage:
  *   pnpm --filter @regimex/worker exec tsx scripts/replayR10AutoSelectionCounterfactual.ts
@@ -305,7 +307,7 @@ async function main(): Promise<void> {
       allowlist.length === 0
     ) {
       extraLimitations.push(
-        "Empty allowlist with MT5 backend — Pass A/B eligibility will be empty (fail-closed). Pass --allowlist or --research-allowlist-defaults."
+        "Empty allowlist with MT5 backend — Pass A/B/C eligibility will be empty (fail-closed). Pass --allowlist or --research-allowlist-defaults."
       );
     }
 
@@ -314,6 +316,9 @@ async function main(): Promise<void> {
     );
     extraLimitations.push(
       "Live DecisionLog / production winner history not joined — this is a mechanical replay, not a log reconstruction"
+    );
+    extraLimitations.push(
+      "Pass C is selector-mechanics only — fallback trade counts are not profitability, expectancy, or fill claims"
     );
 
     const report = runAutoSelectionCounterfactualReplay(candles, {

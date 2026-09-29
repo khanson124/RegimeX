@@ -3,6 +3,7 @@
  *
  * Pass A mirrors production: rank eligible strategies, evaluate only the winner.
  * Pass B shadows: evaluate every eligible strategy on the same closed candle.
+ * Pass C fallback: walk selector rank order until first executable BUY/SELL.
  *
  * No look-ahead: features/context use candles[0..i] only.
  * Does not place orders or mutate production selection behavior.
@@ -73,6 +74,16 @@ export interface StrategyEvalSnapshot {
   submissionBlockers: string[];
 }
 
+export interface FallbackEvalSnapshot {
+  /** Strategy ids in selector rank order (winner first, then alternatives). */
+  rankingOrder: string[];
+  /** Evaluations attempted in rank order until an executable trade or exhaustion. */
+  triedEvaluations: StrategyEvalSnapshot[];
+  selectedStrategyId: string | null;
+  action: StrategyDecision["action"] | null;
+  evaluation: StrategyEvalSnapshot | null;
+}
+
 export interface AutoSelectionReplayBarResult {
   candleIndex: number;
   openTimeMs: number;
@@ -90,11 +101,17 @@ export interface AutoSelectionReplayBarResult {
     evaluation: StrategyEvalSnapshot | null;
   };
   shadow: StrategyEvalSnapshot[];
+  /** Pass C: fallback walk of selector rank order. */
+  fallback: FallbackEvalSnapshot;
   /** Production HOLD/NO_TRADE/none but at least one eligible shadow BUY. */
   missedBuyOpportunity: boolean;
   missedBuyStrategyIds: string[];
   /** True when previous analysis bar also missed a BUY from the same shadow strategy. */
   repeatedMissedBuySetup: boolean;
+  /** Production ≠ SELL but at least one eligible shadow SELL. */
+  missedSellOpportunity: boolean;
+  missedSellStrategyIds: string[];
+  repeatedMissedSellSetup: boolean;
 }
 
 export interface AutoSelectionReplayReport {
@@ -130,6 +147,19 @@ export interface AutoSelectionReplayReport {
     missedBuyByStrategy: Record<string, number>;
     missedBuyPassingForwardTrial: number;
     missedBuyBlockedByForwardTrial: number;
+    missedSellOpportunityBars: number;
+    independentMissedSellBars: number;
+    repeatedMissedSellBars: number;
+    missedSellByStrategy: Record<string, number>;
+    missedSellPassingForwardTrial: number;
+    missedSellBlockedByForwardTrial: number;
+    fallbackHoldOrNoTrade: number;
+    fallbackBuy: number;
+    fallbackSell: number;
+    fallbackTrades: number;
+    fallbackByStrategy: Record<string, number>;
+    fallbackFromProductionHold: number;
+    fallbackFromProductionHoldByStrategy: Record<string, number>;
   };
   examples: AutoSelectionReplayBarResult[];
   bars: AutoSelectionReplayBarResult[];
@@ -179,6 +209,49 @@ export function defaultR10ReplayStrategies(): ReplayStrategyDefinition[] {
       enabled: true
     }
   ];
+}
+
+/**
+ * Strategies that can participate in this replay scope for warmup sizing.
+ * Does not replace per-bar runtime eligibility (regime/confidence/history).
+ */
+export function strategiesForWarmupNeed(
+  strategies: ReadonlyArray<ReplayStrategyDefinition>,
+  config: Pick<AutoSelectionReplayConfig, "symbol" | "interval" | "executionBackend" | "strategyAllowlist">
+): ReplayStrategyDefinition[] {
+  let scoped = strategies.filter((s) => s.enabled);
+  scoped = scoped.filter((s) =>
+    strategyAppliesToSession(s.strategy, { symbol: config.symbol, interval: config.interval })
+  );
+
+  const mt5 =
+    config.executionBackend === "broker_demo_mt5" || config.executionBackend === "broker_real_mt5";
+  if (mt5) {
+    scoped = applyMt5StrategySelectionAllowlist(
+      scoped,
+      (s) => s.strategy.id,
+      config.executionBackend,
+      {
+        EXECUTION_MODE: config.executionBackend,
+        REAL_MONEY_ENABLED: false,
+        MT5_ENGINE_STRATEGY_ALLOWLIST: config.strategyAllowlist.join(",")
+      }
+    );
+  } else if (config.strategyAllowlist.length > 0) {
+    // Research / paper: honor an explicit allowlist so out-of-scope strategies
+    // (e.g. XAU-only) cannot inflate warmup when R_10 allowlist is supplied.
+    scoped = scoped.filter((s) => config.strategyAllowlist.includes(s.strategy.id));
+  }
+  return scoped;
+}
+
+export function computeWarmupNeed(
+  strategies: ReadonlyArray<ReplayStrategyDefinition>,
+  config: Pick<AutoSelectionReplayConfig, "symbol" | "interval" | "executionBackend" | "strategyAllowlist">
+): number {
+  const scoped = strategiesForWarmupNeed(strategies, config);
+  const histories = scoped.map((s) => s.strategy.minimumHistory);
+  return Math.max(minimumCandlesForFeatures(DEFAULT_FEATURE_CONFIG), ...(histories.length ? histories : [0]));
 }
 
 function assertClosedCandlesOnly(candles: ReadonlyArray<Candle>): string[] {
@@ -242,8 +315,30 @@ function evaluateStrategy(input: {
   };
 }
 
+function isExecutableTrade(ev: StrategyEvalSnapshot): boolean {
+  return (ev.action === "BUY" || ev.action === "SELL") && !ev.forwardTrialBlocked;
+}
+
+function isProductionHoldOrNoTrade(ev: StrategyEvalSnapshot | null): boolean {
+  if (!ev) return true;
+  return ev.action !== "BUY" && ev.action !== "SELL";
+}
+
+/** Selector rank order: Pass A winner first, then alternatives by descending score. */
+export function selectorRankingOrder(selection: {
+  selectedStrategyId: string | null;
+  alternatives: Array<{ strategyId: string; score: number }>;
+}): string[] {
+  const order: string[] = [];
+  if (selection.selectedStrategyId) order.push(selection.selectedStrategyId);
+  for (const a of selection.alternatives) {
+    if (!order.includes(a.strategyId)) order.push(a.strategyId);
+  }
+  return order;
+}
+
 /**
- * Run Pass A (production mirror) + Pass B (shadow all eligible) over closed candles.
+ * Run Pass A (production mirror) + Pass B (shadow all eligible) + Pass C (fallback rank walk).
  */
 export function runAutoSelectionCounterfactualReplay(
   candlesIn: ReadonlyArray<Candle>,
@@ -269,10 +364,15 @@ export function runAutoSelectionCounterfactualReplay(
     return emptyReport(config, strategies, limitations.concat("No complete candles provided"));
   }
 
-  const warmupNeed = Math.max(
-    minimumCandlesForFeatures(DEFAULT_FEATURE_CONFIG),
-    ...strategies.map((s) => s.strategy.minimumHistory)
-  );
+  const warmupScoped = strategiesForWarmupNeed(strategies, config);
+  const warmupNeed = computeWarmupNeed(strategies, config);
+  if (warmupScoped.length < strategies.filter((s) => s.enabled).length) {
+    limitations.push(
+      `Warmup scoped to ${warmupScoped.length} strategy(ies) applicable to ${config.symbol}/${config.interval}` +
+        (config.strategyAllowlist.length ? ` allowlist=[${config.strategyAllowlist.join(",")}]` : "") +
+        ` (excluded ${strategies.filter((s) => s.enabled).length - warmupScoped.length} enabled out-of-scope)`
+    );
+  }
 
   const analysisCandles = candles.filter(
     (c) => c.openTime >= config.analysisStartMs && c.openTime < config.analysisEndMs
@@ -318,8 +418,11 @@ export function runAutoSelectionCounterfactualReplay(
   const productionLastSignal = new Map<string, number>();
   // Pass B: per-strategy shadow cooldown (each eligible strategy advances independently).
   const shadowLastSignal = new Map<string, number>();
+  // Pass C: independent fallback cooldown (selected fallback trade advances).
+  const fallbackLastSignal = new Map<string, number>();
   const bars: AutoSelectionReplayBarResult[] = [];
-  let prevMissedByStrategy = new Set<string>();
+  let prevMissedBuyByStrategy = new Set<string>();
+  let prevMissedSellByStrategy = new Set<string>();
 
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i]!;
@@ -364,6 +467,7 @@ export function runAutoSelectionCounterfactualReplay(
     );
 
     const eligibleStrategyIds = eligible.map((s) => s.strategy.id);
+    const eligibleById = new Map(eligible.map((s) => [s.strategy.id, s]));
     const perfMap = config.performanceByRegime?.get(regime.regime) ?? new Map();
 
     const candidates: SelectionCandidate[] = eligible.map((s) => ({
@@ -375,6 +479,13 @@ export function runAutoSelectionCounterfactualReplay(
     const selectionResult = selection.select(regime.regime, regime.confidence, candidates);
     const selectedId = selectionResult.selectedStrategyId;
     const chosen = eligible.find((s) => s.strategy.id === selectedId) ?? null;
+    const rankingOrder = selectorRankingOrder({
+      selectedStrategyId: selectedId,
+      alternatives: (selectionResult.alternatives ?? []).map((a) => ({
+        strategyId: a.strategyId,
+        score: a.score
+      }))
+    });
 
     let productionEval: StrategyEvalSnapshot | null = null;
     if (chosen) {
@@ -413,13 +524,55 @@ export function runAutoSelectionCounterfactualReplay(
       );
     }
 
+    // Pass C — walk selector rank order; first executable BUY/SELL wins.
+    const triedEvaluations: StrategyEvalSnapshot[] = [];
+    let fallbackEval: StrategyEvalSnapshot | null = null;
+    for (const strategyId of rankingOrder) {
+      const def = eligibleById.get(strategyId);
+      if (!def) continue;
+      const last = fallbackLastSignal.get(def.strategy.id);
+      const since = last === undefined ? Number.POSITIVE_INFINITY : i - last;
+      const ev = evaluateStrategy({
+        strategy: def.strategy,
+        parameters: def.parameters,
+        candles: ctxCandles,
+        features,
+        regime,
+        candlesSinceLastSignal: since,
+        symbol: config.symbol,
+        interval: config.interval,
+        executionBackend: config.executionBackend
+      });
+      triedEvaluations.push(ev);
+      if (isExecutableTrade(ev)) {
+        fallbackEval = ev;
+        break;
+      }
+    }
+
+    const fallback: FallbackEvalSnapshot = {
+      rankingOrder,
+      triedEvaluations,
+      selectedStrategyId: fallbackEval?.strategyId ?? null,
+      action: fallbackEval?.action ?? null,
+      evaluation: fallbackEval
+    };
+
     const missedBuyOpportunity =
       productionEval?.action !== "BUY" && shadow.some((s) => s.action === "BUY");
-    const missedIds = missedBuyOpportunity
+    const missedBuyIds = missedBuyOpportunity
       ? shadow.filter((s) => s.action === "BUY").map((s) => s.strategyId)
       : [];
     const repeatedMissedBuySetup =
-      missedBuyOpportunity && missedIds.some((id) => prevMissedByStrategy.has(id));
+      missedBuyOpportunity && missedBuyIds.some((id) => prevMissedBuyByStrategy.has(id));
+
+    const missedSellOpportunity =
+      productionEval?.action !== "SELL" && shadow.some((s) => s.action === "SELL");
+    const missedSellIds = missedSellOpportunity
+      ? shadow.filter((s) => s.action === "SELL").map((s) => s.strategyId)
+      : [];
+    const repeatedMissedSellSetup =
+      missedSellOpportunity && missedSellIds.some((id) => prevMissedSellByStrategy.has(id));
 
     bars.push({
       candleIndex: i,
@@ -441,12 +594,17 @@ export function runAutoSelectionCounterfactualReplay(
         evaluation: productionEval
       },
       shadow,
+      fallback,
       missedBuyOpportunity,
-      missedBuyStrategyIds: missedIds,
-      repeatedMissedBuySetup
+      missedBuyStrategyIds: missedBuyIds,
+      repeatedMissedBuySetup,
+      missedSellOpportunity,
+      missedSellStrategyIds: missedSellIds,
+      repeatedMissedSellSetup
     });
 
-    prevMissedByStrategy = new Set(missedIds);
+    prevMissedBuyByStrategy = new Set(missedBuyIds);
+    prevMissedSellByStrategy = new Set(missedSellIds);
 
     // Pass A cooldown: only when production winner emits BUY/SELL and forward-trial would not block
     // (mirrors live: blocked forward-trial returns before lastSignalCandle.set).
@@ -465,16 +623,32 @@ export function runAutoSelectionCounterfactualReplay(
         shadowLastSignal.set(ev.strategyId, i);
       }
     }
+
+    // Pass C cooldown: only the selected fallback trade advances (independent of A/B).
+    if (fallbackEval && isExecutableTrade(fallbackEval)) {
+      fallbackLastSignal.set(fallbackEval.strategyId, i);
+    }
   }
 
   const missedBuyByStrategy: Record<string, number> = {};
+  const missedSellByStrategy: Record<string, number> = {};
+  const fallbackByStrategy: Record<string, number> = {};
+  const fallbackFromProductionHoldByStrategy: Record<string, number> = {};
   let missedBuyPassingForwardTrial = 0;
   let missedBuyBlockedByForwardTrial = 0;
+  let missedSellPassingForwardTrial = 0;
+  let missedSellBlockedByForwardTrial = 0;
   let productionHoldOrNoTrade = 0;
   let productionBuy = 0;
   let productionSell = 0;
   let independentMissedBuyBars = 0;
   let repeatedMissedBuyBars = 0;
+  let independentMissedSellBars = 0;
+  let repeatedMissedSellBars = 0;
+  let fallbackHoldOrNoTrade = 0;
+  let fallbackBuy = 0;
+  let fallbackSell = 0;
+  let fallbackFromProductionHold = 0;
 
   for (const b of bars) {
     const act = b.production.evaluation?.action;
@@ -494,9 +668,47 @@ export function runAutoSelectionCounterfactualReplay(
         missedBuyBlockedByForwardTrial += 1;
       }
     }
+
+    if (b.missedSellOpportunity) {
+      if (b.repeatedMissedSellSetup) repeatedMissedSellBars += 1;
+      else independentMissedSellBars += 1;
+      for (const id of b.missedSellStrategyIds) {
+        missedSellByStrategy[id] = (missedSellByStrategy[id] ?? 0) + 1;
+      }
+      const sells = b.shadow.filter((s) => s.action === "SELL");
+      if (sells.some((s) => !s.forwardTrialBlocked)) missedSellPassingForwardTrial += 1;
+      if (sells.length > 0 && sells.every((s) => s.forwardTrialBlocked)) {
+        missedSellBlockedByForwardTrial += 1;
+      }
+    }
+
+    const fb = b.fallback.action;
+    if (fb === "BUY") {
+      fallbackBuy += 1;
+      fallbackByStrategy[b.fallback.selectedStrategyId!] =
+        (fallbackByStrategy[b.fallback.selectedStrategyId!] ?? 0) + 1;
+    } else if (fb === "SELL") {
+      fallbackSell += 1;
+      fallbackByStrategy[b.fallback.selectedStrategyId!] =
+        (fallbackByStrategy[b.fallback.selectedStrategyId!] ?? 0) + 1;
+    } else {
+      fallbackHoldOrNoTrade += 1;
+    }
+
+    if (
+      isProductionHoldOrNoTrade(b.production.evaluation) &&
+      (fb === "BUY" || fb === "SELL") &&
+      b.fallback.selectedStrategyId
+    ) {
+      fallbackFromProductionHold += 1;
+      fallbackFromProductionHoldByStrategy[b.fallback.selectedStrategyId] =
+        (fallbackFromProductionHoldByStrategy[b.fallback.selectedStrategyId] ?? 0) + 1;
+    }
   }
 
-  const examples = bars.filter((b) => b.missedBuyOpportunity).slice(0, 25);
+  const examples = bars
+    .filter((b) => b.missedBuyOpportunity || b.missedSellOpportunity || b.fallback.action === "BUY" || b.fallback.action === "SELL")
+    .slice(0, 25);
 
   return {
     generatedAtIso: new Date().toISOString(),
@@ -532,10 +744,51 @@ export function runAutoSelectionCounterfactualReplay(
       repeatedMissedBuyBars,
       missedBuyByStrategy,
       missedBuyPassingForwardTrial,
-      missedBuyBlockedByForwardTrial
+      missedBuyBlockedByForwardTrial,
+      missedSellOpportunityBars: bars.filter((b) => b.missedSellOpportunity).length,
+      independentMissedSellBars,
+      repeatedMissedSellBars,
+      missedSellByStrategy,
+      missedSellPassingForwardTrial,
+      missedSellBlockedByForwardTrial,
+      fallbackHoldOrNoTrade,
+      fallbackBuy,
+      fallbackSell,
+      fallbackTrades: fallbackBuy + fallbackSell,
+      fallbackByStrategy,
+      fallbackFromProductionHold,
+      fallbackFromProductionHoldByStrategy
     },
     examples,
     bars
+  };
+}
+
+function emptyCounts(): AutoSelectionReplayReport["counts"] {
+  return {
+    analysisBars: 0,
+    productionHoldOrNoTrade: 0,
+    productionBuy: 0,
+    productionSell: 0,
+    missedBuyOpportunityBars: 0,
+    independentMissedBuyBars: 0,
+    repeatedMissedBuyBars: 0,
+    missedBuyByStrategy: {},
+    missedBuyPassingForwardTrial: 0,
+    missedBuyBlockedByForwardTrial: 0,
+    missedSellOpportunityBars: 0,
+    independentMissedSellBars: 0,
+    repeatedMissedSellBars: 0,
+    missedSellByStrategy: {},
+    missedSellPassingForwardTrial: 0,
+    missedSellBlockedByForwardTrial: 0,
+    fallbackHoldOrNoTrade: 0,
+    fallbackBuy: 0,
+    fallbackSell: 0,
+    fallbackTrades: 0,
+    fallbackByStrategy: {},
+    fallbackFromProductionHold: 0,
+    fallbackFromProductionHoldByStrategy: {}
   };
 }
 
@@ -566,18 +819,7 @@ function emptyReport(
       gapsInAnalysisWindow: 0
     },
     limitations,
-    counts: {
-      analysisBars: 0,
-      productionHoldOrNoTrade: 0,
-      productionBuy: 0,
-      productionSell: 0,
-      missedBuyOpportunityBars: 0,
-      independentMissedBuyBars: 0,
-      repeatedMissedBuyBars: 0,
-      missedBuyByStrategy: {},
-      missedBuyPassingForwardTrial: 0,
-      missedBuyBlockedByForwardTrial: 0
-    },
+    counts: emptyCounts(),
     examples: [],
     bars: []
   };
@@ -604,27 +846,48 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   lines.push(
     `- Span: ${report.coverage.firstCandleIso ?? "—"} → ${report.coverage.lastCandleIso ?? "—"}`
   );
+  lines.push(`- Warmup bars (scoped): ${report.coverage.warmupBars}`);
   lines.push("");
   lines.push(`## Limitations`);
   if (report.limitations.length === 0) lines.push(`- None reported`);
   else for (const l of report.limitations) lines.push(`- ${l}`);
   lines.push("");
   lines.push(`## Counts`);
-  lines.push(`- Production HOLD/NO_TRADE: ${report.counts.productionHoldOrNoTrade}`);
-  lines.push(`- Production BUY: ${report.counts.productionBuy}; SELL: ${report.counts.productionSell}`);
+  lines.push(
+    `- Production trades: BUY ${report.counts.productionBuy}; SELL ${report.counts.productionSell}; HOLD/NO_TRADE ${report.counts.productionHoldOrNoTrade}`
+  );
+  lines.push(
+    `- Fallback (Pass C) trades: BUY ${report.counts.fallbackBuy}; SELL ${report.counts.fallbackSell}; total ${report.counts.fallbackTrades}; HOLD/NO_TRADE ${report.counts.fallbackHoldOrNoTrade}`
+  );
+  lines.push(
+    `- Fallback from production HOLD: ${report.counts.fallbackFromProductionHold}; by strategy: ${JSON.stringify(report.counts.fallbackFromProductionHoldByStrategy)}`
+  );
+  lines.push(`- Fallback by strategy: ${JSON.stringify(report.counts.fallbackByStrategy)}`);
   lines.push(
     `- Missed BUY opportunity bars (prod ≠ BUY, shadow BUY): ${report.counts.missedBuyOpportunityBars}`
   );
   lines.push(
-    `- Independent missed bars (streak starts): ${report.counts.independentMissedBuyBars}; repeated setup bars: ${report.counts.repeatedMissedBuyBars}`
+    `- Independent missed BUY bars: ${report.counts.independentMissedBuyBars}; repeated: ${report.counts.repeatedMissedBuyBars}`
   );
   lines.push(
-    `- Missed bars with ≥1 forward-trial-passing BUY: ${report.counts.missedBuyPassingForwardTrial}`
-  );
-  lines.push(
-    `- Missed bars where all shadow BUYs forward-trial-blocked: ${report.counts.missedBuyBlockedByForwardTrial}`
+    `- Missed BUY FT-passing: ${report.counts.missedBuyPassingForwardTrial}; all FT-blocked: ${report.counts.missedBuyBlockedByForwardTrial}`
   );
   lines.push(`- Missed BUY by strategy: ${JSON.stringify(report.counts.missedBuyByStrategy)}`);
+  lines.push(
+    `- Missed SELL opportunity bars (prod ≠ SELL, shadow SELL): ${report.counts.missedSellOpportunityBars}`
+  );
+  lines.push(
+    `- Independent missed SELL bars: ${report.counts.independentMissedSellBars}; repeated: ${report.counts.repeatedMissedSellBars}`
+  );
+  lines.push(
+    `- Missed SELL FT-passing: ${report.counts.missedSellPassingForwardTrial}; all FT-blocked: ${report.counts.missedSellBlockedByForwardTrial}`
+  );
+  lines.push(`- Missed SELL by strategy: ${JSON.stringify(report.counts.missedSellByStrategy)}`);
+  lines.push("");
+  lines.push(`## Note`);
+  lines.push(
+    `- Selector-mechanics only — no profitability, expectancy, or fill claims in this report.`
+  );
   lines.push("");
   lines.push(`## Examples (up to 25)`);
   if (report.examples.length === 0) {
@@ -632,12 +895,13 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   } else {
     for (const e of report.examples) {
       const shadowBuys = e.shadow.filter((s) => s.action === "BUY");
+      const shadowSells = e.shadow.filter((s) => s.action === "SELL");
       lines.push(
-        `- ${new Date(e.openTimeMs).toISOString()} close=${e.close} regime=${e.regime}(${e.regimeConfidence.toFixed(2)}) prod=${e.production.selectedStrategyId}/${e.production.evaluation?.action ?? "none"} shadowBUY=[${shadowBuys.map((s) => `${s.strategyId}${s.forwardTrialBlocked ? "!FT" : ""}`).join(",")}] repeated=${e.repeatedMissedBuySetup}`
+        `- ${new Date(e.openTimeMs).toISOString()} close=${e.close} regime=${e.regime}(${e.regimeConfidence.toFixed(2)}) prod=${e.production.selectedStrategyId}/${e.production.evaluation?.action ?? "none"} fallback=${e.fallback.selectedStrategyId ?? "none"}/${e.fallback.action ?? "HOLD"} rank=[${e.fallback.rankingOrder.join(">")}] shadowBUY=[${shadowBuys.map((s) => `${s.strategyId}${s.forwardTrialBlocked ? "!FT" : ""}`).join(",")}] shadowSELL=[${shadowSells.map((s) => `${s.strategyId}${s.forwardTrialBlocked ? "!FT" : ""}`).join(",")}]`
       );
-      for (const s of shadowBuys) {
+      for (const s of [...shadowBuys, ...shadowSells].slice(0, 4)) {
         lines.push(
-          `  - ${s.strategyId}: ${s.entryReason.slice(0, 2).join("; ") || s.invalidationReason.slice(0, 1).join("; ")} | FT=${s.forwardTrialReason ?? "ok"} blockers=${s.submissionBlockers.join(",") || "none"}`
+          `  - ${s.strategyId} ${s.action}: ${s.entryReason.slice(0, 2).join("; ") || s.invalidationReason.slice(0, 1).join("; ")} | FT=${s.forwardTrialReason ?? "ok"}`
         );
       }
     }
