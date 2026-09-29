@@ -17,6 +17,15 @@ import {
 } from "../features/featureExtractor.js";
 import { proposeCfdStopTarget } from "../strategies/cfdCapability.js";
 import {
+  SKIPPED_WHILE_OPEN_CAP,
+  describeExitGap,
+  emptyPassSimulationDiagnostics,
+  finalizePassSimulationDiagnostics,
+  type ReplayBlockingPositionSummary,
+  type ReplayExitGap,
+  type ReplayPassSimulationDiagnostics
+} from "./autoSelectionReplaySimulationDiagnostics.js";
+import {
   EMA_FALLBACK_STRATEGY_ID,
   buildEmaFallbackFromHoldDiagnostics,
   type EmaFallbackFromHoldDiagnostics,
@@ -90,6 +99,8 @@ export interface ReplaySimulatedTrade {
   /** Regime classified on the signal candle (candles[0..signal] only). */
   regime: MarketRegime | null;
   confidence: number;
+  /** Exit-bar gap annotation for TARGET/STOP/AMBIGUOUS exits. Fill is unchanged (at the level). */
+  exitGap?: ReplayExitGap | null;
 }
 
 export interface ReplayStrategyEconomicBreakdown {
@@ -178,6 +189,8 @@ export interface ReplayEconomicComparison {
   passCFallbackFromHold: ReplayFallbackFromHoldDiagnostics;
   /** Diagnostic-only EMA pullback geometry / excursion breakdown for Pass C fallback-from-HOLD. */
   emaFallbackFromHold: EmaFallbackFromHoldDiagnostics;
+  /** Per-pass single-position simulator counters, blocking positions, hold durations, exit gaps. */
+  simulationDiagnostics: { A: ReplayPassSimulationDiagnostics; C: ReplayPassSimulationDiagnostics };
   trades: ReplaySimulatedTrade[];
 }
 
@@ -666,6 +679,15 @@ export function buildFallbackFromHoldDiagnostics(
   };
 }
 
+function finalizeSimDiagnostics(
+  d: ReplayPassSimulationDiagnostics,
+  blocking: Map<string, ReplayBlockingPositionSummary>,
+  trades: ReadonlyArray<ReplaySimulatedTrade>
+): ReplayPassSimulationDiagnostics {
+  d.blockingPositions = [...blocking.values()].sort((a, b) => b.skippedSignals - a.skippedSignals);
+  return finalizePassSimulationDiagnostics(d, trades);
+}
+
 interface PendingSignal {
   pass: ReplaySelectorPass;
   signalCandleIndex: number;
@@ -882,6 +904,15 @@ export function simulatePassEconomicOutcomes(input: {
     };
   };
 
+  const exitGapFor = (open: OpenPosition, exitCandle: Candle): ReplayExitGap =>
+    describeExitGap({
+      direction: open.direction,
+      entryPrice: open.entryPrice,
+      stopLoss: open.stopPrice,
+      takeProfit: open.targetPrice,
+      exitBar: exitCandle
+    });
+
   const resolveOpen = (open: OpenPosition, atIndex: number): ReplaySimulatedTrade | null => {
     if (atIndex < open.entryCandleIndex) return null;
     const forward = input.candles.slice(open.entryCandleIndex, atIndex + 1);
@@ -911,6 +942,7 @@ export function simulatePassEconomicOutcomes(input: {
       exitCandleIndex: open.entryCandleIndex + exitOffset,
       exitTimeMs: exitCandle.closeTime,
       exitPrice: walk.exitPrice,
+      exitGap: exitGapFor(open, exitCandle),
       outcome: walk.outcome,
       realizedR: walk.realizedR,
       barsHeld: walk.barsHeld,
@@ -948,6 +980,7 @@ export function simulatePassEconomicOutcomes(input: {
         exitCandleIndex: open.entryCandleIndex + exitOffset,
         exitTimeMs: exitCandle.closeTime,
         exitPrice: walk.exitPrice,
+        exitGap: exitGapFor(open, exitCandle),
         outcome: walk.outcome,
         realizedR: walk.realizedR,
         barsHeld: walk.barsHeld,
@@ -982,17 +1015,86 @@ export function simulatePassEconomicOutcomes(input: {
     };
   };
 
+  const diag: Record<ReplaySelectorPass, ReplayPassSimulationDiagnostics> = {
+    A: emptyPassSimulationDiagnostics(),
+    C: emptyPassSimulationDiagnostics()
+  };
+  const blocking: Record<ReplaySelectorPass, Map<string, ReplayBlockingPositionSummary>> = {
+    A: new Map(),
+    C: new Map()
+  };
+
+  const recordEntry = (
+    pass: ReplaySelectorPass,
+    result: { open: OpenPosition | null; trade: ReplaySimulatedTrade | null }
+  ) => {
+    if (result.open) diag[pass].entriesOpened += 1;
+    if (result.trade) diag[pass].unscorableEntries += 1;
+  };
+
+  const recordSkipWhileOpen = (
+    pass: ReplaySelectorPass,
+    open: OpenPosition,
+    sig: ReplayEconomicSignal,
+    i: number
+  ) => {
+    const d = diag[pass];
+    d.signalsSkippedOpenPosition += 1;
+    const barsHeldSoFar = i - open.entryCandleIndex + 1;
+    if (d.skippedWhileOpen.length < SKIPPED_WHILE_OPEN_CAP) {
+      d.skippedWhileOpen.push({
+        skippedSignalCandleIndex: i,
+        skippedSignalTimeMs: sig.evaluation.signalTimestampMs,
+        skippedStrategyId: sig.evaluation.strategyId,
+        skippedDirection: sig.evaluation.action as PositionDirection,
+        openStrategyId: open.strategyId,
+        openDirection: open.direction,
+        openEntryCandleIndex: open.entryCandleIndex,
+        openEntryTimeMs: open.entryTimeMs,
+        openEntryPrice: open.entryPrice,
+        openStopPrice: open.stopPrice,
+        openTargetPrice: open.targetPrice,
+        barsHeldSoFar
+      });
+    } else {
+      d.skippedWhileOpenTruncated = true;
+    }
+    const key = `${open.entryCandleIndex}:${open.strategyId}`;
+    const b = blocking[pass].get(key);
+    if (b) {
+      b.skippedSignals += 1;
+      b.lastSkippedSignalTimeMs = sig.evaluation.signalTimestampMs;
+      b.maxBarsHeldWhenSkipping = Math.max(b.maxBarsHeldWhenSkipping, barsHeldSoFar);
+    } else {
+      blocking[pass].set(key, {
+        openStrategyId: open.strategyId,
+        openDirection: open.direction,
+        openEntryCandleIndex: open.entryCandleIndex,
+        openEntryTimeMs: open.entryTimeMs,
+        openEntryPrice: open.entryPrice,
+        openStopPrice: open.stopPrice,
+        openTargetPrice: open.targetPrice,
+        skippedSignals: 1,
+        firstSkippedSignalTimeMs: sig.evaluation.signalTimestampMs,
+        lastSkippedSignalTimeMs: sig.evaluation.signalTimestampMs,
+        maxBarsHeldWhenSkipping: barsHeldSoFar
+      });
+    }
+  };
+
   for (let i = 0; i < input.candles.length; i++) {
     // Enter pending signals whose entry candle is this bar.
     if (pendingA && i === pendingA.signalCandleIndex + 1 && !openA) {
       const result = tryEnter(pendingA, i);
       pendingA = null;
+      recordEntry("A", result);
       if (result.trade) trades.push(result.trade);
       if (result.open) openA = result.open;
     }
     if (pendingC && i === pendingC.signalCandleIndex + 1 && !openC) {
       const result = tryEnter(pendingC, i);
       pendingC = null;
+      recordEntry("C", result);
       if (result.trade) trades.push(result.trade);
       if (result.open) openC = result.open;
     }
@@ -1002,6 +1104,7 @@ export function simulatePassEconomicOutcomes(input: {
       const closed = resolveOpen(openA, i);
       if (closed) {
         trades.push(closed);
+        diag.A.tradesResolved += 1;
         openA = null;
       }
     }
@@ -1009,6 +1112,7 @@ export function simulatePassEconomicOutcomes(input: {
       const closed = resolveOpen(openC, i);
       if (closed) {
         trades.push(closed);
+        diag.C.tradesResolved += 1;
         openC = null;
       }
     }
@@ -1017,46 +1121,58 @@ export function simulatePassEconomicOutcomes(input: {
     const signalsHere: ReplayEconomicSignal[] = byIndex.get(i) ?? [];
     for (const sig of signalsHere) {
       if (sig.evaluation.action !== "BUY" && sig.evaluation.action !== "SELL") continue;
-      if (sig.pass === "A") {
-        if (!openA && !pendingA) {
-          pendingA = {
-            pass: "A",
-            signalCandleIndex: i,
-            evaluation: sig.evaluation,
-            fromProductionHold: sig.fromProductionHold,
-            regime: sig.regime ?? null,
-            parameters: input.parametersByStrategyId.get(sig.evaluation.strategyId) ?? {}
-          };
-        }
-      } else if (!openC && !pendingC) {
-        pendingC = {
-          pass: "C",
-          signalCandleIndex: i,
-          evaluation: sig.evaluation,
-          fromProductionHold: sig.fromProductionHold,
-          regime: sig.regime ?? null,
-          parameters: input.parametersByStrategyId.get(sig.evaluation.strategyId) ?? {}
-        };
+      const pass = sig.pass;
+      diag[pass].executableSignalsSeen += 1;
+      const open = pass === "A" ? openA : openC;
+      const pending = pass === "A" ? pendingA : pendingC;
+      if (open) {
+        recordSkipWhileOpen(pass, open, sig, i);
+        continue;
       }
+      if (pending) {
+        diag[pass].signalsSkippedPendingAlreadyExists += 1;
+        continue;
+      }
+      diag[pass].signalsAcceptedAsPending += 1;
+      const next: PendingSignal = {
+        pass,
+        signalCandleIndex: i,
+        evaluation: sig.evaluation,
+        fromProductionHold: sig.fromProductionHold,
+        regime: sig.regime ?? null,
+        parameters: input.parametersByStrategyId.get(sig.evaluation.strategyId) ?? {}
+      };
+      if (pass === "A") pendingA = next;
+      else pendingC = next;
     }
   }
 
   // Flush pending without entry candle.
   if (pendingA) {
     const result = tryEnter(pendingA, pendingA.signalCandleIndex + 1);
+    recordEntry("A", result);
     if (result.trade) trades.push(result.trade);
     if (result.open) openA = result.open;
     pendingA = null;
   }
   if (pendingC) {
     const result = tryEnter(pendingC, pendingC.signalCandleIndex + 1);
+    recordEntry("C", result);
     if (result.trade) trades.push(result.trade);
     if (result.open) openC = result.open;
     pendingC = null;
   }
 
-  if (openA) trades.push(closeOpenAtEnd(openA));
-  if (openC) trades.push(closeOpenAtEnd(openC));
+  for (const [pass, open] of [
+    ["A", openA],
+    ["C", openC]
+  ] as const) {
+    if (!open) continue;
+    const t = closeOpenAtEnd(open);
+    trades.push(t);
+    if (t.outcome === "OPEN_AT_END") diag[pass].tradesOpenAtEnd += 1;
+    else diag[pass].tradesResolved += 1;
+  }
 
   // Stable order: by signal time then pass.
   trades.sort((a, b) => {
@@ -1102,6 +1218,10 @@ export function simulatePassEconomicOutcomes(input: {
       candles: input.candles,
       contextBySignal: emaSignalContexts
     }),
+    simulationDiagnostics: {
+      A: finalizeSimDiagnostics(diag.A, blocking.A, passATrades),
+      C: finalizeSimDiagnostics(diag.C, blocking.C, passCTrades)
+    },
     trades
   };
 }

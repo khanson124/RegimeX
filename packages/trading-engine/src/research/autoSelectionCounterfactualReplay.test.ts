@@ -14,6 +14,8 @@ import {
 } from "../features/featureExtractor.js";
 import {
   aggregatePassEconomicMetrics,
+  analyzeCandleContinuity,
+  describeExitGap,
   buildEmaFallbackFromHoldDiagnostics,
   buildEmaTradeDiagnostic,
   computeExcursions,
@@ -1749,5 +1751,232 @@ describe("EMA fallback-from-HOLD diagnostics", () => {
     expect(md).toContain("### Stop distance (ATR)");
     expect(md).toContain("### Favorable-before-stop");
     expect(formatAutoSelectionReplayMarkdown(before)).toContain("## EMA fallback-from-HOLD diagnostics");
+  });
+});
+
+function flatCandles(count: number, price = 100, source: Candle["source"] = "SEED"): Candle[] {
+  return Array.from({ length: count }, (_, i) => ({
+    ...candleAt(i * 60_000, price, price + 0.5, price - 0.5, price),
+    source
+  }));
+}
+
+function squeezeSignal(
+  index: number,
+  candles: Candle[],
+  action: "BUY" | "SELL",
+  metadata: Record<string, unknown>,
+  pass: "A" | "C" = "C"
+) {
+  return {
+    pass,
+    signalCandleIndex: index,
+    evaluation: {
+      strategyId: "squeeze-breakout-v1",
+      action,
+      confidence: 0.8,
+      signalTimestampMs: candles[index]!.closeTime,
+      decisionMetadata: metadata
+    },
+    fromProductionHold: true
+  };
+}
+
+describe("economic simulator diagnostics", () => {
+  it("one never-resolving position blocks thousands of later signals and is reported", () => {
+    const n = 3000;
+    const candles = flatCandles(n);
+    // squeezeLow far below price → stop ≈ 50, target ≈ 200; flat bars never reach either.
+    const wide = { squeezeLow: 50, squeezeHigh: 101 };
+    const signals = [squeezeSignal(1, candles, "BUY", wide), squeezeSignal(1, candles, "SELL", wide)];
+    for (let i = 2; i < n - 1; i++) signals.push(squeezeSignal(i, candles, i % 2 ? "SELL" : "BUY", wide));
+
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals,
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01,
+      featureLookback: 50
+    });
+    const d = comparison.simulationDiagnostics.C;
+
+    expect(d.executableSignalsSeen).toBe(signals.length);
+    expect(d.signalsAcceptedAsPending).toBe(1);
+    expect(d.signalsSkippedPendingAlreadyExists).toBe(1);
+    expect(d.signalsSkippedOpenPosition).toBe(n - 3);
+    expect(d.executableSignalsSeen).toBe(
+      d.signalsAcceptedAsPending + d.signalsSkippedPendingAlreadyExists + d.signalsSkippedOpenPosition
+    );
+    expect(d.entriesOpened).toBe(1);
+    expect(d.tradesResolved).toBe(0);
+    expect(d.tradesOpenAtEnd).toBe(1);
+    expect(d.unscorableEntries).toBe(0);
+
+    expect(d.maxBarsHeld).toBe(n - 2);
+    expect(d.longHeldCounts).toEqual({ ">100": 1, ">500": 1, ">1000": 1, ">5000": 0 });
+    expect(d.longestTrade?.outcome).toBe("OPEN_AT_END");
+    expect(d.longestTrade?.stopPrice).toBeLessThan(51);
+    expect(d.longestTrade?.targetPrice).toBeGreaterThan(199);
+
+    expect(d.blockingPositions).toHaveLength(1);
+    const b = d.blockingPositions[0]!;
+    expect(b.skippedSignals).toBe(n - 3);
+    expect(b.openDirection).toBe("BUY");
+    expect(b.openEntryCandleIndex).toBe(2);
+    expect(b.openEntryPrice).toBe(100);
+    expect(b.maxBarsHeldWhenSkipping).toBe(n - 3);
+
+    const first = d.skippedWhileOpen[0]!;
+    expect(first).toMatchObject({
+      skippedSignalCandleIndex: 2,
+      skippedSignalTimeMs: candles[2]!.closeTime,
+      openStrategyId: "squeeze-breakout-v1",
+      openDirection: "BUY",
+      openEntryTimeMs: candles[2]!.openTime,
+      openEntryPrice: 100,
+      barsHeldSoFar: 1
+    });
+    expect(first.openStopPrice).toBe(b.openStopPrice);
+    expect(first.openTargetPrice).toBe(b.openTargetPrice);
+    expect(d.skippedWhileOpen).toHaveLength(n - 3);
+    expect(d.skippedWhileOpenTruncated).toBe(false);
+
+    // Pass A untouched.
+    expect(comparison.simulationDiagnostics.A.executableSignalsSeen).toBe(0);
+  });
+
+  it("gap through BUY stop: fill stays at stop level, gap is flagged with R-at-open", () => {
+    const candles = [...flatCandles(3), candleAt(180_000, 80, 81, 79, 80)];
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals: [squeezeSignal(1, candles, "BUY", { squeezeLow: 95, squeezeHigh: 101 })],
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01
+    });
+    const t = comparison.trades[0]!;
+    expect(t.outcome).toBe("STOP");
+    expect(t.exitPrice).toBe(t.stopPrice);
+    expect(t.realizedR).toBe(-1);
+    expect(t.exitGap?.gapThroughStop).toBe(true);
+    expect(t.exitGap?.barEntirelyBeyondStop).toBe(true);
+    expect(t.exitGap?.rIfFilledAtOpen).toBeCloseTo((80 - 100) / (100 - t.stopPrice!), 6);
+    const g = comparison.simulationDiagnostics.C.exitGaps;
+    expect(g.stopExits).toBe(1);
+    expect(g.stopExitsGappedThrough).toBe(1);
+    expect(g.worstStopRIfFilledAtOpen).toBeLessThan(-3.9);
+  });
+
+  it("gap through SELL stop: fill stays at stop level, gap is flagged", () => {
+    const candles = [...flatCandles(3), candleAt(180_000, 120, 121, 119, 120)];
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals: [squeezeSignal(1, candles, "SELL", { squeezeLow: 99, squeezeHigh: 105 })],
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01
+    });
+    const t = comparison.trades[0]!;
+    expect(t.outcome).toBe("STOP");
+    expect(t.exitPrice).toBe(t.stopPrice);
+    expect(t.exitGap?.gapThroughStop).toBe(true);
+    expect(t.exitGap?.rIfFilledAtOpen).toBeCloseTo((100 - 120) / (t.stopPrice! - 100), 6);
+    expect(comparison.simulationDiagnostics.C.exitGaps.stopExitsGappedThrough).toBe(1);
+  });
+
+  it("gap through BUY target: fill stays at target level, gap is flagged", () => {
+    const candles = [...flatCandles(3), candleAt(180_000, 130, 131, 129, 130)];
+    const comparison = simulatePassEconomicOutcomes({
+      candles,
+      signals: [squeezeSignal(1, candles, "BUY", { squeezeLow: 95, squeezeHigh: 101 })],
+      parametersByStrategyId: new Map([["squeeze-breakout-v1", {}]]),
+      tickSize: 0.01
+    });
+    const t = comparison.trades[0]!;
+    expect(t.outcome).toBe("TARGET");
+    expect(t.exitPrice).toBe(t.targetPrice);
+    expect(t.realizedR).toBeCloseTo(2, 9);
+    expect(t.exitGap?.gapThroughTarget).toBe(true);
+    expect(t.exitGap?.gapThroughStop).toBe(false);
+    expect(t.exitGap?.rIfFilledAtOpen).toBeGreaterThan(2);
+    const g = comparison.simulationDiagnostics.C.exitGaps;
+    expect(g.targetExits).toBe(1);
+    expect(g.targetExitsGappedThrough).toBe(1);
+  });
+
+  it("describeExitGap: non-gapped stop touch is not flagged", () => {
+    const g = describeExitGap({
+      direction: "BUY",
+      entryPrice: 100,
+      stopLoss: 95,
+      takeProfit: 110,
+      exitBar: { open: 99, high: 100, low: 94 }
+    });
+    expect(g.gapThroughStop).toBe(false);
+    expect(g.barEntirelyBeyondStop).toBe(false);
+    expect(g.rIfFilledAtOpen).toBeCloseTo(-0.2, 6);
+  });
+
+  it("detects abnormal cross-source price jumps (e.g. ~9450 → ~4790 → ~9450)", () => {
+    const candles = [
+      ...flatCandles(3, 9452.56, "HISTORY_API"),
+      { ...candleAt(180_000, 4789, 4790, 4788, 4789.68), source: "LIVE_TICKS" as const },
+      { ...candleAt(240_000, 9450, 9451, 9449, 9450.04), source: "HISTORY_API" as const },
+      { ...candleAt(300_000, 9450, 9451, 9449, 9460), source: "HISTORY_API" as const }
+    ];
+    const c = analyzeCandleContinuity(candles);
+    expect(c.sources).toEqual({ HISTORY_API: 5, LIVE_TICKS: 1 });
+    expect(c.jumpCounts).toEqual({ ">10%": 2, ">25%": 2, ">40%": 2, ">50%": 1 });
+    expect(c.crossSourceJumps).toBe(2);
+    expect(c.jumps).toHaveLength(2);
+    expect(c.jumps[0]).toMatchObject({
+      index: 3,
+      beforeClose: 9452.56,
+      afterClose: 4789.68,
+      beforeSource: "HISTORY_API",
+      afterSource: "LIVE_TICKS",
+      crossSource: true
+    });
+    expect(c.jumps[0]!.returnPct).toBeCloseTo(-49.33, 1);
+    expect(c.jumps[1]!.returnPct).toBeGreaterThan(97);
+    expect(c.maxAbsReturnPct).toBeGreaterThan(97);
+  });
+
+  it("report exposes simulator + continuity diagnostics and preserves no-lookahead", () => {
+    const candles = syntheticCandles({ count: 150, seed: 5, drift: 0.45, volatility: 2 });
+    const mid = candles[120]!;
+    const cfg = {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[110]!.openTime,
+      analysisEndMs: mid.openTime + 60_000,
+      selectionMode: "BOOTSTRAP" as const,
+      executionBackend: "paper_cfd" as const,
+      strategyAllowlist: [] as string[],
+      strategies: defs([
+        mockStrategy({ id: "ema-pullback-v1", kind: "ema-pullback", supportedRegimes: ALL_REGIMES, action: "BUY" })
+      ])
+    };
+    const before = runAutoSelectionCounterfactualReplay(candles.slice(0, 121), cfg);
+    const future = { ...candles[121]!, openTime: mid.openTime + 60_000, closeTime: mid.closeTime + 60_000, close: mid.close * 3 };
+    const after = runAutoSelectionCounterfactualReplay([...candles.slice(0, 121), future], cfg);
+
+    const sim = before.economic.simulationDiagnostics.C;
+    expect(sim.executableSignalsSeen).toBe(
+      sim.signalsAcceptedAsPending + sim.signalsSkippedPendingAlreadyExists + sim.signalsSkippedOpenPosition
+    );
+    expect(sim.signalsAcceptedAsPending).toBe(sim.entriesOpened + sim.unscorableEntries);
+    expect(before.candleContinuity.candles).toBe(before.coverage.completeCandles);
+
+    // A future candle cannot change which signals the simulator saw on earlier bars.
+    expect(after.economic.simulationDiagnostics.C.executableSignalsSeen).toBe(sim.executableSignalsSeen);
+    expect(after.economic.simulationDiagnostics.A.executableSignalsSeen).toBe(
+      before.economic.simulationDiagnostics.A.executableSignalsSeen
+    );
+    expect(after.candleContinuity.jumpCounts[">10%"]).toBeGreaterThan(0);
+    expect(after.limitations.some((l) => l.startsWith("DATA QUALITY"))).toBe(true);
+
+    const md = formatAutoSelectionReplayMarkdown(before);
+    expect(md).toContain("## Economic simulator diagnostics (single position per pass)");
+    expect(md).toContain("## Candle continuity (close-to-close)");
+    expect(md).toContain("Gap handling: STOP/TARGET exits are filled at the stop/target level");
   });
 });

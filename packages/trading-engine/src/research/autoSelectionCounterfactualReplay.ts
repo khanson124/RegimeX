@@ -47,8 +47,16 @@ import {
   type EmaDiagnosticGroupStats,
   type EmaFallbackFromHoldDiagnostics
 } from "./autoSelectionEmaFallbackDiagnostics.js";
+import {
+  LONG_HELD_THRESHOLDS_BARS,
+  analyzeCandleContinuity,
+  emptyPassSimulationDiagnostics,
+  type ReplayCandleContinuityDiagnostics,
+  type ReplayPassSimulationDiagnostics
+} from "./autoSelectionReplaySimulationDiagnostics.js";
 
 export * from "./autoSelectionEmaFallbackDiagnostics.js";
+export * from "./autoSelectionReplaySimulationDiagnostics.js";
 
 export type {
   ReplayEconomicComparison,
@@ -219,6 +227,8 @@ export interface AutoSelectionReplayReport {
   bars: AutoSelectionReplayBarResult[];
   /** Pass A vs Pass C economic outcomes (R-multiples; no stake/lot PnL). */
   economic: ReplayEconomicComparison;
+  /** Close-to-close continuity scan of the complete candle series fed to the replay. */
+  candleContinuity: ReplayCandleContinuityDiagnostics;
 }
 
 /** Mirrors apps/worker/src/engine/r10SqueezeForwardTrialGuard.ts — keep in sync via tests. */
@@ -843,6 +853,25 @@ export function runAutoSelectionCounterfactualReplay(
   limitations.push(
     "Historical economic replay is not a live-fill guarantee (live enters at contemporaneous quote)"
   );
+  limitations.push(
+    "STOP/TARGET exits fill at the level even when the exit bar gaps through it (see simulator diagnostics exit-gap counts)"
+  );
+
+  const candleContinuity = analyzeCandleContinuity(candles);
+  const sourceNames = Object.keys(candleContinuity.sources);
+  if (sourceNames.length > 1) {
+    limitations.push(
+      `Candle series mixes sources (${sourceNames.map((s) => `${s}=${candleContinuity.sources[s]}`).join(", ")}); ` +
+        `${candleContinuity.crossSourceJumps} of the >10% close-to-close jumps occur at a source boundary`
+    );
+  }
+  const jumpsOver40 = candleContinuity.jumpCounts[">40%"] ?? 0;
+  if (jumpsOver40 > 0) {
+    limitations.push(
+      `DATA QUALITY: ${jumpsOver40} close-to-close jumps >40% in the candle series ` +
+        `(max ${candleContinuity.maxAbsReturnPct?.toFixed(1)}%); indicators, stops, and targets near these bars are not trustworthy`
+    );
+  }
 
   return {
     generatedAtIso: new Date().toISOString(),
@@ -895,7 +924,8 @@ export function runAutoSelectionCounterfactualReplay(
     },
     examples,
     bars,
-    economic
+    economic,
+    candleContinuity
   };
 }
 
@@ -963,6 +993,10 @@ function emptyEconomic(): ReplayEconomicComparison {
       candles: [],
       contextBySignal: new Map()
     }),
+    simulationDiagnostics: {
+      A: emptyPassSimulationDiagnostics(),
+      C: emptyPassSimulationDiagnostics()
+    },
     trades: []
   };
 }
@@ -997,8 +1031,106 @@ function emptyReport(
     counts: emptyCounts(),
     examples: [],
     bars: [],
-    economic: emptyEconomic()
+    economic: emptyEconomic(),
+    candleContinuity: analyzeCandleContinuity([])
   };
+}
+
+const isoOrDash = (ms: number | null | undefined) => (ms == null ? "—" : new Date(ms).toISOString());
+
+function formatSimulationDiagnosticsMarkdown(sim: {
+  A: ReplayPassSimulationDiagnostics;
+  C: ReplayPassSimulationDiagnostics;
+}): string[] {
+  const lines: string[] = [];
+  lines.push(`## Economic simulator diagnostics (single position per pass)`);
+  lines.push(`| Counter | Pass A | Pass C |`);
+  lines.push(`|---|---:|---:|`);
+  const counters: Array<[string, keyof ReplayPassSimulationDiagnostics]> = [
+    ["Executable signals seen", "executableSignalsSeen"],
+    ["Accepted as pending", "signalsAcceptedAsPending"],
+    ["Skipped (pending already exists)", "signalsSkippedPendingAlreadyExists"],
+    ["Skipped (open position)", "signalsSkippedOpenPosition"],
+    ["Entries opened", "entriesOpened"],
+    ["Trades resolved", "tradesResolved"],
+    ["Trades open at end", "tradesOpenAtEnd"],
+    ["Unscorable entries", "unscorableEntries"],
+    ["Max bars held", "maxBarsHeld"]
+  ];
+  for (const [label, key] of counters) {
+    lines.push(`| ${label} | ${String(sim.A[key] ?? "—")} | ${String(sim.C[key] ?? "—")} |`);
+  }
+  for (const th of LONG_HELD_THRESHOLDS_BARS) {
+    const k = `>${th}` as const;
+    lines.push(`| Trades held ${k} bars | ${sim.A.longHeldCounts[k]} | ${sim.C.longHeldCounts[k]} |`);
+  }
+  lines.push(
+    `| STOP exits (gapped through / bar entirely beyond) | ${sim.A.exitGaps.stopExits} (${sim.A.exitGaps.stopExitsGappedThrough} / ${sim.A.exitGaps.stopExitsBarEntirelyBeyond}) | ${sim.C.exitGaps.stopExits} (${sim.C.exitGaps.stopExitsGappedThrough} / ${sim.C.exitGaps.stopExitsBarEntirelyBeyond}) |`
+  );
+  lines.push(
+    `| TARGET exits (gapped through / bar entirely beyond) | ${sim.A.exitGaps.targetExits} (${sim.A.exitGaps.targetExitsGappedThrough} / ${sim.A.exitGaps.targetExitsBarEntirelyBeyond}) | ${sim.C.exitGaps.targetExits} (${sim.C.exitGaps.targetExitsGappedThrough} / ${sim.C.exitGaps.targetExitsBarEntirelyBeyond}) |`
+  );
+  const worst = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+  lines.push(
+    `| Worst stop R if filled at gapped open | ${worst(sim.A.exitGaps.worstStopRIfFilledAtOpen)} | ${worst(sim.C.exitGaps.worstStopRIfFilledAtOpen)} |`
+  );
+  lines.push("");
+  lines.push(
+    `- Gap handling: STOP/TARGET exits are filled at the stop/target level even when the exit bar opens beyond it. ` +
+      `Gapped stops are therefore optimistic and gapped targets conservative; fills are unchanged, only reported.`
+  );
+
+  for (const pass of ["A", "C"] as const) {
+    const d = sim[pass];
+    lines.push("");
+    lines.push(`### Pass ${pass}`);
+    const lt = d.longestTrade;
+    lines.push(
+      lt
+        ? `- Longest trade: ${lt.strategyId} ${lt.direction} ${lt.outcome}; entry ${isoOrDash(lt.entryTimeMs)} @ ${lt.entryPrice}; stop ${lt.stopPrice}; target ${lt.targetPrice}; exit ${isoOrDash(lt.exitTimeMs)} @ ${lt.exitPrice ?? "—"}; bars held ${lt.barsHeld}`
+        : `- Longest trade: none`
+    );
+    lines.push(`- Blocking positions (top 10 by skipped signals):`);
+    if (d.blockingPositions.length === 0) lines.push(`  - None`);
+    for (const b of d.blockingPositions.slice(0, 10)) {
+      lines.push(
+        `  - ${b.openStrategyId} ${b.openDirection} entry ${isoOrDash(b.openEntryTimeMs)} @ ${b.openEntryPrice}; stop ${b.openStopPrice}; target ${b.openTargetPrice}; ` +
+          `blocked ${b.skippedSignals} signals (${isoOrDash(b.firstSkippedSignalTimeMs)} → ${isoOrDash(b.lastSkippedSignalTimeMs)}); held up to ${b.maxBarsHeldWhenSkipping} bars`
+      );
+    }
+    lines.push(`- Trades held >${LONG_HELD_THRESHOLDS_BARS[0]} bars (top 10):`);
+    if (d.longHeldTrades.length === 0) lines.push(`  - None`);
+    for (const t of d.longHeldTrades.slice(0, 10)) {
+      lines.push(
+        `  - ${t.strategyId} ${t.direction} ${t.outcome}; entry ${isoOrDash(t.entryTimeMs)} @ ${t.entryPrice}; stop ${t.stopPrice} (dist ${t.stopDistance?.toFixed(2) ?? "—"}); ` +
+          `target ${t.targetPrice} (dist ${t.targetDistance?.toFixed(2) ?? "—"}); bars held ${t.barsHeld}`
+      );
+    }
+    if (d.skippedWhileOpenTruncated) {
+      lines.push(`- Skip-while-open event list truncated (${d.skippedWhileOpen.length} stored of ${d.signalsSkippedOpenPosition}).`);
+    }
+  }
+  return lines;
+}
+
+function formatCandleContinuityMarkdown(c: ReplayCandleContinuityDiagnostics): string[] {
+  const lines: string[] = [];
+  lines.push(`## Candle continuity (close-to-close)`);
+  lines.push(`- Candles scanned: ${c.candles}; sources: ${JSON.stringify(c.sources)}`);
+  lines.push(
+    `- Jumps: ${Object.entries(c.jumpCounts).map(([k, v]) => `${k}: ${v}`).join("; ")}; cross-source: ${c.crossSourceJumps}; ` +
+      `max |return| ${c.maxAbsReturnPct == null ? "—" : `${c.maxAbsReturnPct.toFixed(2)}%`}`
+  );
+  if (c.jumps.length > 0) {
+    lines.push(`- First ${Math.min(20, c.jumps.length)} jumps >10%:`);
+    for (const j of c.jumps.slice(0, 20)) {
+      lines.push(
+        `  - ${isoOrDash(j.beforeOpenTimeMs)} ${j.beforeSource ?? "?"} ${j.beforeClose} → ${isoOrDash(j.afterOpenTimeMs)} ${j.afterSource ?? "?"} ${j.afterClose} (${j.returnPct.toFixed(2)}%)${j.crossSource ? " [cross-source]" : ""}`
+      );
+    }
+    if (c.jumpsTruncated) lines.push(`  - (jump list truncated)`);
+  }
+  return lines;
 }
 
 function formatDiagnosticStats(s: ReplayDiagnosticGroupStats): string {
@@ -1243,6 +1375,10 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   lines.push(...formatFallbackFromHoldDiagnosticsMarkdown(report.economic.passCFallbackFromHold));
   lines.push("");
   lines.push(...formatEmaFallbackFromHoldMarkdown(report.economic.emaFallbackFromHold));
+  lines.push("");
+  lines.push(...formatSimulationDiagnosticsMarkdown(report.economic.simulationDiagnostics));
+  lines.push("");
+  lines.push(...formatCandleContinuityMarkdown(report.candleContinuity));
   lines.push("");
   lines.push(`## Note`);
   lines.push(

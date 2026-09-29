@@ -16,3 +16,6 @@ android/
 ios/
 var/mt5-mailbox/**
 !var/mt5-mailbox/.gitkeep
+
+# Generated R_10 AUTO counterfactual replay JSON (large; regenerate via replayR10AutoSelectionCounterfactual.ts)
+research-datasets/auto-selection-counterfactual/*.json

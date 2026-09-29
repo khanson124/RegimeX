@@ -346,12 +346,19 @@ async function main(): Promise<void> {
     const latestJson = resolve(outDir, "r10_auto_counterfactual_latest.json");
     const latestMd = resolve(outDir, "r10_auto_counterfactual_latest.md");
 
-    const json = JSON.stringify(report, null, 2);
     const md = formatAutoSelectionReplayMarkdown(report);
-    writeFileSync(jsonPath, json);
     writeFileSync(mdPath, md);
-    writeFileSync(latestJson, json);
     writeFileSync(latestMd, md);
+    let json: string;
+    try {
+      json = JSON.stringify(report, null, 2);
+    } catch (err) {
+      if (!(err instanceof RangeError)) throw err;
+      // Full-history per-bar snapshots exceed V8's max string length.
+      json = JSON.stringify({ ...report, bars: [], barsOmitted: report.bars.length });
+    }
+    writeFileSync(jsonPath, json);
+    writeFileSync(latestJson, json);
 
     console.log(md);
     console.log(
