@@ -171,6 +171,35 @@ describe("MT5 engine volume vs broker min and risk", () => {
     expect(volume.requestedVolume).toBe(volume.riskSizedVolume);
   });
 
+  it("forwards risk-cap telemetry onto the preflight without changing sizing", () => {
+    const volume = volumeFor({ engineMaxVolume: 0.01 });
+    const preflight = buildAutonomousExecutionPreflight({
+      internalSymbol: "XAUUSD",
+      brokerSymbol: "XAUUSD",
+      strategyId: "xau-trend-pullback-v1",
+      equity: 10_000,
+      entry: 2000,
+      stopLoss: 1980,
+      takeProfit: 2040,
+      volume,
+      riskCap: {
+        globalRiskCap: 0.1,
+        selectedRiskCap: 0.2,
+        profileRisk: 0.5,
+        effectiveRiskPercent: 0.2,
+        demoXauRiskOverrideApplied: true
+      }
+    });
+    expect(preflight).toMatchObject({
+      globalRiskCap: 0.1,
+      selectedRiskCap: 0.2,
+      profileRisk: 0.5,
+      effectiveRiskPercent: 0.2,
+      demoXauRiskOverrideApplied: true,
+      allowedRiskPercent: volume.allowedRiskPercent
+    });
+  });
+
   it("does not submit when mapping/sizing would block", () => {
     const blocked = volumeFor({ engineMaxVolume: 0.01 });
     expect(blocked.wouldSubmit).toBe(false);

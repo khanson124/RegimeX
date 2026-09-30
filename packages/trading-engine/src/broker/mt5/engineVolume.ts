@@ -288,6 +288,12 @@ export interface AutonomousExecutionPreflight {
   previousAdaptedTakeProfit?: number | null;
   brokerAdjustedAgain?: boolean;
   finalRiskAmount?: number | null;
+  /** Diagnostics only — which engine risk cap was selected for this order. */
+  globalRiskCap?: number;
+  selectedRiskCap?: number;
+  profileRisk?: number;
+  effectiveRiskPercent?: number;
+  demoXauRiskOverrideApplied?: boolean;
 }
 
 export function buildAutonomousExecutionPreflight(input: {
@@ -330,6 +336,14 @@ export function buildAutonomousExecutionPreflight(input: {
     brokerAdjustedAgain?: boolean;
     finalRiskAmount?: number | null;
   };
+  /** Diagnostics only. Does not change sizing; volume already carries allowedRiskPercent. */
+  riskCap?: {
+    globalRiskCap: number;
+    selectedRiskCap: number;
+    profileRisk: number;
+    effectiveRiskPercent: number;
+    demoXauRiskOverrideApplied: boolean;
+  };
 }): AutonomousExecutionPreflight {
   return {
     internalSymbol: input.internalSymbol,
@@ -353,7 +367,8 @@ export function buildAutonomousExecutionPreflight(input: {
     wouldSubmit: input.volume.wouldSubmit,
     reasonCode: input.volume.reasonCode,
     decision: input.volume.decision,
-    ...(input.stopLevels ?? {})
+    ...(input.stopLevels ?? {}),
+    ...(input.riskCap ?? {})
   };
 }
 

@@ -180,6 +180,17 @@ const envSchema = z.object({
   MT5_ENGINE_MAX_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_ENGINE_MAX_RISK_PERCENT: z.coerce.number().positive().default(0.1),
   /**
+   * DEMO-only XAUUSD 15m xau-trend-pullback-v1 risk ceiling. Missing, empty, or
+   * non-positive → undefined (runtime keeps MT5_ENGINE_MAX_RISK_PERCENT).
+   * Never applied to REAL, R_10, other strategies, or other intervals.
+   */
+  MT5_DEMO_XAUUSD_MAX_RISK_PERCENT: z.preprocess((val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const n = typeof val === "number" ? val : Number(String(val).trim());
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    return n;
+  }, z.number().positive().optional()),
+  /**
    * After maxConsecutiveLosses (RiskProfile) is reached, block new CFD trades for this
    * many minutes from the last loss close time. Durable CLOSED position timestamps —
    * survives worker restart. Does not disable protection when unset (defaults 60).

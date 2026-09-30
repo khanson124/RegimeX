@@ -44,4 +44,32 @@ describe("loadConfig boolean env", () => {
     expect(config.MT5_TEST_MODE).toBe(true);
     expect(config.EXECUTION_MODE).toBe("broker_demo_mt5");
   });
+
+  it("parses the DEMO XAU risk-cap override and fail-closes when it is missing or invalid", () => {
+    resetConfigCache();
+    const withOverride = loadConfig({
+      ...required,
+      EXECUTION_MODE: "broker_demo_mt5",
+      MT5_DEMO_XAUUSD_MAX_RISK_PERCENT: "0.2"
+    });
+    expect(withOverride.MT5_ENGINE_MAX_RISK_PERCENT).toBe(0.1);
+    expect(withOverride.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBe(0.2);
+
+    resetConfigCache();
+    const missing = loadConfig({
+      ...required,
+      EXECUTION_MODE: "broker_demo_mt5",
+      MT5_DEMO_XAUUSD_MAX_RISK_PERCENT: ""
+    });
+    expect(missing.MT5_ENGINE_MAX_RISK_PERCENT).toBe(0.1);
+    expect(missing.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBeUndefined();
+
+    resetConfigCache();
+    const invalid = loadConfig({
+      ...required,
+      EXECUTION_MODE: "broker_demo_mt5",
+      MT5_DEMO_XAUUSD_MAX_RISK_PERCENT: "not-a-number"
+    });
+    expect(invalid.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBeUndefined();
+  });
 });

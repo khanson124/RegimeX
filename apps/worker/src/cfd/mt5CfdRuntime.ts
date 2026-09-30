@@ -40,6 +40,7 @@ import {
   resolveMt5BridgeUrl,
   resolveMt5EffectiveMaxConcurrentPositions,
   resolveMt5EngineVolume,
+  resolveMt5EngineRiskCap,
   resolveMt5FixedVolumeOverride,
   applyStopLossDistanceOverride,
   toAutonomousMt5DecisionCode,
@@ -536,10 +537,36 @@ export class Mt5CfdRuntime {
     };
 
     const account = await this.adapter.getAccount();
-    const engineRiskCap = this.deps.config.MT5_ENGINE_MAX_RISK_PERCENT;
+    const engineRiskCap = resolveMt5EngineRiskCap({
+      executionMode: this.deps.config.EXECUTION_MODE,
+      symbol: input.symbol,
+      interval: input.interval,
+      strategyId: input.strategyId,
+      globalCap: this.deps.config.MT5_ENGINE_MAX_RISK_PERCENT,
+      demoXauCap: this.deps.config.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT
+    });
     const profileRisk =
       profile?.riskPerTradePercent != null ? Number(profile.riskPerTradePercent) : 0.5;
-    const riskPct = Math.min(profileRisk, engineRiskCap);
+    const riskPct = Math.min(profileRisk, engineRiskCap.selectedRiskCap);
+    const riskCapTelemetry = {
+      globalRiskCap: engineRiskCap.globalRiskCap,
+      selectedRiskCap: engineRiskCap.selectedRiskCap,
+      profileRisk,
+      effectiveRiskPercent: riskPct,
+      demoXauRiskOverrideApplied: engineRiskCap.demoXauRiskOverrideApplied
+    };
+    this.log.info(
+      {
+        mt5RiskCap: {
+          executionMode: this.deps.config.EXECUTION_MODE,
+          symbol: input.symbol,
+          interval: input.interval,
+          strategyId: input.strategyId,
+          ...riskCapTelemetry
+        }
+      },
+      "MT5 engine risk cap"
+    );
     const limits = resolveCfdRiskLimits({
       riskPerTradePercent: riskPct,
       maxTotalOpenRiskPercent:
@@ -664,7 +691,8 @@ export class Mt5CfdRuntime {
         riskAmountBeforeAdjustment,
         riskAmountAfterAdjustment: rawSizing.riskAmount,
         allowedRiskAmountAtAdaptedStop: rawSizing.riskAmount
-      }
+      },
+      riskCap: riskCapTelemetry
     });
     this.log.info({ autonomousPreflight: preflight }, "Autonomous MT5 execution preflight");
 
@@ -1384,7 +1412,8 @@ export class Mt5CfdRuntime {
           previousAdaptedTakeProfit,
           brokerAdjustedAgain: finalAdaptation.brokerAdjusted,
           finalRiskAmount: submitRiskAmount
-        }
+        },
+        riskCap: riskCapTelemetry
       });
       this.log.info(
         {
@@ -1979,7 +2008,8 @@ export class Mt5CfdRuntime {
           previousAdaptedTakeProfit,
           brokerAdjustedAgain: retryFinalized.adaptation.brokerAdjusted,
           finalRiskAmount: submitRiskAmount
-        }
+        },
+        riskCap: riskCapTelemetry
       });
       await refreshPendingExecutionParams({
         prisma: this.deps.prisma,

@@ -81,4 +81,16 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(profitLockIdx).toBeGreaterThan(-1);
     expect(planIdx).toBeGreaterThan(profitLockIdx);
   });
+
+  it("selects the DEMO XAU risk cap through resolveMt5EngineRiskCap, never the global cap directly", () => {
+    const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
+    expect(src).toContain("resolveMt5EngineRiskCap");
+    expect(src).toContain("demoXauCap: this.deps.config.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT");
+    expect(src).toContain("Math.min(profileRisk, engineRiskCap.selectedRiskCap)");
+    expect(src).toContain("mt5RiskCap");
+    expect(src).toContain("demoXauRiskOverrideApplied");
+    expect(src).not.toContain("const engineRiskCap = this.deps.config.MT5_ENGINE_MAX_RISK_PERCENT");
+    expect(src).not.toMatch(/config\.[A-Z_]+\s*=[^=]/);
+    expect(src).not.toMatch(/process\.env\[[^\]]+\]\s*=[^=]/);
+  });
 });
