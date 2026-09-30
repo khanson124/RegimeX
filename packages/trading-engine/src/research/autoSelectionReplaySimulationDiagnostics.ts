@@ -92,9 +92,24 @@ export interface ReplayLongHeldTrade {
   targetDistance: number | null;
 }
 
+/** A pending entry dropped by an offline research gate (the pass stays flat). */
+export interface ReplayResearchGateRejection {
+  signalCandleIndex: number;
+  signalTimeMs: number;
+  entryCandleIndex: number;
+  entryTimeMs: number;
+  strategyId: string;
+  direction: PositionDirection;
+  fromProductionHold: boolean;
+  reason: string;
+}
+
 export interface ReplayPassSimulationDiagnostics {
   executableSignalsSeen: number;
   signalsAcceptedAsPending: number;
+  /** Accepted pendings dropped at entry by a research gate (0 without a gate). */
+  signalsRejectedByResearchGate: number;
+  researchGateRejections: ReplayResearchGateRejection[];
   signalsSkippedPendingAlreadyExists: number;
   signalsSkippedOpenPosition: number;
   entriesOpened: number;
@@ -129,6 +144,8 @@ export function emptyPassSimulationDiagnostics(): ReplayPassSimulationDiagnostic
   return {
     executableSignalsSeen: 0,
     signalsAcceptedAsPending: 0,
+    signalsRejectedByResearchGate: 0,
+    researchGateRejections: [],
     signalsSkippedPendingAlreadyExists: 0,
     signalsSkippedOpenPosition: 0,
     entriesOpened: 0,

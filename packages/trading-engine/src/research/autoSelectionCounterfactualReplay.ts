@@ -54,9 +54,14 @@ import {
   type ReplayCandleContinuityDiagnostics,
   type ReplayPassSimulationDiagnostics
 } from "./autoSelectionReplaySimulationDiagnostics.js";
+import {
+  runPassCResearchVariants,
+  type PassCVariantsReport
+} from "./autoSelectionPassCVariants.js";
 
 export * from "./autoSelectionEmaFallbackDiagnostics.js";
 export * from "./autoSelectionReplaySimulationDiagnostics.js";
+export * from "./autoSelectionPassCVariants.js";
 
 export type {
   ReplayEconomicComparison,
@@ -227,6 +232,8 @@ export interface AutoSelectionReplayReport {
   bars: AutoSelectionReplayBarResult[];
   /** Pass A vs Pass C economic outcomes (R-multiples; no stake/lot PnL). */
   economic: ReplayEconomicComparison;
+  /** Research-only Pass C gate variants, each an independent economic rerun. */
+  passCVariants: PassCVariantsReport;
   /** Close-to-close continuity scan of the complete candle series fed to the replay. */
   candleContinuity: ReplayCandleContinuityDiagnostics;
 }
@@ -857,6 +864,14 @@ export function runAutoSelectionCounterfactualReplay(
     "STOP/TARGET exits fill at the level even when the exit bar gaps through it (see simulator diagnostics exit-gap counts)"
   );
 
+  const passCVariants = runPassCResearchVariants({
+    candles,
+    signals: economicSignals,
+    parametersByStrategyId,
+    tickSize,
+    featureLookback: bufferCapacity
+  });
+
   const candleContinuity = analyzeCandleContinuity(candles);
   const sourceNames = Object.keys(candleContinuity.sources);
   if (sourceNames.length > 1) {
@@ -925,6 +940,7 @@ export function runAutoSelectionCounterfactualReplay(
     examples,
     bars,
     economic,
+    passCVariants,
     candleContinuity
   };
 }
@@ -1032,6 +1048,12 @@ function emptyReport(
     examples: [],
     bars: [],
     economic: emptyEconomic(),
+    passCVariants: runPassCResearchVariants({
+      candles: [],
+      signals: [],
+      parametersByStrategyId: new Map(),
+      tickSize: REPLAY_DEFAULT_TICK_SIZE
+    }),
     candleContinuity: analyzeCandleContinuity([])
   };
 }
@@ -1108,6 +1130,66 @@ function formatSimulationDiagnosticsMarkdown(sim: {
     }
     if (d.skippedWhileOpenTruncated) {
       lines.push(`- Skip-while-open event list truncated (${d.skippedWhileOpen.length} stored of ${d.signalsSkippedOpenPosition}).`);
+    }
+  }
+  return lines;
+}
+
+export function formatPassCVariantsMarkdown(
+  report: Pick<AutoSelectionReplayReport, "economic" | "passCVariants">
+): string[] {
+  const lines: string[] = [];
+  const n = (v: number | null | undefined, d = 2) =>
+    v == null ? "—" : (Math.abs(v) < 1e-9 ? 0 : v).toFixed(d);
+  const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+  lines.push(`## Pass C research variants (EMA fallback-from-HOLD entry gates)`);
+  for (const note of report.passCVariants.notes) lines.push(`- ${note}`);
+  lines.push("");
+  lines.push(
+    `| Variant | Signals | Gate rejected | Entries | Resolved | W/L | Win rate | Total R | Avg R | Max DD R | Longest L streak | Open at end | Max bars held | Skipped (open) |`
+  );
+  lines.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
+  const a = report.economic.passA;
+  const simA = report.economic.simulationDiagnostics.A;
+  lines.push(
+    `| Pass A | ${simA.executableSignalsSeen} | — | ${simA.entriesOpened} | ${a.targetHits + a.stopHits} | ${a.targetHits}/${a.stopHits} | ${pct(a.winRate)} | ${n(a.totalRealizedR)} | ${n(a.avgRPerResolvedTrade)} | ${n(a.maxDrawdownR)} | ${a.longestLosingStreak} | ${a.openAtEnd} | ${simA.maxBarsHeld ?? "—"} | ${simA.signalsSkippedOpenPosition} |`
+  );
+  for (const v of report.passCVariants.variants) {
+    lines.push(
+      `| ${v.label} | ${v.signalsConsidered} | ${v.signalsRejectedByResearchGate} | ${v.entriesOpened} | ${v.resolvedTrades} | ${v.wins}/${v.losses} | ${pct(v.winRate)} | ${n(v.totalR)} | ${n(v.avgR)} | ${n(v.maxDrawdownR)} | ${v.longestLosingStreak} | ${v.openAtEnd} | ${v.maxBarsHeld ?? "—"} | ${v.signalsSkippedOpenPosition} |`
+    );
+  }
+
+  const emaRow = (s: EmaDiagnosticGroupStats | undefined) =>
+    s ? `${s.trades} tr; ${s.wins}/${s.losses}; ${n(s.totalR)}R; avg ${n(s.avgR)}` : "—";
+  lines.push("");
+  lines.push(`### EMA fallback-from-HOLD by variant`);
+  lines.push(
+    `| Variant | Trades | W/L | Total R | Avg R | BUY | SELL | ${EXTENSION_BUCKETS.map((b) => `ext ${b}`).join(" | ")} |`
+  );
+  lines.push(`|---|---:|---:|---:|---:|---|---|${EXTENSION_BUCKETS.map(() => "---").join("|")}|`);
+  for (const v of report.passCVariants.variants) {
+    const e = v.emaFallbackFromHold;
+    lines.push(
+      `| ${v.label} | ${e.stats.trades} | ${e.stats.wins}/${e.stats.losses} | ${n(e.stats.totalR)} | ${n(e.stats.avgR)} | ${emaRow(e.byDirection.BUY)} | ${emaRow(e.byDirection.SELL)} | ${EXTENSION_BUCKETS.map((b) => emaRow(e.byExtensionBucket[b])).join(" | ")} |`
+    );
+  }
+
+  lines.push("");
+  lines.push(`### By strategy and direction`);
+  for (const v of report.passCVariants.variants) {
+    const reasons = Object.entries(v.rejectionsByReason)
+      .map(([k, c]) => `${k}=${c}`)
+      .join(", ");
+    lines.push(`- **${v.label}**${reasons ? ` (gate rejections: ${reasons})` : ""}`);
+    for (const [id, dirs] of Object.entries(v.byStrategyDirection).sort(([x], [y]) => x.localeCompare(y))) {
+      for (const dir of ["BUY", "SELL"] as const) {
+        const m = dirs[dir];
+        if (!m) continue;
+        lines.push(
+          `  - ${id} ${dir}: trades ${m.totalSignals}; W/L ${m.targetHits}/${m.stopHits}; win rate ${pct(m.winRate)}; total R ${n(m.totalRealizedR)}; avg R ${n(m.avgRPerResolvedTrade)}; open ${m.openAtEnd}`
+        );
+      }
     }
   }
   return lines;
@@ -1375,6 +1457,8 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   lines.push(...formatFallbackFromHoldDiagnosticsMarkdown(report.economic.passCFallbackFromHold));
   lines.push("");
   lines.push(...formatEmaFallbackFromHoldMarkdown(report.economic.emaFallbackFromHold));
+  lines.push("");
+  lines.push(...formatPassCVariantsMarkdown(report));
   lines.push("");
   lines.push(...formatSimulationDiagnosticsMarkdown(report.economic.simulationDiagnostics));
   lines.push("");

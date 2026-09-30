@@ -143,6 +143,38 @@ function perAtr(value: number | null, atr: number | null): number | null {
   return value / atr;
 }
 
+export interface EmaEntryGeometry {
+  atr: number | null;
+  emaFast: number | null;
+  /** Direction-signed: BUY (entry − emaFast)/ATR, SELL (emaFast − entry)/ATR. */
+  extensionFromFastAtr: number | null;
+  stopDistanceAtr: number | null;
+}
+
+/**
+ * Entry-time geometry: signal-candle features + entry price + planned stop distance.
+ * Uses no candle after the entry open.
+ */
+export function computeEmaEntryGeometry(input: {
+  direction: PositionDirection;
+  entryPrice: number | null;
+  stopDistance: number | null;
+  features: Pick<MarketFeatureSnapshot, "atr" | "emaFast"> | null;
+}): EmaEntryGeometry {
+  const f = input.features;
+  const atr = f && finite(f.atr) && f.atr > 0 ? f.atr : null;
+  const emaFast = f && finite(f.emaFast) ? f.emaFast : null;
+  const sign = input.direction === "BUY" ? 1 : -1;
+  const extension =
+    input.entryPrice != null && emaFast != null ? sign * (input.entryPrice - emaFast) : null;
+  return {
+    atr,
+    emaFast,
+    extensionFromFastAtr: perAtr(extension, atr),
+    stopDistanceAtr: perAtr(input.stopDistance, atr)
+  };
+}
+
 export function extensionBucket(extensionAtr: number | null): ExtensionBucket {
   if (extensionAtr == null || !Number.isFinite(extensionAtr)) return "UNKNOWN";
   if (extensionAtr <= 0.25) return "<=0.25";
@@ -261,9 +293,13 @@ export function buildEmaTradeDiagnostic(input: {
   const donHigh = f && finite(f.donchianHigh) ? f.donchianHigh : null;
   const donLow = f && finite(f.donchianLow) ? f.donchianLow : null;
 
-  const extensionFromFastAtr = perAtr(dFast != null ? sign * dFast : null, atr);
+  const { extensionFromFastAtr, stopDistanceAtr } = computeEmaEntryGeometry({
+    direction: dir,
+    entryPrice: entry,
+    stopDistance,
+    features: f
+  });
   const extensionFromSlowAtr = perAtr(dSlow != null ? sign * dSlow : null, atr);
-  const stopDistanceAtr = perAtr(stopDistance, atr);
 
   let excursions: EmaExcursions | null = null;
   let favorableBeforeStop: FavorableBeforeStop | null = null;

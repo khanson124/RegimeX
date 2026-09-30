@@ -23,7 +23,8 @@ import {
   finalizePassSimulationDiagnostics,
   type ReplayBlockingPositionSummary,
   type ReplayExitGap,
-  type ReplayPassSimulationDiagnostics
+  type ReplayPassSimulationDiagnostics,
+  type ReplayResearchGateRejection
 } from "./autoSelectionReplaySimulationDiagnostics.js";
 import {
   EMA_FALLBACK_STRATEGY_ID,
@@ -688,6 +689,28 @@ function finalizeSimDiagnostics(
   return finalizePassSimulationDiagnostics(d, trades);
 }
 
+/** Everything an offline research entry gate may see: signal-time features and the entry-time plan. */
+export interface ReplayEntryGateContext {
+  pass: ReplaySelectorPass;
+  strategyId: string;
+  direction: PositionDirection;
+  fromProductionHold: boolean;
+  signalCandleIndex: number;
+  entryCandleIndex: number;
+  entryPrice: number;
+  plan: ReplayTradePlanSnapshot;
+  /** Feature snapshot of the signal candle (candles[..signal] only). */
+  signalFeatures: MarketFeatureSnapshot;
+}
+
+export interface ReplayEntryGateDecision {
+  reject: boolean;
+  reason: string | null;
+}
+
+/** Research-only entry gate; must depend only on the context (no forward candles). */
+export type ReplayEntryGate = (ctx: ReplayEntryGateContext) => ReplayEntryGateDecision;
+
 interface PendingSignal {
   pass: ReplaySelectorPass;
   signalCandleIndex: number;
@@ -725,6 +748,8 @@ export function simulatePassEconomicOutcomes(input: {
   tickSize: number;
   /** Optional override for feature extraction window start (default: from 0). */
   featureLookback?: number;
+  /** Research-only gate applied to scorable entries (both passes). Rejected entries leave the pass flat. */
+  entryGate?: ReplayEntryGate;
 }): ReplayEconomicComparison {
   const trades: ReplaySimulatedTrade[] = [];
   const byIndex = new Map<number, ReplayEconomicSignal[]>();
@@ -742,7 +767,11 @@ export function simulatePassEconomicOutcomes(input: {
   const tryEnter = (
     pending: PendingSignal,
     entryIndex: number
-  ): { open: OpenPosition | null; trade: ReplaySimulatedTrade | null } => {
+  ): {
+    open: OpenPosition | null;
+    trade: ReplaySimulatedTrade | null;
+    gateRejection?: ReplayResearchGateRejection;
+  } => {
     const entryCandle = input.candles[entryIndex];
     if (!entryCandle) {
       const plan: ReplayTradePlanSnapshot = {
@@ -881,6 +910,36 @@ export function simulatePassEconomicOutcomes(input: {
           confidence: pending.evaluation.confidence
         }
       };
+    }
+
+    if (input.entryGate) {
+      const decision = input.entryGate({
+        pass: pending.pass,
+        strategyId: pending.evaluation.strategyId,
+        direction: pending.evaluation.action as PositionDirection,
+        fromProductionHold: pending.fromProductionHold,
+        signalCandleIndex: pending.signalCandleIndex,
+        entryCandleIndex: entryIndex,
+        entryPrice: entryCandle.open,
+        plan,
+        signalFeatures: latest
+      });
+      if (decision.reject) {
+        return {
+          open: null,
+          trade: null,
+          gateRejection: {
+            signalCandleIndex: pending.signalCandleIndex,
+            signalTimeMs: pending.evaluation.signalTimestampMs,
+            entryCandleIndex: entryIndex,
+            entryTimeMs: entryCandle.openTime,
+            strategyId: pending.evaluation.strategyId,
+            direction: pending.evaluation.action as PositionDirection,
+            fromProductionHold: pending.fromProductionHold,
+            reason: decision.reason ?? "REJECTED"
+          }
+        };
+      }
     }
 
     return {
@@ -1024,12 +1083,13 @@ export function simulatePassEconomicOutcomes(input: {
     C: new Map()
   };
 
-  const recordEntry = (
-    pass: ReplaySelectorPass,
-    result: { open: OpenPosition | null; trade: ReplaySimulatedTrade | null }
-  ) => {
+  const recordEntry = (pass: ReplaySelectorPass, result: ReturnType<typeof tryEnter>) => {
     if (result.open) diag[pass].entriesOpened += 1;
     if (result.trade) diag[pass].unscorableEntries += 1;
+    if (result.gateRejection) {
+      diag[pass].signalsRejectedByResearchGate += 1;
+      diag[pass].researchGateRejections.push(result.gateRejection);
+    }
   };
 
   const recordSkipWhileOpen = (

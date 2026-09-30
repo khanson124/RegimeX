@@ -32,10 +32,22 @@ import {
   simulatePassEconomicOutcomes,
   simulateStopTargetWalk,
   strategiesForWarmupNeed,
+  EMA_GEOMETRY_UNAVAILABLE,
+  PASS_C_VARIANTS,
+  PASS_C_VARIANT_IDS,
+  gateGeometry,
+  runPassCResearchVariants,
+  type PassCVariantDefinition,
+  type PassCVariantResult,
   type ReplaySimulatedTrade,
   type ReplayStrategyDefinition
 } from "./autoSelectionCounterfactualReplay.js";
-import { buildReplayTradePlan } from "./autoSelectionReplayOutcomes.js";
+import {
+  buildReplayTradePlan,
+  type ReplayEconomicSignal,
+  type ReplayEntryGate,
+  type ReplayEntryGateContext
+} from "./autoSelectionReplayOutcomes.js";
 
 const ALL_REGIMES: MarketRegime[] = [
   "STRONG_UPTREND",
@@ -1978,5 +1990,293 @@ describe("economic simulator diagnostics", () => {
     expect(md).toContain("## Economic simulator diagnostics (single position per pass)");
     expect(md).toContain("## Candle continuity (close-to-close)");
     expect(md).toContain("Gap handling: STOP/TARGET exits are filled at the stop/target level");
+  });
+});
+
+const EMA_ID = "ema-pullback-v1";
+const SQ_ID = "squeeze-breakout-v1";
+const variantById = (id: string) => PASS_C_VARIANTS.find((v) => v.id === id)!;
+const C0 = variantById("C0_BASELINE");
+const C1 = variantById("C1_EMA_MAX_EXTENSION_0_5");
+const C2 = variantById("C2_EMA_EXTENSION_0_25_TO_0_5");
+const C3 = variantById("C3_EMA_MAX_EXTENSION_0_5_AND_STOP_0_5_TO_1_0");
+
+function gateCtx(input: {
+  direction?: "BUY" | "SELL";
+  entryPrice: number;
+  stopLoss?: number | null;
+  atr?: number | null;
+  emaFast?: number | null;
+  strategyId?: string;
+  fromProductionHold?: boolean;
+  pass?: "A" | "C";
+}): ReplayEntryGateContext {
+  const direction = input.direction ?? "BUY";
+  const stopLoss = input.stopLoss === undefined ? input.entryPrice - 1 : input.stopLoss;
+  return {
+    pass: input.pass ?? "C",
+    strategyId: input.strategyId ?? EMA_ID,
+    direction,
+    fromProductionHold: input.fromProductionHold ?? true,
+    signalCandleIndex: 10,
+    entryCandleIndex: 11,
+    entryPrice: input.entryPrice,
+    plan: {
+      action: direction,
+      strategyId: input.strategyId ?? EMA_ID,
+      signalTimestampMs: 0,
+      entryPrice: input.entryPrice,
+      stopLoss,
+      takeProfit: null,
+      stopDistance: stopLoss == null ? null : Math.abs(input.entryPrice - stopLoss),
+      targetDistance: null,
+      riskRewardRatio: 2,
+      stopMethod: "test",
+      targetMethod: "test",
+      confidence: 1,
+      scorable: true,
+      unscorableReason: null,
+      proposalReasons: []
+    },
+    signalFeatures: {
+      atr: input.atr === undefined ? 1 : input.atr,
+      emaFast: input.emaFast === undefined ? 100 : input.emaFast
+    } as MarketFeatureSnapshot
+  };
+}
+
+function emaSignal(
+  index: number,
+  candles: Candle[],
+  opts: { fromProductionHold?: boolean; strategyId?: string; action?: "BUY" | "SELL"; pass?: "A" | "C" } = {}
+): ReplayEconomicSignal {
+  return {
+    pass: opts.pass ?? "C",
+    signalCandleIndex: index,
+    evaluation: {
+      strategyId: opts.strategyId ?? EMA_ID,
+      action: opts.action ?? "BUY",
+      confidence: 0.8,
+      signalTimestampMs: candles[index]!.closeTime,
+      // Far structure stops → trades stay open on the flat tail unless a gate drops them.
+      decisionMetadata: { pullbackLow: 90, pullbackHigh: 110, squeezeLow: 90, squeezeHigh: 110 }
+    },
+    fromProductionHold: opts.fromProductionHold ?? true
+  };
+}
+
+/** 300 flat warm-up bars at 100 (ATR≈1, fast EMA≈100), with an entry bar gapping to `entryOpen`. */
+function gapEntrySeries(entryIndex: number, entryOpen: number, count = 320): Candle[] {
+  const candles = flatCandles(count);
+  candles[entryIndex] = candleAt(entryIndex * 60_000, entryOpen, entryOpen + 0.2, entryOpen - 0.2, entryOpen);
+  return candles;
+}
+
+const runVariants = (
+  candles: Candle[],
+  signals: ReplayEconomicSignal[],
+  variants = PASS_C_VARIANTS
+) =>
+  runPassCResearchVariants({
+    candles,
+    signals,
+    parametersByStrategyId: new Map([
+      [EMA_ID, {}],
+      [SQ_ID, {}]
+    ]),
+    tickSize: 0.01,
+    variants
+  });
+
+describe("Pass C research variants (EMA fallback entry gates)", () => {
+  it("extension boundaries: 0.25 and 0.5 ATR (direction-signed)", () => {
+    const decide = (gate: ReplayEntryGate, entryPrice: number, direction: "BUY" | "SELL" = "BUY") =>
+      gate(gateCtx({ entryPrice, direction, stopLoss: direction === "BUY" ? entryPrice - 0.75 : entryPrice + 0.75 }));
+
+    // C1: reject only when extension > 0.5.
+    expect(decide(C1.gate!, 100.5).reject).toBe(false);
+    expect(decide(C1.gate!, 100.5001).reason).toBe("EMA_EXTENSION_GT_0_5");
+    expect(decide(C1.gate!, 99.5, "SELL").reject).toBe(false);
+    expect(decide(C1.gate!, 99.4999, "SELL").reason).toBe("EMA_EXTENSION_GT_0_5");
+    // Negative extension (entry on the wrong side of the fast EMA) is not > 0.5.
+    expect(decide(C1.gate!, 99, "BUY").reject).toBe(false);
+
+    // C2: allow only 0.25 < extension <= 0.5.
+    expect(decide(C2.gate!, 100.25).reason).toBe("EMA_EXTENSION_LE_0_25");
+    expect(decide(C2.gate!, 100.2501).reject).toBe(false);
+    expect(decide(C2.gate!, 100.5).reject).toBe(false);
+    expect(decide(C2.gate!, 100.5001).reason).toBe("EMA_EXTENSION_GT_0_5");
+    expect(decide(C2.gate!, 99.75, "SELL").reason).toBe("EMA_EXTENSION_LE_0_25");
+    expect(decide(C2.gate!, 99.6, "SELL").reject).toBe(false);
+
+    // Gate geometry equals the EMA diagnostic definition.
+    const g = gateGeometry(gateCtx({ entryPrice: 100.4, atr: 2, emaFast: 100, stopLoss: 99.4 }));
+    expect(g.extensionFromFastAtr).toBeCloseTo(0.2, 12);
+    expect(g.stopDistanceAtr).toBeCloseTo(0.5, 12);
+    expect(extensionBucket(g.extensionFromFastAtr)).toBe("<=0.25");
+  });
+
+  it("stop-distance boundaries are inclusive at 0.5 and 1.0 ATR (C3)", () => {
+    const decide = (stopLoss: number, entryPrice = 100) =>
+      C3.gate!(gateCtx({ entryPrice, stopLoss, atr: 2, emaFast: 100 }));
+    expect(decide(99).reject).toBe(false); // exactly 0.5 ATR
+    expect(decide(98).reject).toBe(false); // exactly 1.0 ATR
+    expect(decide(99.01).reason).toBe("EMA_STOP_LT_0_5_ATR");
+    expect(decide(97.99).reason).toBe("EMA_STOP_GT_1_0_ATR");
+    // Extension rule still applies: entry 101.01 vs EMA 100, ATR 2 → 0.505 ATR.
+    expect(decide(99.51, 101.01).reason).toBe("EMA_EXTENSION_GT_0_5");
+    expect(decide(100, 101).reject).toBe(false); // ext 0.5, stop 0.5
+  });
+
+  it("gates only touch Pass C EMA fallback-from-HOLD; missing geometry is rejected in scope", () => {
+    const huge = { entryPrice: 110 }; // extension 10 ATR
+    for (const v of [C1, C2, C3]) {
+      expect(v.gate!(gateCtx({ ...huge })).reject).toBe(true);
+      expect(v.gate!(gateCtx({ ...huge, fromProductionHold: false })).reject).toBe(false);
+      expect(v.gate!(gateCtx({ ...huge, strategyId: SQ_ID })).reject).toBe(false);
+      expect(v.gate!(gateCtx({ ...huge, pass: "A" })).reject).toBe(false);
+      expect(v.gate!(gateCtx({ entryPrice: 100.3, atr: null })).reason).toBe(EMA_GEOMETRY_UNAVAILABLE);
+    }
+    expect(C0.gate).toBeNull();
+  });
+
+  it("rejecting an early trade allows a later signal to execute", () => {
+    // EMA entry gaps to 101 (≈1 ATR above fast EMA) and never resolves; squeeze signal comes later.
+    const candles = gapEntrySeries(251, 101);
+    const signals = [emaSignal(250, candles), emaSignal(270, candles, { strategyId: SQ_ID })];
+    const report = runVariants(candles, signals, [C0, C1]);
+    const [c0, c1] = report.variants as [PassCVariantResult, PassCVariantResult];
+
+    expect(c0.entriesOpened).toBe(1);
+    expect(c0.signalsSkippedOpenPosition).toBe(1);
+    expect(c0.trades.map((t) => t.strategyId)).toEqual([EMA_ID]);
+
+    expect(c1.signalsRejectedByResearchGate).toBe(1);
+    expect(c1.rejectionsByReason).toEqual({ EMA_EXTENSION_GT_0_5: 1 });
+    expect(c1.rejections[0]).toMatchObject({ signalCandleIndex: 250, entryCandleIndex: 251, strategyId: EMA_ID });
+    expect(c1.entriesOpened).toBe(1);
+    expect(c1.signalsSkippedOpenPosition).toBe(0);
+    expect(c1.trades.map((t) => [t.strategyId, t.entryCandleIndex])).toEqual([[SQ_ID, 271]]);
+  });
+
+  it("a signal on the rejected entry bar can become the next pending entry", () => {
+    const candles = gapEntrySeries(251, 101);
+    const signals = [emaSignal(250, candles), emaSignal(251, candles, { strategyId: SQ_ID })];
+    const [c0, c1] = runVariants(candles, signals, [C0, C1]).variants as [PassCVariantResult, PassCVariantResult];
+    expect(c0.trades.map((t) => t.strategyId)).toEqual([EMA_ID]);
+    expect(c1.trades.map((t) => [t.strategyId, t.entryCandleIndex])).toEqual([[SQ_ID, 252]]);
+  });
+
+  it("variants have independent position state and ignore Pass A signals", () => {
+    const candles = gapEntrySeries(251, 101);
+    const signals = [
+      emaSignal(250, candles),
+      emaSignal(270, candles, { strategyId: SQ_ID }),
+      emaSignal(240, candles, { pass: "A", strategyId: SQ_ID })
+    ];
+    const both = runVariants(candles, signals, [C0, C1, C0]).variants;
+    const alone = runVariants(candles, signals, [C0]).variants;
+    // Running C1 in between must not leak state into the second C0 run.
+    expect(both[0]!.trades).toEqual(alone[0]!.trades);
+    expect(both[2]!.trades).toEqual(alone[0]!.trades);
+    expect(both[1]!.trades).not.toEqual(both[0]!.trades);
+    for (const v of both) {
+      expect(v.signalsConsidered).toBe(2);
+      expect(v.trades.every((t) => t.pass === "C")).toBe(true);
+    }
+  });
+
+  it("C0 exactly reproduces the current Pass C economic results", () => {
+    const candles = gapEntrySeries(251, 101, 400);
+    const signals = [
+      emaSignal(250, candles),
+      emaSignal(255, candles, { strategyId: SQ_ID }),
+      squeezeSignal(300, candles, "BUY", { squeezeLow: 99.6, squeezeHigh: 101 }),
+      squeezeSignal(301, candles, "SELL", { squeezeLow: 99, squeezeHigh: 100.6 }, "A"),
+      emaSignal(350, candles, { fromProductionHold: false })
+    ];
+    const current = simulatePassEconomicOutcomes({
+      candles,
+      signals,
+      parametersByStrategyId: new Map([
+        [EMA_ID, {}],
+        [SQ_ID, {}]
+      ]),
+      tickSize: 0.01
+    });
+    const c0 = runVariants(candles, signals, [C0]).variants[0]!;
+    expect(c0.trades).toEqual(current.trades.filter((t) => t.pass === "C"));
+    expect(c0.metrics).toEqual(current.passC);
+    expect(c0.signalsConsidered).toBe(current.simulationDiagnostics.C.executableSignalsSeen);
+    expect(c0.signalsSkippedOpenPosition).toBe(current.simulationDiagnostics.C.signalsSkippedOpenPosition);
+    expect(c0.maxBarsHeld).toBe(current.simulationDiagnostics.C.maxBarsHeld);
+    expect(c0.signalsRejectedByResearchGate).toBe(0);
+  });
+
+  it("production-selected EMA trades and non-EMA fallbacks are unaffected", () => {
+    const candles = gapEntrySeries(251, 101);
+    for (const signal of [
+      emaSignal(250, candles, { fromProductionHold: false }),
+      emaSignal(250, candles, { strategyId: SQ_ID })
+    ]) {
+      const [c0, ...gated] = runVariants(candles, [signal]).variants;
+      expect(c0!.trades).toHaveLength(1);
+      for (const v of gated) {
+        expect(v.signalsRejectedByResearchGate).toBe(0);
+        expect(v.trades).toEqual(c0!.trades);
+        expect(v.metrics).toEqual(c0!.metrics);
+      }
+    }
+  });
+
+  it("gate decisions use no candle after the entry open (no lookahead)", () => {
+    const candles = gapEntrySeries(251, 101);
+    const signals = [emaSignal(250, candles), emaSignal(270, candles, { strategyId: SQ_ID })];
+    const seen: ReplayEntryGateContext[] = [];
+    const spy: PassCVariantDefinition = {
+      ...C1,
+      gate: (ctx) => {
+        seen.push(ctx);
+        return C1.gate!(ctx);
+      }
+    };
+    const base = runVariants(candles, signals, [spy]).variants[0]!;
+    const expectedFeatures = extractFeatures(candles.slice(0, 251), DEFAULT_FEATURE_CONFIG).at(-1)!;
+    expect(seen[0]!.signalFeatures).toEqual(expectedFeatures);
+    expect(seen[0]!.entryPrice).toBe(candles[251]!.open);
+
+    // Rewrite every candle after the EMA entry bar; the EMA gate decision must not move.
+    const future = candles.map((c, i) =>
+      i > 251 ? { ...c, open: c.open * 3, high: c.high * 3, low: c.low * 3, close: c.close * 3 } : c
+    );
+    const mutated = runVariants(future, signals, [C1]).variants[0]!;
+    expect(mutated.rejections[0]).toEqual(base.rejections[0]);
+  });
+
+  it("report + markdown include the variant comparison and C0 matches report Pass C", () => {
+    const candles = syntheticCandles({ count: 150, seed: 5, drift: 0.45, volatility: 2 });
+    const report = runAutoSelectionCounterfactualReplay(candles.slice(0, 140), {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[100]!.openTime,
+      analysisEndMs: candles[139]!.openTime + 60_000,
+      selectionMode: "BOOTSTRAP",
+      executionBackend: "paper_cfd",
+      strategyAllowlist: [],
+      strategies: defs([
+        mockStrategy({ id: EMA_ID, kind: "ema-pullback", supportedRegimes: ALL_REGIMES, action: "BUY" })
+      ])
+    });
+    expect(report.passCVariants.variants.map((v) => v.id)).toEqual([...PASS_C_VARIANT_IDS]);
+    const c0 = report.passCVariants.variants[0]!;
+    expect(c0.metrics).toEqual(report.economic.passC);
+    expect(c0.trades).toEqual(report.economic.trades.filter((t) => t.pass === "C"));
+
+    const md = formatAutoSelectionReplayMarkdown(report);
+    expect(md).toContain("## Pass C research variants (EMA fallback-from-HOLD entry gates)");
+    expect(md).toContain("| Pass A |");
+    for (const v of PASS_C_VARIANTS) expect(md).toContain(`| ${v.label} |`);
+    expect(md).toContain("### EMA fallback-from-HOLD by variant");
+    expect(md).toContain("### By strategy and direction");
   });
 });
