@@ -37,11 +37,14 @@ import {
   PASS_C_VARIANT_IDS,
   gateGeometry,
   runPassCResearchVariants,
+  buildPassCVariantWeeklyReport,
+  buildWeeklyEconomicBreakdown,
   type PassCVariantDefinition,
   type PassCVariantResult,
   type ReplaySimulatedTrade,
   type ReplayStrategyDefinition
 } from "./autoSelectionCounterfactualReplay.js";
+import { utcWeekStartMs } from "./xauUsdWeeklyRobustness.js";
 import {
   buildReplayTradePlan,
   type ReplayEconomicSignal,
@@ -2278,5 +2281,148 @@ describe("Pass C research variants (EMA fallback entry gates)", () => {
     for (const v of PASS_C_VARIANTS) expect(md).toContain(`| ${v.label} |`);
     expect(md).toContain("### EMA fallback-from-HOLD by variant");
     expect(md).toContain("### By strategy and direction");
+  });
+});
+
+/** 1970-01-05 is a Monday: the first UTC week boundary after the epoch. */
+const MONDAY_MS = Date.UTC(1970, 0, 5);
+const WEEK_MS_TEST = 7 * 86_400_000;
+
+/** Flat 1m bars at 100 starting 30 minutes before the Monday boundary. */
+function boundaryCandles(count = 120): Candle[] {
+  const start = MONDAY_MS - 30 * 60_000;
+  return Array.from({ length: count }, (_, i) =>
+    candleAt(start + i * 60_000, 100, 100.3, 99.7, 100)
+  );
+}
+
+function weeklyTrade(entryTimeMs: number, exitTimeMs: number, outcome: ReplaySimulatedTrade["outcome"], realizedR: number | null) {
+  return {
+    ...diagTrade({ strategyId: EMA_ID, direction: "BUY", regime: null, outcome, realizedR }),
+    entryTimeMs,
+    exitTimeMs
+  };
+}
+
+describe("Pass C research variants — weekly robustness", () => {
+  it("groups by ENTRY week, not exit week (Monday 00:00 UTC boundary)", () => {
+    expect(utcWeekStartMs(MONDAY_MS - 1)).toBe(MONDAY_MS - WEEK_MS_TEST);
+    expect(utcWeekStartMs(MONDAY_MS)).toBe(MONDAY_MS);
+
+    const trades = [
+      weeklyTrade(MONDAY_MS - 60_000, MONDAY_MS + 3 * 86_400_000, "STOP", -1),
+      weeklyTrade(MONDAY_MS + 60_000, MONDAY_MS + 2 * WEEK_MS_TEST, "TARGET", 2),
+      weeklyTrade(MONDAY_MS + 120_000, MONDAY_MS + 3 * WEEK_MS_TEST, "OPEN_AT_END", null)
+    ];
+    const b = buildWeeklyEconomicBreakdown(trades);
+    expect(b.weeks.map((w) => w.weekStartIso)).toEqual(["1969-12-29", "1970-01-05"]);
+    expect(b.weeks[0]).toMatchObject({ entries: 1, resolvedTrades: 1, wins: 0, losses: 1, totalR: -1 });
+    expect(b.weeks[1]).toMatchObject({ entries: 2, resolvedTrades: 1, wins: 1, totalR: 2, openAtEnd: 1 });
+  });
+
+  it("tick-rounding residue weeks count as flat, not negative", () => {
+    const b = buildWeeklyEconomicBreakdown([
+      weeklyTrade(MONDAY_MS + 60_000, MONDAY_MS + 120_000, "TARGET", 1.9999999918410447),
+      weeklyTrade(MONDAY_MS + 180_000, MONDAY_MS + 240_000, "STOP", -1),
+      weeklyTrade(MONDAY_MS + 300_000, MONDAY_MS + 360_000, "STOP", -1)
+    ]);
+    expect(b.weeks[0]!.totalR).toBeLessThan(0);
+    expect(b.stability).toMatchObject({ flatWeeks: 1, negativeWeeks: 0, positiveWeeks: 0 });
+  });
+
+  it("a simulated trade spanning the week boundary stays in its entry week", () => {
+    const candles = boundaryCandles();
+    // Exit bar 40 is 10 minutes after the Monday boundary; entry (bar 6) is before it.
+    candles[40] = candleAt(candles[40]!.openTime, 100, 100.1, 99, 99.2);
+    const signals = [squeezeSignal(5, candles, "BUY", { squeezeLow: 99.6, squeezeHigh: 100.3 })];
+    const c0 = runVariants(candles, signals, [C0]).variants[0]!;
+    const t = c0.trades[0]!;
+    expect(t.outcome).toBe("STOP");
+    expect(t.entryTimeMs!).toBeLessThan(MONDAY_MS);
+    expect(t.exitTimeMs!).toBeGreaterThan(MONDAY_MS);
+
+    const weekly = buildPassCVariantWeeklyReport({
+      variants: [c0],
+      analysisStartMs: candles[0]!.openTime,
+      analysisEndMs: candles.at(-1)!.closeTime
+    });
+    const [prior, monday] = weekly.variants[0]!.all.weeks;
+    expect(prior).toMatchObject({ weekStartIso: "1969-12-29", entries: 1, losses: 1, totalR: -1 });
+    expect(monday).toMatchObject({ weekStartIso: "1970-01-05", entries: 0, totalR: 0 });
+    expect(weekly.variants[0]!.all.stability).toMatchObject({
+      weeks: 2,
+      weeksWithNoEntries: 1,
+      negativeWeeks: 1,
+      flatWeeks: 1,
+      positiveWeeks: 0
+    });
+  });
+
+  it("does not reset simulator state at week boundaries", () => {
+    const candles = boundaryCandles();
+    // Wide stop: the week-1 position never resolves and keeps blocking the week-2 signal.
+    const signals = [
+      squeezeSignal(5, candles, "BUY", { squeezeLow: 90, squeezeHigh: 110 }),
+      squeezeSignal(60, candles, "BUY", { squeezeLow: 99.6, squeezeHigh: 100.3 })
+    ];
+    const c0 = runVariants(candles, signals, [C0]).variants[0]!;
+    expect(c0.signalsSkippedOpenPosition).toBe(1);
+    const weeks = buildWeeklyEconomicBreakdown(c0.trades).weeks;
+    expect(weeks).toHaveLength(1);
+    expect(weeks[0]).toMatchObject({ weekStartIso: "1969-12-29", entries: 1, openAtEnd: 1 });
+
+    // Contrast: an isolated week-2 run would have opened the second signal.
+    const isolated = runVariants(candles, [signals[1]!], [C0]).variants[0]!;
+    expect(isolated.entriesOpened).toBe(1);
+    expect(utcWeekStartMs(isolated.trades[0]!.entryTimeMs!)).toBe(MONDAY_MS);
+  });
+
+  it("weekly R sums to each variant's total R; C0 aggregates unchanged; C1−C0 delta per week", () => {
+    const candles = syntheticCandles({ count: 150, seed: 5, drift: 0.45, volatility: 2 });
+    const report = runAutoSelectionCounterfactualReplay(candles.slice(0, 140), {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[100]!.openTime,
+      analysisEndMs: candles[139]!.openTime + 60_000,
+      selectionMode: "BOOTSTRAP",
+      executionBackend: "paper_cfd",
+      strategyAllowlist: [],
+      strategies: defs([
+        mockStrategy({ id: EMA_ID, kind: "ema-pullback", supportedRegimes: ALL_REGIMES, action: "BUY" })
+      ])
+    });
+    const before = structuredClone(report.passCVariants);
+    const weekly = buildPassCVariantWeeklyReport({
+      variants: report.passCVariants.variants,
+      analysisStartMs: candles[100]!.openTime,
+      analysisEndMs: candles[139]!.openTime + 60_000
+    });
+    expect(report.passCVariants).toEqual(before);
+    expect(report.passCVariants.variants[0]!.metrics).toEqual(report.economic.passC);
+    expect(report.passCVariantWeekly).toEqual(weekly);
+
+    report.passCVariants.variants.forEach((v, i) => {
+      const w = weekly.variants[i]!;
+      const sumAll = w.all.weeks.reduce((a, b) => a + b.totalR, 0);
+      expect(sumAll).toBeCloseTo(v.totalR, 9);
+      expect(w.all.stability.totalR).toBeCloseTo(v.totalR, 9);
+      expect(w.all.weeks.reduce((a, b) => a + b.entries, 0)).toBe(
+        v.trades.filter((t) => t.outcome !== "UNSCORABLE" && t.entryTimeMs != null).length
+      );
+      expect(w.emaFallbackFromHold.stability.totalR).toBeCloseTo(v.emaFallbackFromHold.stats.totalR, 9);
+    });
+
+    const c0 = weekly.variants[0]!.all.weeks;
+    const c1 = weekly.variants[1]!.all.weeks;
+    expect(weekly.c1VsC0).toHaveLength(c0.length);
+    weekly.c1VsC0!.forEach((row, i) => {
+      expect(row.deltaR).toBeCloseTo(c1[i]!.totalR - c0[i]!.totalR, 12);
+    });
+
+    const md = formatAutoSelectionReplayMarkdown(report);
+    expect(md).toContain("## Pass C research variants by entry week (UTC)");
+    expect(md).toContain("### Weekly stability — all Pass C trades");
+    expect(md).toContain("### Weekly stability — EMA fallback-from-HOLD");
+    expect(md).toContain("### C1 vs C0 delta R by entry week");
   });
 });

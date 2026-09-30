@@ -1,6 +1,6 @@
 # AUTO selection counterfactual replay
 
-Generated: 2026-09-30T01:26:25.004Z
+Generated: 2026-09-30T01:25:24.306Z
 Window: 2026-08-29T07:46:00.000Z → 2026-09-29T16:17:00.000Z (R_10 1m)
 Selection mode: BOOTSTRAP; backend: broker_demo_mt5
 Allowlist: breakout-momentum-v1, ema-pullback-v1, squeeze-breakout-v1, bollinger-reversion-v1
@@ -144,7 +144,7 @@ Per-trade records: JSON `economic.emaFallbackFromHold.trades`.
 | C0 baseline | 62 | 25/37 | 13.00 | 0.21 | 30 tr; 11/19; 3.00R; avg 0.10 | 32 tr; 14/18; 10.00R; avg 0.31 | 16 tr; 10/6; 14.00R; avg 0.87 | 15 tr; 2/13; -9.00R; avg -0.60 | 21 tr; 9/12; 6.00R; avg 0.29 | 9 tr; 4/5; 3.00R; avg 0.33 | 1 tr; 0/1; -1.00R; avg -1.00 | — |
 | C1 EMA ext ≤ 0.5 | 32 | 13/19 | 7.00 | 0.22 | 13 tr; 5/8; 2.00R; avg 0.15 | 19 tr; 8/11; 5.00R; avg 0.26 | 16 tr; 10/6; 14.00R; avg 0.87 | 16 tr; 3/13; -7.00R; avg -0.44 | — | — | — | — |
 | C2 EMA 0.25 < ext ≤ 0.5 | 18 | 5/13 | -3.00 | -0.17 | 6 tr; 2/4; 0.00R; avg 0.00 | 12 tr; 3/9; -3.00R; avg -0.25 | — | 18 tr; 5/13; -3.00R; avg -0.17 | — | — | — | — |
-| C3 EMA ext ≤ 0.5 & 0.5 ≤ stop ≤ 1.0 | 18 | 6/12 | 0.00 | 0.00 | 8 tr; 2/6; -2.00R; avg -0.25 | 10 tr; 4/6; 2.00R; avg 0.20 | 10 tr; 5/5; 5.00R; avg 0.50 | 8 tr; 1/7; -5.00R; avg -0.62 | — | — | — | — |
+| C3 EMA ext ≤ 0.5 & 0.5 ≤ stop ≤ 1.0 | 18 | 6/12 | -0.00 | 0.00 | 8 tr; 2/6; -2.00R; avg -0.25 | 10 tr; 4/6; 2.00R; avg 0.20 | 10 tr; 5/5; 5.00R; avg 0.50 | 8 tr; 1/7; -5.00R; avg -0.62 | — | — | — | — |
 
 ### By strategy and direction
 - **C0 baseline**
@@ -172,7 +172,7 @@ Per-trade records: JSON `economic.emaFallbackFromHold.trades`.
   - breakout-momentum-v1 BUY: trades 26; W/L 4/22; win rate 15.4%; total R -14.00; avg R -0.54; open 0
   - breakout-momentum-v1 SELL: trades 30; W/L 11/18; win rate 37.9%; total R 4.00; avg R 0.14; open 1
   - ema-pullback-v1 BUY: trades 10; W/L 3/7; win rate 30.0%; total R -1.00; avg R -0.10; open 0
-  - ema-pullback-v1 SELL: trades 12; W/L 4/8; win rate 33.3%; total R 0.00; avg R 0.00; open 0
+  - ema-pullback-v1 SELL: trades 12; W/L 4/8; win rate 33.3%; total R -0.00; avg R 0.00; open 0
   - squeeze-breakout-v1 BUY: trades 16; W/L 6/10; win rate 37.5%; total R 2.00; avg R 0.13; open 0
   - squeeze-breakout-v1 SELL: trades 11; W/L 2/9; win rate 18.2%; total R -5.00; avg R -0.45; open 0
 
@@ -196,16 +196,16 @@ Per-trade records: JSON `economic.emaFallbackFromHold.trades`.
 ### Weekly stability — EMA fallback-from-HOLD
 | Variant | Weeks | +R weeks | −R weeks | Flat weeks | No-entry weeks | Best week R | Worst week R | Median week R | Total R |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| C0 baseline | 6 | 3 | 0 | 3 | 2 | 6.00 | 0.00 | 1.50 | 13.00 |
-| C1 EMA ext ≤ 0.5 | 6 | 3 | 0 | 3 | 2 | 4.00 | 0.00 | 0.50 | 7.00 |
-| C2 EMA 0.25 < ext ≤ 0.5 | 6 | 1 | 2 | 3 | 2 | 1.00 | -3.00 | 0.00 | -3.00 |
-| C3 EMA ext ≤ 0.5 & 0.5 ≤ stop ≤ 1.0 | 6 | 2 | 2 | 2 | 2 | 4.00 | -4.00 | 0.00 | 0.00 |
+| C0 baseline | 6 | 4 | 0 | 2 | 2 | 6.00 | 0.00 | 1.50 | 13.00 |
+| C1 EMA ext ≤ 0.5 | 6 | 3 | 1 | 2 | 2 | 4.00 | -0.00 | 0.50 | 7.00 |
+| C2 EMA 0.25 < ext ≤ 0.5 | 6 | 2 | 2 | 2 | 2 | 1.00 | -3.00 | 0.00 | -3.00 |
+| C3 EMA ext ≤ 0.5 & 0.5 ≤ stop ≤ 1.0 | 6 | 2 | 2 | 2 | 2 | 4.00 | -4.00 | 0.00 | -0.00 |
 
 ### C1 vs C0 delta R by entry week
 | Week (Mon UTC) | C0 R | C1 R | Δ R (C1−C0) | C0 EMA-HOLD R | C1 EMA-HOLD R | Δ EMA-HOLD R |
 |---|---:|---:|---:|---:|---:|---:|
 | 2026-08-24 | -3.00 | -5.00 | -2.00 | 3.00 | 1.00 | -2.00 |
-| 2026-08-31 | 2.00 | -4.00 | -6.00 | 6.00 | 0.00 | -6.00 |
+| 2026-08-31 | 2.00 | -4.00 | -6.00 | 6.00 | -0.00 | -6.00 |
 | 2026-09-07 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | 2026-09-14 | -2.00 | -2.00 | 0.00 | 4.00 | 4.00 | 0.00 |
 | 2026-09-21 | -3.00 | -1.00 | 2.00 | 0.00 | 2.00 | 2.00 |
@@ -245,7 +245,7 @@ Per-trade records: JSON `economic.emaFallbackFromHold.trades`.
 | Week (Mon UTC) | Entries | Resolved | W/L | Win rate | Total R | Avg R | Max DD R | Longest L streak | Open at end | Ambiguous |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 2026-08-24 | 2 | 2 | 1/1 | 50.0% | 1.00 | 0.50 | 1.00 | 1 | 0 | 0 |
-| 2026-08-31 | 12 | 12 | 4/8 | 33.3% | 0.00 | 0.00 | 5.00 | 5 | 0 | 0 |
+| 2026-08-31 | 12 | 12 | 4/8 | 33.3% | -0.00 | 0.00 | 5.00 | 5 | 0 | 0 |
 | 2026-09-07 | 0 | 0 | 0/0 | — | 0.00 | — | 0.00 | 0 | 0 | 0 |
 | 2026-09-14 | 11 | 11 | 5/6 | 45.5% | 4.00 | 0.36 | 4.00 | 3 | 0 | 0 |
 | 2026-09-21 | 7 | 7 | 3/4 | 42.9% | 2.00 | 0.29 | 4.00 | 4 | 0 | 0 |

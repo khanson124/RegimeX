@@ -58,10 +58,16 @@ import {
   runPassCResearchVariants,
   type PassCVariantsReport
 } from "./autoSelectionPassCVariants.js";
+import {
+  buildPassCVariantWeeklyReport,
+  type PassCVariantWeeklyReport,
+  type WeeklyBreakdown
+} from "./autoSelectionPassCWeekly.js";
 
 export * from "./autoSelectionEmaFallbackDiagnostics.js";
 export * from "./autoSelectionReplaySimulationDiagnostics.js";
 export * from "./autoSelectionPassCVariants.js";
+export * from "./autoSelectionPassCWeekly.js";
 
 export type {
   ReplayEconomicComparison,
@@ -234,6 +240,8 @@ export interface AutoSelectionReplayReport {
   economic: ReplayEconomicComparison;
   /** Research-only Pass C gate variants, each an independent economic rerun. */
   passCVariants: PassCVariantsReport;
+  /** Variant trades grouped by UTC entry week (post-processing of the same full simulations). */
+  passCVariantWeekly: PassCVariantWeeklyReport;
   /** Close-to-close continuity scan of the complete candle series fed to the replay. */
   candleContinuity: ReplayCandleContinuityDiagnostics;
 }
@@ -872,6 +880,12 @@ export function runAutoSelectionCounterfactualReplay(
     featureLookback: bufferCapacity
   });
 
+  const passCVariantWeekly = buildPassCVariantWeeklyReport({
+    variants: passCVariants.variants,
+    analysisStartMs: config.analysisStartMs,
+    analysisEndMs: config.analysisEndMs
+  });
+
   const candleContinuity = analyzeCandleContinuity(candles);
   const sourceNames = Object.keys(candleContinuity.sources);
   if (sourceNames.length > 1) {
@@ -941,6 +955,7 @@ export function runAutoSelectionCounterfactualReplay(
     bars,
     economic,
     passCVariants,
+    passCVariantWeekly,
     candleContinuity
   };
 }
@@ -1054,6 +1069,11 @@ function emptyReport(
       parametersByStrategyId: new Map(),
       tickSize: REPLAY_DEFAULT_TICK_SIZE
     }),
+    passCVariantWeekly: buildPassCVariantWeeklyReport({
+      variants: [],
+      analysisStartMs: config.analysisStartMs,
+      analysisEndMs: config.analysisEndMs
+    }),
     candleContinuity: analyzeCandleContinuity([])
   };
 }
@@ -1140,7 +1160,7 @@ export function formatPassCVariantsMarkdown(
 ): string[] {
   const lines: string[] = [];
   const n = (v: number | null | undefined, d = 2) =>
-    v == null ? "—" : (Math.abs(v) < 1e-9 ? 0 : v).toFixed(d);
+    v == null ? "—" : (Math.abs(v) < 1e-6 ? 0 : v).toFixed(d);
   const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
   lines.push(`## Pass C research variants (EMA fallback-from-HOLD entry gates)`);
   for (const note of report.passCVariants.notes) lines.push(`- ${note}`);
@@ -1191,6 +1211,64 @@ export function formatPassCVariantsMarkdown(
         );
       }
     }
+  }
+  return lines;
+}
+
+export function formatPassCVariantWeeklyMarkdown(weekly: PassCVariantWeeklyReport): string[] {
+  const lines: string[] = [];
+  const n = (v: number | null | undefined, d = 2) =>
+    v == null ? "—" : (Math.abs(v) < 1e-6 ? 0 : v).toFixed(d);
+  const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+
+  const stabilityTable = (title: string, pick: (v: PassCVariantWeeklyReport["variants"][number]) => WeeklyBreakdown) => {
+    lines.push(`### ${title}`);
+    lines.push(`| Variant | Weeks | +R weeks | −R weeks | Flat weeks | No-entry weeks | Best week R | Worst week R | Median week R | Total R |`);
+    lines.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
+    for (const v of weekly.variants) {
+      const s = pick(v).stability;
+      lines.push(
+        `| ${v.label} | ${s.weeks} | ${s.positiveWeeks} | ${s.negativeWeeks} | ${s.flatWeeks} | ${s.weeksWithNoEntries} | ${n(s.bestWeekR)} | ${n(s.worstWeekR)} | ${n(s.medianWeekR)} | ${n(s.totalR)} |`
+      );
+    }
+    lines.push("");
+  };
+
+  const weekTable = (b: WeeklyBreakdown) => {
+    lines.push(`| Week (Mon UTC) | Entries | Resolved | W/L | Win rate | Total R | Avg R | Max DD R | Longest L streak | Open at end | Ambiguous |`);
+    lines.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
+    for (const w of b.weeks) {
+      lines.push(
+        `| ${w.weekStartIso} | ${w.entries} | ${w.resolvedTrades} | ${w.wins}/${w.losses} | ${pct(w.winRate)} | ${n(w.totalR)} | ${n(w.avgR)} | ${n(w.maxDrawdownR)} | ${w.longestLosingStreak} | ${w.openAtEnd} | ${w.ambiguous} |`
+      );
+    }
+  };
+
+  lines.push(`## Pass C research variants by entry week (UTC)`);
+  for (const note of weekly.notes) lines.push(`- ${note}`);
+  lines.push("");
+  stabilityTable("Weekly stability — all Pass C trades", (v) => v.all);
+  stabilityTable("Weekly stability — EMA fallback-from-HOLD", (v) => v.emaFallbackFromHold);
+
+  if (weekly.c1VsC0) {
+    lines.push(`### C1 vs C0 delta R by entry week`);
+    lines.push(`| Week (Mon UTC) | C0 R | C1 R | Δ R (C1−C0) | C0 EMA-HOLD R | C1 EMA-HOLD R | Δ EMA-HOLD R |`);
+    lines.push(`|---|---:|---:|---:|---:|---:|---:|`);
+    for (const r of weekly.c1VsC0) {
+      lines.push(
+        `| ${r.weekStartIso} | ${n(r.baseR)} | ${n(r.compareR)} | ${n(r.deltaR)} | ${n(r.baseEmaR)} | ${n(r.compareEmaR)} | ${n(r.deltaEmaR)} |`
+      );
+    }
+    lines.push("");
+  }
+
+  for (const v of weekly.variants) {
+    lines.push(`### ${v.label} — weekly (all Pass C trades)`);
+    weekTable(v.all);
+    lines.push("");
+    lines.push(`### ${v.label} — weekly (EMA fallback-from-HOLD)`);
+    weekTable(v.emaFallbackFromHold);
+    lines.push("");
   }
   return lines;
 }
@@ -1459,6 +1537,8 @@ export function formatAutoSelectionReplayMarkdown(report: AutoSelectionReplayRep
   lines.push(...formatEmaFallbackFromHoldMarkdown(report.economic.emaFallbackFromHold));
   lines.push("");
   lines.push(...formatPassCVariantsMarkdown(report));
+  lines.push("");
+  lines.push(...formatPassCVariantWeeklyMarkdown(report.passCVariantWeekly));
   lines.push("");
   lines.push(...formatSimulationDiagnosticsMarkdown(report.economic.simulationDiagnostics));
   lines.push("");
