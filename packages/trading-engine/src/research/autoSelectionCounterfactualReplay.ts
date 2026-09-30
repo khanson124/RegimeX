@@ -421,6 +421,50 @@ export function selectorRankingOrder(selection: {
   return order;
 }
 
+/** Executable Pass A (production winner) and Pass C (fallback) signals from replay bars, in bar order. */
+export function buildReplayEconomicSignals(
+  bars: ReadonlyArray<AutoSelectionReplayBarResult>
+): ReplayEconomicSignal[] {
+  const economicSignals: ReplayEconomicSignal[] = [];
+  for (const b of bars) {
+    const prod = b.production.evaluation;
+    if (prod && isExecutableTrade(prod)) {
+      economicSignals.push({
+        pass: "A",
+        signalCandleIndex: b.candleIndex,
+        evaluation: {
+          strategyId: prod.strategyId,
+          action: prod.action as "BUY" | "SELL",
+          confidence: prod.confidence,
+          signalTimestampMs: prod.signalTimestampMs,
+          decisionMetadata: prod.decisionMetadata
+        },
+        fromProductionHold: false,
+        regime: b.regime,
+        regimeConfidence: b.regimeConfidence
+      });
+    }
+    const fb = b.fallback.evaluation;
+    if (fb && isExecutableTrade(fb)) {
+      economicSignals.push({
+        pass: "C",
+        signalCandleIndex: b.candleIndex,
+        evaluation: {
+          strategyId: fb.strategyId,
+          action: fb.action as "BUY" | "SELL",
+          confidence: fb.confidence,
+          signalTimestampMs: fb.signalTimestampMs,
+          decisionMetadata: fb.decisionMetadata
+        },
+        fromProductionHold: isProductionHoldOrNoTrade(b.production.evaluation),
+        regime: b.regime,
+        regimeConfidence: b.regimeConfidence
+      });
+    }
+  }
+  return economicSignals;
+}
+
 /**
  * Run Pass A (production mirror) + Pass B (shadow all eligible) + Pass C (fallback rank walk).
  */
@@ -794,43 +838,7 @@ export function runAutoSelectionCounterfactualReplay(
     .filter((b) => b.missedBuyOpportunity || b.missedSellOpportunity || b.fallback.action === "BUY" || b.fallback.action === "SELL")
     .slice(0, 25);
 
-  const economicSignals: ReplayEconomicSignal[] = [];
-  for (const b of bars) {
-    const prod = b.production.evaluation;
-    if (prod && isExecutableTrade(prod)) {
-      economicSignals.push({
-        pass: "A",
-        signalCandleIndex: b.candleIndex,
-        evaluation: {
-          strategyId: prod.strategyId,
-          action: prod.action as "BUY" | "SELL",
-          confidence: prod.confidence,
-          signalTimestampMs: prod.signalTimestampMs,
-          decisionMetadata: prod.decisionMetadata
-        },
-        fromProductionHold: false,
-        regime: b.regime,
-        regimeConfidence: b.regimeConfidence
-      });
-    }
-    const fb = b.fallback.evaluation;
-    if (fb && isExecutableTrade(fb)) {
-      economicSignals.push({
-        pass: "C",
-        signalCandleIndex: b.candleIndex,
-        evaluation: {
-          strategyId: fb.strategyId,
-          action: fb.action as "BUY" | "SELL",
-          confidence: fb.confidence,
-          signalTimestampMs: fb.signalTimestampMs,
-          decisionMetadata: fb.decisionMetadata
-        },
-        fromProductionHold: isProductionHoldOrNoTrade(b.production.evaluation),
-        regime: b.regime,
-        regimeConfidence: b.regimeConfidence
-      });
-    }
-  }
+  const economicSignals = buildReplayEconomicSignals(bars);
 
   const parametersByStrategyId = new Map(
     strategies.map((s) => [s.strategy.id, s.parameters] as const)

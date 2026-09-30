@@ -706,6 +706,8 @@ export interface ReplayEntryGateContext {
 export interface ReplayEntryGateDecision {
   reject: boolean;
   reason: string | null;
+  /** Entry-time values the gate evaluated (reporting only). */
+  detail?: Record<string, number | null>;
 }
 
 /** Research-only entry gate; must depend only on the context (no forward candles). */
@@ -936,7 +938,8 @@ export function simulatePassEconomicOutcomes(input: {
             strategyId: pending.evaluation.strategyId,
             direction: pending.evaluation.action as PositionDirection,
             fromProductionHold: pending.fromProductionHold,
-            reason: decision.reason ?? "REJECTED"
+            reason: decision.reason ?? "REJECTED",
+            ...(decision.detail ? { detail: decision.detail } : {})
           }
         };
       }

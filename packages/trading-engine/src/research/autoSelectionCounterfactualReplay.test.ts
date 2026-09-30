@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   type Candle,
@@ -38,6 +39,7 @@ import {
   gateGeometry,
   runPassCResearchVariants,
   buildPassCVariantWeeklyReport,
+  buildReplayEconomicSignals,
   buildWeeklyEconomicBreakdown,
   type PassCVariantDefinition,
   type PassCVariantResult,
@@ -45,6 +47,14 @@ import {
   type ReplayStrategyDefinition
 } from "./autoSelectionCounterfactualReplay.js";
 import { utcWeekStartMs } from "./xauUsdWeeklyRobustness.js";
+import {
+  FORWARD_VARIANTS,
+  FORWARD_VARIANT_IDS,
+  R10_FORWARD_START_ISO,
+  formatR10ForwardValidationMarkdown,
+  runR10AutoForwardValidation,
+  type ForwardVariantSummary
+} from "./autoSelectionForwardValidation.js";
 import {
   buildReplayTradePlan,
   type ReplayEconomicSignal,
@@ -2424,5 +2434,296 @@ describe("Pass C research variants — weekly robustness", () => {
     expect(md).toContain("### Weekly stability — all Pass C trades");
     expect(md).toContain("### Weekly stability — EMA fallback-from-HOLD");
     expect(md).toContain("### C1 vs C0 delta R by entry week");
+  });
+});
+
+const FWD_START_MS = Date.parse(R10_FORWARD_START_ISO);
+const FWD_WARMUP_BARS = 100;
+
+/** Synthetic uptrend whose bar FWD_WARMUP_BARS opens exactly at `forwardStartMs`. */
+function forwardCandles(count = 160, forwardStartMs = FWD_START_MS): Candle[] {
+  return syntheticCandles({
+    count,
+    seed: 11,
+    drift: 0.5,
+    volatility: 2,
+    startTime: forwardStartMs - FWD_WARMUP_BARS * 60_000
+  });
+}
+
+/** Production rank #1 HOLDs; EMA falls through (fallback-from-HOLD) when `emaAction` says so. */
+function forwardStrategies(
+  emaAction: (ctx: StrategyContext) => StrategyDecision["action"] = () => "BUY"
+): ReplayStrategyDefinition[] {
+  return defs([
+    mockStrategy({
+      id: "breakout-momentum-v1",
+      kind: "breakout-momentum",
+      supportedRegimes: ["STRONG_UPTREND", "WEAK_UPTREND", "BREAKOUT_EXPANSION"],
+      action: "HOLD"
+    }),
+    mockStrategy({ id: EMA_ID, kind: "ema-pullback", supportedRegimes: ALL_REGIMES, action: emaAction })
+  ]);
+}
+
+function runForward(
+  candles: Candle[],
+  overrides: Partial<Parameters<typeof runR10AutoForwardValidation>[1]> = {}
+) {
+  return runR10AutoForwardValidation(candles, {
+    symbol: "R_10",
+    interval: "1m",
+    forwardStartMs: FWD_START_MS,
+    selectionMode: "BOOTSTRAP",
+    executionBackend: "paper_cfd",
+    strategyAllowlist: [],
+    strategies: forwardStrategies(),
+    ...overrides
+  });
+}
+
+describe("R_10 Pass C forward validation", () => {
+  it("compares only C0 and the frozen C1 (fast-EMA extension ≤ 0.5 ATR) rule", () => {
+    expect(R10_FORWARD_START_ISO).toBe("2026-09-29T16:17:00.000Z");
+    expect([...FORWARD_VARIANT_IDS]).toEqual(["C0_BASELINE", "C1_EMA_MAX_EXTENSION_0_5"]);
+    expect(FORWARD_VARIANTS[0]).toBe(C0);
+    expect(FORWARD_VARIANTS[1]).toBe(C1);
+    expect(FORWARD_VARIANTS[0]!.gate).toBeNull();
+
+    const gate = FORWARD_VARIANTS[1]!.gate!;
+    const decide = (entryPrice: number, direction: "BUY" | "SELL" = "BUY") =>
+      gate(gateCtx({ entryPrice, direction, stopLoss: direction === "BUY" ? entryPrice - 5 : entryPrice + 5 }));
+    expect(decide(100.5).reject).toBe(false);
+    expect(decide(100.5001)).toMatchObject({ reject: true, reason: "EMA_EXTENSION_GT_0_5" });
+    expect(decide(99.5, "SELL").reject).toBe(false);
+    expect(decide(99.4999, "SELL")).toMatchObject({ reject: true, reason: "EMA_EXTENSION_GT_0_5" });
+    expect(decide(99).reject).toBe(false);
+    // Stop distance plays no role in the frozen C1 rule.
+    expect(gate(gateCtx({ entryPrice: 100.4, stopLoss: 100.39 })).reject).toBe(false);
+    expect(gate(gateCtx({ entryPrice: 100.4, stopLoss: 80 })).reject).toBe(false);
+    expect(gate(gateCtx({ entryPrice: 110, fromProductionHold: false })).reject).toBe(false);
+    expect(gate(gateCtx({ entryPrice: 110, strategyId: SQ_ID })).reject).toBe(false);
+
+    const r = runForward(forwardCandles());
+    expect(r.variants.map((v) => v.id)).toEqual(["C0_BASELINE", "C1_EMA_MAX_EXTENSION_0_5"]);
+    expect(r.config.variants.map((v) => v.id)).toEqual(["C0_BASELINE", "C1_EMA_MAX_EXTENSION_0_5"]);
+  });
+
+  it("excludes signals at or before forwardStart and includes the first one after it", () => {
+    const candles = forwardCandles();
+    const r = runForward(candles);
+    const c0 = r.variants[0]!;
+    expect(r.coverage.firstForwardCandleIso).toBe(R10_FORWARD_START_ISO);
+    expect(r.dataIntegrity.preForwardSignalsExcluded).toBe(0);
+    expect(c0.result.trades[0]!.signalTimeMs).toBe(candles[FWD_WARMUP_BARS]!.closeTime);
+    expect(c0.result.trades[0]!.signalCandleIndex).toBe(FWD_WARMUP_BARS);
+
+    // A forward bar whose signal timestamp lands exactly on forwardStart is rejected.
+    const degenerate = candles.map((c, i) => (i === FWD_WARMUP_BARS ? { ...c, closeTime: FWD_START_MS } : c));
+    const d = runForward(degenerate);
+    expect(d.dataIntegrity.preForwardSignalsExcluded).toBe(1);
+    expect(d.variants[0]!.executableSignals).toBe(c0.executableSignals - 1);
+    expect(d.variants[0]!.result.trades[0]!.signalCandleIndex).toBe(FWD_WARMUP_BARS + 1);
+    for (const rep of [r, d]) {
+      expect(rep.dataIntegrity.preForwardTradesInAnalysis).toBe(0);
+      expect(rep.dataIntegrity.noPreForwardLeakage).toBe(true);
+      for (const v of rep.variants) {
+        for (const t of v.result.trades) expect(t.signalTimeMs).toBeGreaterThan(FWD_START_MS);
+        for (const x of v.result.rejections) expect(x.signalTimeMs).toBeGreaterThan(FWD_START_MS);
+      }
+    }
+  });
+
+  it("warm-up candles feed indicators but never produce signals, trades, or results", () => {
+    const candles = forwardCandles();
+    const warmupOnly = runForward(candles, {
+      strategies: forwardStrategies((ctx) => (ctx.candles.at(-1)!.openTime < FWD_START_MS ? "BUY" : "HOLD"))
+    });
+    expect(warmupOnly.coverage.warmupCandles).toBe(FWD_WARMUP_BARS);
+    expect(warmupOnly.coverage.forwardCandles).toBe(candles.length - FWD_WARMUP_BARS);
+    for (const v of warmupOnly.variants) {
+      expect(v).toMatchObject({ executableSignals: 0, entries: 0, resolvedTrades: 0, totalR: 0, gateRejections: 0 });
+    }
+    expect(warmupOnly.weekly.cumulative.every((w) => w.c0R === 0 && w.c1R === 0)).toBe(true);
+
+    // Rewriting warm-up OHLC only changes indicator inputs, never adds pre-forward trades.
+    const full = runForward(candles);
+    expect(full.coverage.forwardAnalysisBars).toBe(candles.length - FWD_WARMUP_BARS);
+    expect(full.variants[0]!.executableSignals).toBe(full.coverage.forwardAnalysisBars);
+    expect(full.variants.every((v) => v.result.trades.every((t) => t.signalCandleIndex >= FWD_WARMUP_BARS))).toBe(true);
+  });
+
+  it("C0 and C1 keep independent position state", () => {
+    const candles = gapEntrySeries(251, 101);
+    const signals = [emaSignal(250, candles), emaSignal(270, candles, { strategyId: SQ_ID })];
+    const [c0, c1] = runVariants(candles, signals, FORWARD_VARIANTS).variants as [PassCVariantResult, PassCVariantResult];
+    expect(c0.trades.map((t) => t.strategyId)).toEqual([EMA_ID]);
+    expect(c0.signalsSkippedOpenPosition).toBe(1);
+    expect(c1.trades.map((t) => t.strategyId)).toEqual([SQ_ID]);
+    expect(c1.signalsSkippedOpenPosition).toBe(0);
+    const reversed = runVariants(candles, signals, [C1, C0]).variants;
+    expect(reversed[1]!.trades).toEqual(c0.trades);
+    expect(reversed[0]!.trades).toEqual(c1.trades);
+  });
+
+  it("simulates the forward window continuously across week boundaries (no weekly reset)", () => {
+    const start = MONDAY_MS - 20 * 60_000;
+    const candles = forwardCandles(160, start);
+    const r = runForward(candles, { forwardStartMs: start });
+    expect(r.weekly.cumulative.map((w) => w.weekStartIso)).toEqual(["1969-12-29", "1970-01-05"]);
+
+    const signals = buildReplayEconomicSignals(
+      runAutoSelectionCounterfactualReplay(candles, {
+        symbol: "R_10",
+        interval: "1m",
+        analysisStartMs: start,
+        analysisEndMs: candles.at(-1)!.openTime + 60_000,
+        selectionMode: "BOOTSTRAP",
+        executionBackend: "paper_cfd",
+        strategyAllowlist: [],
+        strategies: forwardStrategies()
+      }).bars
+    ).filter((s) => s.pass === "C");
+    const continuous = runPassCResearchVariants({
+      candles,
+      signals,
+      parametersByStrategyId: new Map([
+        [EMA_ID, {}],
+        ["breakout-momentum-v1", {}]
+      ]),
+      tickSize: 0.01,
+      featureLookback: 1500,
+      variants: FORWARD_VARIANTS
+    });
+    r.variants.forEach((v, i) => expect(v.result.trades).toEqual(continuous.variants[i]!.trades));
+    expect(r.variants[0]!.skippedWhilePositionOpen).toBeGreaterThan(0);
+  });
+
+  it("weekly rows sum to aggregates, cumulative ends at aggregates, empty weeks included", () => {
+    const candles = forwardCandles();
+    const r = runForward(candles, { forwardEndMs: FWD_START_MS + 20 * 86_400_000 });
+    // 2026-09-28 (Mon) … 2026-10-19 (Mon): 4 UTC weeks, only the first has entries.
+    expect(r.weekly.cumulative.map((w) => w.weekStartIso)).toEqual([
+      "2026-09-28",
+      "2026-10-05",
+      "2026-10-12",
+      "2026-10-19"
+    ]);
+    const [c0, c1] = r.variants as [ForwardVariantSummary, ForwardVariantSummary];
+    const sum = (f: (w: (typeof r.weekly.cumulative)[number]) => number) =>
+      r.weekly.cumulative.reduce((a, w) => a + f(w), 0);
+    expect(sum((w) => w.c0R)).toBeCloseTo(c0.totalR, 9);
+    expect(sum((w) => w.c1R)).toBeCloseTo(c1.totalR, 9);
+    expect(sum((w) => w.c0EmaR)).toBeCloseTo(c0.emaFallbackFromHold.totalR, 9);
+    expect(sum((w) => w.c1EmaR)).toBeCloseTo(c1.emaFallbackFromHold.totalR, 9);
+    const last = r.weekly.cumulative.at(-1)!;
+    expect(last.cumulativeC0R).toBeCloseTo(c0.totalR, 9);
+    expect(last.cumulativeC1R).toBeCloseTo(c1.totalR, 9);
+    expect(last.cumulativeDeltaR).toBeCloseTo(c1.totalR - c0.totalR, 9);
+    expect(last.cumulativeC0EmaR).toBeCloseTo(c0.emaFallbackFromHold.totalR, 9);
+    for (const w of r.weekly.cumulative.slice(1)) {
+      expect(w).toMatchObject({ c0R: 0, c1R: 0, deltaR: 0 });
+      expect(w.cumulativeC0R).toBe(r.weekly.cumulative[0]!.cumulativeC0R);
+    }
+    expect(r.evidenceStatus.forwardDaysElapsed).toBeCloseTo(20, 9);
+    expect(r.evidenceStatus.resolvedC1Trades).toBe(c1.resolvedTrades);
+    expect(r.evidenceStatus.weeksWithResolvedC1Trade).toBe(c1.resolvedTrades > 0 ? 1 : 0);
+  });
+
+  it("scopes EMA fallback-from-HOLD reporting exactly", () => {
+    const r = runForward(forwardCandles());
+    for (const v of r.variants) {
+      const scoped = v.result.trades.filter(
+        (t) => t.pass === "C" && t.strategyId === EMA_ID && t.fromProductionHold
+      );
+      const entered = scoped.filter((t) => t.outcome !== "UNSCORABLE" && t.entryTimeMs != null);
+      expect(v.emaFallbackFromHold.acceptedTrades.map((t) => t.signalCandleIndex)).toEqual(
+        entered.map((t) => t.signalCandleIndex)
+      );
+      expect(v.emaFallbackFromHold.entries).toBe(entered.length);
+      expect(v.emaFallbackFromHold.acceptedTrades.length).toBe(v.emaFallbackFromHold.entries);
+      expect(v.emaFallbackFromHold.resolved).toBe(
+        scoped.filter((t) => t.outcome === "TARGET" || t.outcome === "STOP").length
+      );
+      for (const x of v.emaFallbackFromHold.rejectedSignals) {
+        expect(x).toMatchObject({ strategyId: EMA_ID, fromProductionHold: true });
+      }
+    }
+    expect(r.variants[0]!.emaFallbackFromHold.rejectedSignals).toEqual([]);
+    const c1 = r.variants[1]!;
+    for (const x of c1.emaFallbackFromHold.rejectedSignals) {
+      if (x.reason === "EMA_EXTENSION_GT_0_5") expect(x.detail!.extensionFromFastAtr!).toBeGreaterThan(0.5);
+    }
+    for (const t of c1.emaFallbackFromHold.acceptedTrades) expect(t.extensionFromFastAtr!).toBeLessThanOrEqual(0.5);
+
+    const md = formatR10ForwardValidationMarkdown(r);
+    expect(md).toContain("## C0 vs C1");
+    expect(md).toContain("### C0 extension buckets");
+    expect(md).toContain("### C1 accepted EMA fallback-from-HOLD trades");
+    expect(md).toContain("### C1 rejected EMA fallback-from-HOLD signals");
+    expect(md).toContain("## Weekly forward validation (UTC entry week, cumulative)");
+    expect(md).toContain("## Evidence status (descriptive only)");
+    expect(md).toContain("no leakage: confirmed");
+    expect(md).not.toMatch(/recommend(ed|ation)?:/i);
+  });
+
+  it("handles an empty forward window without inventing results", () => {
+    const warmupOnly = forwardCandles().slice(0, FWD_WARMUP_BARS);
+    const r = runForward(warmupOnly, { forwardEndMs: FWD_START_MS });
+    expect(r.coverage).toMatchObject({ forwardCandles: 0, forwardAnalysisBars: 0, firstForwardCandleIso: null });
+    expect(r.variants.every((v) => v.entries === 0 && v.totalR === 0)).toBe(true);
+    expect(r.evidenceStatus).toMatchObject({ forwardDaysElapsed: 0, resolvedC1Trades: 0, weeksWithResolvedC1Trade: 0 });
+    expect(formatR10ForwardValidationMarkdown(r)).toContain("Forward analysis bars: 0");
+  });
+
+  it("latest forward/counterfactual reports are git-ignored and untracked", () => {
+    const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+    const latest = [
+      "research-datasets/auto-selection-forward-validation/r10_auto_forward_validation_latest.json",
+      "research-datasets/auto-selection-forward-validation/r10_auto_forward_validation_latest.md",
+      "research-datasets/auto-selection-counterfactual/r10_auto_counterfactual_latest.json",
+      "research-datasets/auto-selection-counterfactual/r10_auto_counterfactual_latest.md"
+    ];
+    const ignored = execFileSync("git", ["check-ignore", "--no-index", ...latest], { cwd: repoRoot, encoding: "utf8" })
+      .trim()
+      .split("\n");
+    expect(ignored).toEqual(latest);
+    const tracked = execFileSync("git", ["ls-files", "--", ...latest], { cwd: repoRoot, encoding: "utf8" }).trim();
+    expect(tracked).toBe("");
+  });
+
+  it("leaves the historical C0/C1 replay unchanged", () => {
+    const candles = forwardCandles();
+    const cfg = {
+      symbol: "R_10",
+      interval: "1m",
+      analysisStartMs: candles[FWD_WARMUP_BARS]!.openTime,
+      analysisEndMs: candles.at(-1)!.openTime + 60_000,
+      selectionMode: "BOOTSTRAP" as const,
+      executionBackend: "paper_cfd" as const,
+      strategyAllowlist: [] as string[],
+      strategies: forwardStrategies()
+    };
+    const report = runAutoSelectionCounterfactualReplay(candles, cfg);
+    const resim = simulatePassEconomicOutcomes({
+      candles,
+      signals: buildReplayEconomicSignals(report.bars),
+      parametersByStrategyId: new Map([
+        [EMA_ID, {}],
+        ["breakout-momentum-v1", {}]
+      ]),
+      tickSize: 0.01
+    });
+    expect(resim.trades).toEqual(report.economic.trades);
+    expect(report.passCVariants.variants.map((v) => v.id)).toEqual([...PASS_C_VARIANT_IDS]);
+    const [hc0, hc1] = report.passCVariants.variants as [PassCVariantResult, PassCVariantResult];
+    expect(hc0.metrics).toEqual(report.economic.passC);
+    expect(hc0.emaFallbackFromHold.records).toEqual(report.economic.emaFallbackFromHold.trades);
+
+    // Same window through the forward path yields the same C0/C1 results.
+    const fwd = runForward(candles);
+    expect(fwd.variants[0]!.result.trades).toEqual(hc0.trades);
+    expect(fwd.variants[1]!.result.trades).toEqual(hc1.trades);
+    expect(fwd.variants[1]!.result.rejections).toEqual(hc1.rejections);
   });
 });

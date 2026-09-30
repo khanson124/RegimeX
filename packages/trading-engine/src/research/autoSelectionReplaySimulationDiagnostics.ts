@@ -102,6 +102,7 @@ export interface ReplayResearchGateRejection {
   direction: PositionDirection;
   fromProductionHold: boolean;
   reason: string;
+  detail?: Record<string, number | null>;
 }
 
 export interface ReplayPassSimulationDiagnostics {

@@ -13,6 +13,7 @@ import {
   EMA_FALLBACK_STRATEGY_ID,
   computeEmaEntryGeometry,
   type EmaDiagnosticGroupStats,
+  type EmaFallbackTradeDiagnostic,
   type ExtensionBucket
 } from "./autoSelectionEmaFallbackDiagnostics.js";
 import {
@@ -60,7 +61,6 @@ export function gateGeometry(ctx: ReplayEntryGateContext) {
 }
 
 const ACCEPT = { reject: false, reason: null } as const;
-const reject = (reason: string) => ({ reject: true, reason });
 
 function emaGate(
   check: (g: { ext: number; stop: number | null }) => string | null,
@@ -69,11 +69,12 @@ function emaGate(
   return (ctx) => {
     if (!isEmaFallbackFromHold(ctx)) return ACCEPT;
     const g = gateGeometry(ctx);
+    const detail = { extensionFromFastAtr: g.extensionFromFastAtr, stopDistanceAtr: g.stopDistanceAtr };
     if (g.extensionFromFastAtr == null || (needsStop && g.stopDistanceAtr == null)) {
-      return reject(EMA_GEOMETRY_UNAVAILABLE);
+      return { reject: true, reason: EMA_GEOMETRY_UNAVAILABLE, detail };
     }
     const reason = check({ ext: g.extensionFromFastAtr, stop: g.stopDistanceAtr });
-    return reason ? reject(reason) : ACCEPT;
+    return reason ? { reject: true, reason, detail } : ACCEPT;
   };
 }
 
@@ -118,6 +119,8 @@ export interface PassCVariantEmaSummary {
   stats: EmaDiagnosticGroupStats;
   byDirection: Partial<Record<"BUY" | "SELL", EmaDiagnosticGroupStats>>;
   byExtensionBucket: Partial<Record<ExtensionBucket, EmaDiagnosticGroupStats>>;
+  /** Per-trade EMA fallback-from-HOLD records (entry geometry, outcome). */
+  records: EmaFallbackTradeDiagnostic[];
 }
 
 export interface PassCVariantResult {
@@ -220,7 +223,8 @@ export function runPassCResearchVariants(input: {
       emaFallbackFromHold: {
         stats: ema.overall,
         byDirection: ema.byDirection,
-        byExtensionBucket: ema.byExtensionBucket
+        byExtensionBucket: ema.byExtensionBucket,
+        records: ema.trades
       },
       rejections: sim.researchGateRejections,
       trades
