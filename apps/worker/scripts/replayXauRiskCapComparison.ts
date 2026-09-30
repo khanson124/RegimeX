@@ -2,9 +2,13 @@
 /**
  * Read-only XAUUSD broker-min-volume risk-cap comparison for xau-trend-pullback-v1 (15m).
  *
- * Compares fixed risk caps (default 0.10/0.20/0.25/0.30/0.35%) on one shared signal stream:
- * a cap only decides whether a signal can be sized at the 0.01-lot broker minimum.
- * Stops, targets, signal generation and R outcomes never depend on the cap.
+ * Always reports both modes (no production settings are changed):
+ *   A. CONTROLLED_SHARED_SIGNAL — one shared signal stream; a cap only decides whether
+ *      a signal can be sized at the 0.01-lot broker minimum.
+ *   B. PRODUCTION_FAITHFUL_CHRONOLOGICAL — each cap walks M15 closes independently and
+ *      advances last-signal cooldown only when shouldConsumeStrategySignalCooldown says
+ *      so (OPENED consumes; MIN_VOLUME_EXCEEDS_RISK does not).
+ * Stops, targets and R never depend on the cap. No spread/commission/slippage.
  *
  * Reads Symbol / Candle / StrategyDefinition / BrokerSymbolMapping / InstrumentMetadata.
  * Never writes to the database, places orders, or touches DEMO/REAL services or config.

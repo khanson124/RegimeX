@@ -1,14 +1,18 @@
 /**
  * Research-only XAUUSD broker-min-volume risk-cap comparison for xau-trend-pullback-v1.
  *
- * One signal stream (production strategy on native 15m + native H4 context) is shared by every
- * risk-cap variant. A cap only decides whether a signal can be sized at the broker minimum lot
- * (DefaultPositionSizingService.calculateRaw → resolveMt5EngineVolume); stops, targets, signal
- * generation and R outcomes never depend on the cap.
+ * Two modes:
+ * - CONTROLLED_SHARED_SIGNAL: one signal stream (cooldown advances on every BUY/SELL) shared by
+ *   every cap, so a cap only decides whether a signal can be sized at the broker minimum lot
+ *   (DefaultPositionSizingService.calculateRaw → resolveMt5EngineVolume).
+ * - PRODUCTION_FAITHFUL_CHRONOLOGICAL: each cap walks the bars independently and advances the
+ *   cooldown via shouldConsumeStrategySignalCooldown, as the live MT5 session does, so rejected
+ *   signals leave the strategy eligible on later bars.
  *
- * Economic outcomes reuse the counterfactual replay simulator: NEXT_CANDLE_OPEN entry,
- * proposeCfdStopTarget plan (strategy stop/target preserved via metadata), same-bar stop+target
- * = AMBIGUOUS, single position per variant. No spread/commission/slippage.
+ * Stops, targets and R outcomes never depend on the cap. Economic outcomes reuse the
+ * counterfactual replay simulator: NEXT_CANDLE_OPEN entry, proposeCfdStopTarget plan (strategy
+ * stop/target preserved via metadata), same-bar stop+target = AMBIGUOUS, single position per
+ * variant. No spread/commission/slippage.
  */
 import {
   type Candle,
@@ -23,6 +27,7 @@ import {
   resolveMt5EngineVolume,
   type Mt5EngineVolumeDecision
 } from "../broker/mt5/engineVolume.js";
+import { shouldConsumeStrategySignalCooldown } from "../broker/mt5/strategySignalCooldown.js";
 import { validateCandleOhlc } from "../candles/candleIntegrity.js";
 import {
   XAU_TREND_PULLBACK_H4_MINIMUM_BARS,
@@ -84,12 +89,7 @@ export interface XauSignalGenerationResult {
   barsWithInsufficientH4: number;
 }
 
-/**
- * Evaluate the strategy on every analysis-window M15 close exactly once, as the live session does:
- * rolling native-15m buffer, completed native H4 context as-of the M15 close, and a cooldown that
- * advances on every BUY/SELL (cap-independent, so every variant sees the same signal stream).
- */
-export function generateXauTrendPullbackSignals(input: {
+export interface XauStrategyWalkInput {
   m15: ReadonlyArray<Candle>;
   h4: ReadonlyArray<Candle>;
   analysisStartMs: number;
@@ -98,7 +98,19 @@ export function generateXauTrendPullbackSignals(input: {
   strategy?: TradingStrategy;
   m15BufferCapacity?: number;
   h4ContextWindow?: number;
-}): XauSignalGenerationResult {
+  /** Decisions keyed by `${candleIndex}:${candlesSinceLastSignal}`; valid only for one strategy + parameter set. */
+  evaluationCache?: Map<string, StrategyDecision>;
+}
+
+/**
+ * Evaluate the strategy on every analysis-window M15 close exactly once, as the live session does:
+ * rolling native-15m buffer and completed native H4 context as-of the M15 close. `onSignal` decides
+ * whether a BUY/SELL consumes the cooldown (live: lastSignalCandle = candleIndex).
+ */
+function walkXauStrategy(
+  input: XauStrategyWalkInput,
+  onSignal: (candleIndex: number, decision: StrategyDecision, candlesSinceLastSignal: number) => boolean
+): XauSignalGenerationResult {
   const strategy = input.strategy ?? new XauTrendPullbackStrategy();
   const cap = input.m15BufferCapacity ?? XAU_M15_BUFFER_CAPACITY;
   const h4Window = input.h4ContextWindow ?? XAU_H4_CONTEXT_WINDOW;
@@ -122,30 +134,25 @@ export function generateXauTrendPullbackSignals(input: {
     if (h4Ctx.length < XAU_TREND_PULLBACK_H4_MINIMUM_BARS) barsWithInsufficientH4 += 1;
     else if (firstWarm == null && window.length >= strategy.minimumHistory) firstWarm = bar.openTime;
 
-    const decision = strategy.evaluate({
-      candles: window,
-      features: [] as MarketFeatureSnapshot[],
-      regime: { ...PLACEHOLDER_REGIME, timestamp: bar.closeTime },
-      parameters: input.parameters,
-      candlesSinceLastSignal: lastSignal === undefined ? Number.POSITIVE_INFINITY : i - lastSignal,
-      contextCandles: h4Ctx.length > 0 ? { "4h": h4Ctx } : undefined
-    });
+    const since = lastSignal === undefined ? Number.POSITIVE_INFINITY : i - lastSignal;
+    const cacheKey = `${i}:${since}`;
+    let decision = input.evaluationCache?.get(cacheKey);
+    if (!decision) {
+      decision = strategy.evaluate({
+        candles: window,
+        features: [] as MarketFeatureSnapshot[],
+        regime: { ...PLACEHOLDER_REGIME, timestamp: bar.closeTime },
+        parameters: input.parameters,
+        candlesSinceLastSignal: since,
+        contextCandles: h4Ctx.length > 0 ? { "4h": h4Ctx } : undefined
+      });
+      input.evaluationCache?.set(cacheKey, decision);
+    }
     decisions.push({ candleIndex: i, decision });
 
     if (decision.action === "BUY" || decision.action === "SELL") {
-      lastSignal = i;
-      signals.push({
-        pass: "C",
-        signalCandleIndex: i,
-        evaluation: {
-          strategyId: decision.strategyId,
-          action: decision.action,
-          confidence: decision.confidence,
-          signalTimestampMs: decision.signalTimestamp,
-          decisionMetadata: (decision.metadata ?? {}) as Record<string, unknown>
-        },
-        fromProductionHold: false
-      });
+      if (onSignal(i, decision, since)) lastSignal = i;
+      signals.push(toEconomicSignal(i, decision));
     } else {
       const codes = (decision.metadata?.entryQualityReasonCodes as string[] | undefined) ?? ["HOLD"];
       for (const c of codes) holdReasonCounts[c] = (holdReasonCounts[c] ?? 0) + 1;
@@ -160,6 +167,26 @@ export function generateXauTrendPullbackSignals(input: {
     firstBarWithFullWarmupIso: firstWarm == null ? null : new Date(firstWarm).toISOString(),
     barsWithInsufficientH4
   };
+}
+
+function toEconomicSignal(candleIndex: number, decision: StrategyDecision): ReplayEconomicSignal {
+  return {
+    pass: "C",
+    signalCandleIndex: candleIndex,
+    evaluation: {
+      strategyId: decision.strategyId,
+      action: decision.action,
+      confidence: decision.confidence,
+      signalTimestampMs: decision.signalTimestamp,
+      decisionMetadata: (decision.metadata ?? {}) as Record<string, unknown>
+    },
+    fromProductionHold: false
+  };
+}
+
+/** CONTROLLED_SHARED_SIGNAL stream: the cooldown advances on every BUY/SELL, independent of any cap. */
+export function generateXauTrendPullbackSignals(input: XauStrategyWalkInput): XauSignalGenerationResult {
+  return walkXauStrategy(input, () => true);
 }
 
 export interface BrokerMinVolumeAdmission {
@@ -220,6 +247,273 @@ export function evaluateBrokerMinVolumeAdmission(input: {
     finalVolume: volume.finalVolume,
     volume
   };
+}
+
+/** The simulator's NEXT_CANDLE_OPEN trade plan for a signal (same inputs as simulatePassEconomicOutcomes). */
+function planAtNextOpen(
+  m15: ReadonlyArray<Candle>,
+  s: ReplayEconomicSignal,
+  parameters: Record<string, number | boolean | string>,
+  tickSize: number
+): { entryCandle: Candle | undefined; plan: ReplayTradePlanSnapshot | null; scorable: boolean } {
+  const entryCandle = m15[s.signalCandleIndex + 1];
+  let plan: ReplayTradePlanSnapshot | null = null;
+  if (entryCandle) {
+    const window = m15.slice(Math.max(0, s.signalCandleIndex + 1 - XAU_REPLAY_FEATURE_LOOKBACK), s.signalCandleIndex + 1);
+    const features = extractFeatures(window, DEFAULT_FEATURE_CONFIG).at(-1);
+    if (features) {
+      plan = buildReplayTradePlan({
+        strategyId: s.evaluation.strategyId,
+        action: s.evaluation.action as PositionDirection,
+        confidence: s.evaluation.confidence,
+        signalTimestampMs: s.evaluation.signalTimestampMs,
+        entryPrice: entryCandle.open,
+        features,
+        candles: window,
+        metadata: s.evaluation.decisionMetadata,
+        tickSize,
+        parameters
+      });
+    }
+  }
+  const scorable = !!plan?.scorable && plan.stopLoss != null && plan.takeProfit != null && entryCandle != null;
+  return { entryCandle, plan, scorable };
+}
+
+/** Mirrors Mt5CfdRuntime's mapping of a failed volume decision to an autonomous decision code. */
+function volumeRejectionDecisionCode(reasonCode: string | null): string {
+  return reasonCode === MIN_VOLUME_EXCEEDS_RISK ||
+    reasonCode === "BROKER_MIN_VOLUME_EXCEEDS_ENGINE_MAX_VOLUME" ||
+    reasonCode === "STOP_INVALID"
+    ? reasonCode
+    : "RISK_BLOCKED";
+}
+
+export const PRODUCTION_FAITHFUL_COOLDOWN_POLICY =
+  "shouldConsumeStrategySignalCooldown({ opened, decisionCode }) per cap — OPENED consumes; MIN_VOLUME_EXCEEDS_RISK, MAX_CONCURRENT_POSITIONS (position open) and STOP_INVALID do not";
+
+export type XauProductionSignalOutcome = "OPENED" | "SKIPPED_OPEN_POSITION" | "UNSCORABLE_PLAN" | "VOLUME_REJECTED";
+
+export interface XauProductionSignalEvent {
+  signalCandleIndex: number;
+  signalTimeIso: string;
+  direction: PositionDirection;
+  /** null = no prior consumed signal (live: POSITIVE_INFINITY). */
+  candlesSinceLastSignal: number | null;
+  outcome: XauProductionSignalOutcome;
+  /** Autonomous decision code the live MT5 runtime would return for this signal. */
+  decisionCode: string;
+  cooldownConsumed: boolean;
+  entryPrice: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  riskAtBrokerMinVolume: number | null;
+}
+
+export interface XauProductionFaithfulCapResult {
+  capPercent: number;
+  capKey: string;
+  strategyEvaluations: number;
+  signalsGenerated: number;
+  buySignals: number;
+  sellSignals: number;
+  rejectedMinVolumeExceedsRisk: number;
+  rejectedOther: Record<string, number>;
+  admittedSignals: number;
+  entries: number;
+  skippedCooldown: number;
+  skippedOpenPosition: number;
+  cooldownConsumptions: number;
+  resolvedTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  totalR: number;
+  avgR: number | null;
+  maxDrawdownR: number;
+  longestLosingStreak: number;
+  openAtEnd: number;
+  ambiguous: number;
+  byDirection: Record<PositionDirection, XauGroupStats>;
+  holdReasonCounts: Record<string, number>;
+  /** The replay simulator, fed this cap's signal path + admission gate, reproduces the chronological trades. */
+  simulatorCrossCheck: { matches: boolean; mismatches: string[] };
+  events: XauProductionSignalEvent[];
+  metrics: ReplayPassEconomicMetrics;
+  trades: ReplaySimulatedTrade[];
+}
+
+/**
+ * PRODUCTION_FAITHFUL_CHRONOLOGICAL for one cap: walk every M15 close with this cap's own cooldown
+ * and position state. A BUY/SELL while a position is open is blocked by the capacity gate
+ * (MAX_CONCURRENT_POSITIONS, evaluated before sizing live); otherwise it is sized at the next open
+ * with the original stop. Cooldown advances only when shouldConsumeStrategySignalCooldown says so.
+ */
+export function simulateXauProductionFaithfulCap(input: XauStrategyWalkInput & {
+  capPercent: number;
+  equity: number;
+  instrument: InstrumentMetadata;
+  engineMaxVolume: number;
+}): XauProductionFaithfulCapResult {
+  const strategy = input.strategy ?? new XauTrendPullbackStrategy();
+  const tickSize = input.instrument.tickSize;
+  const paramsById = new Map([[strategy.id, input.parameters]]);
+  const admission = (direction: PositionDirection, entryPrice: number, stopLoss: number) =>
+    evaluateBrokerMinVolumeAdmission({
+      direction,
+      entryPrice,
+      stopLoss,
+      equity: input.equity,
+      riskPercent: input.capPercent,
+      instrument: input.instrument,
+      engineMaxVolume: input.engineMaxVolume
+    });
+
+  const events: XauProductionSignalEvent[] = [];
+  const chronologicalTrades: ReplaySimulatedTrade[] = [];
+  let open: ReplaySimulatedTrade | null = null;
+
+  const walk = walkXauStrategy({ ...input, strategy }, (i, decision, since) => {
+    const sig = toEconomicSignal(i, decision);
+    const direction = decision.action as PositionDirection;
+    // Simulator order per bar: enter pending → resolve open against the bar → queue signals if flat.
+    if (open && (open.outcome === "OPEN_AT_END" || open.exitCandleIndex == null || open.exitCandleIndex > i)) {
+      events.push(eventOf(i, decision, since, "SKIPPED_OPEN_POSITION", "MAX_CONCURRENT_POSITIONS", false, null, null));
+      return false;
+    }
+    open = null;
+    const { entryCandle, plan, scorable } = planAtNextOpen(input.m15, sig, input.parameters, tickSize);
+    if (!scorable) {
+      const consumed = shouldConsumeStrategySignalCooldown({ opened: false, decisionCode: "STOP_INVALID" });
+      events.push(eventOf(i, decision, since, "UNSCORABLE_PLAN", "STOP_INVALID", consumed, plan, entryCandle?.open ?? null));
+      return consumed;
+    }
+    const a = admission(direction, entryCandle!.open, plan!.stopLoss!);
+    if (!a.admitted) {
+      const code = volumeRejectionDecisionCode(a.reasonCode);
+      const consumed = shouldConsumeStrategySignalCooldown({ opened: false, decisionCode: code });
+      events.push({ ...eventOf(i, decision, since, "VOLUME_REJECTED", code, consumed, plan, entryCandle!.open), riskAtBrokerMinVolume: a.riskAtBrokerMinVolume });
+      return consumed;
+    }
+    const trade = simulatePassEconomicOutcomes({
+      candles: input.m15,
+      signals: [sig],
+      parametersByStrategyId: paramsById,
+      tickSize,
+      featureLookback: XAU_REPLAY_FEATURE_LOOKBACK
+    }).trades[0]!;
+    open = trade;
+    chronologicalTrades.push(trade);
+    const consumed = shouldConsumeStrategySignalCooldown({ opened: true, decisionCode: "OPENED" });
+    events.push({ ...eventOf(i, decision, since, "OPENED", "OPENED", consumed, plan, entryCandle!.open), riskAtBrokerMinVolume: a.riskAtBrokerMinVolume });
+    return consumed;
+  });
+
+  const econ = simulatePassEconomicOutcomes({
+    candles: input.m15,
+    signals: walk.signals,
+    parametersByStrategyId: paramsById,
+    tickSize,
+    featureLookback: XAU_REPLAY_FEATURE_LOOKBACK,
+    entryGate: (ctx) => {
+      if (ctx.plan.stopLoss == null) return { reject: true, reason: UNSCORABLE_PLAN };
+      const a = admission(ctx.direction, ctx.entryPrice, ctx.plan.stopLoss);
+      return a.admitted ? { reject: false, reason: null } : { reject: true, reason: a.reasonCode ?? "NO_TRADE" };
+    }
+  });
+  const trades = econ.trades.filter((t) => t.pass === "C");
+  const entered = trades.filter((t) => t.outcome !== "UNSCORABLE");
+  const d = econ.simulationDiagnostics.C;
+  const mismatches: string[] = [];
+  if (JSON.stringify(entered) !== JSON.stringify(chronologicalTrades)) mismatches.push("entered trades differ from chronological opens");
+  const skippedOpen = events.filter((e) => e.outcome === "SKIPPED_OPEN_POSITION").length;
+  if (d.signalsSkippedOpenPosition !== skippedOpen) mismatches.push(`skipped-open ${d.signalsSkippedOpenPosition} vs ${skippedOpen}`);
+  const volumeRejected = events.filter((e) => e.outcome === "VOLUME_REJECTED");
+  if (d.signalsRejectedByResearchGate !== volumeRejected.length) mismatches.push(`gate rejections ${d.signalsRejectedByResearchGate} vs ${volumeRejected.length}`);
+
+  const metrics = aggregatePassEconomicMetrics(trades);
+  const all = tradeStats(trades);
+  return {
+    capPercent: input.capPercent,
+    capKey: capKey(input.capPercent),
+    strategyEvaluations: walk.evaluatedBars,
+    signalsGenerated: walk.signals.length,
+    buySignals: walk.signals.filter((s) => s.evaluation.action === "BUY").length,
+    sellSignals: walk.signals.filter((s) => s.evaluation.action === "SELL").length,
+    rejectedMinVolumeExceedsRisk: volumeRejected.filter((e) => e.decisionCode === MIN_VOLUME_EXCEEDS_RISK).length,
+    rejectedOther: tally(
+      events.filter((e) => e.outcome === "UNSCORABLE_PLAN" || (e.outcome === "VOLUME_REJECTED" && e.decisionCode !== MIN_VOLUME_EXCEEDS_RISK)),
+      (e) => e.decisionCode
+    ),
+    admittedSignals: events.filter((e) => e.outcome === "OPENED").length,
+    entries: all.entries,
+    skippedCooldown: walk.holdReasonCounts.COOLDOWN_ACTIVE ?? 0,
+    skippedOpenPosition: skippedOpen,
+    cooldownConsumptions: events.filter((e) => e.cooldownConsumed).length,
+    resolvedTrades: all.resolved,
+    wins: all.wins,
+    losses: all.losses,
+    winRate: all.winRate,
+    totalR: all.totalR,
+    avgR: all.avgR,
+    maxDrawdownR: metrics.maxDrawdownR,
+    longestLosingStreak: metrics.longestLosingStreak,
+    openAtEnd: all.openAtEnd,
+    ambiguous: all.ambiguous,
+    byDirection: {
+      BUY: tradeStats(trades.filter((t) => t.direction === "BUY")),
+      SELL: tradeStats(trades.filter((t) => t.direction === "SELL"))
+    },
+    holdReasonCounts: walk.holdReasonCounts,
+    simulatorCrossCheck: { matches: mismatches.length === 0, mismatches },
+    events,
+    metrics,
+    trades
+  };
+}
+
+function eventOf(
+  i: number,
+  decision: StrategyDecision,
+  since: number,
+  outcome: XauProductionSignalOutcome,
+  decisionCode: string,
+  cooldownConsumed: boolean,
+  plan: ReplayTradePlanSnapshot | null,
+  entryPrice: number | null
+): XauProductionSignalEvent {
+  return {
+    signalCandleIndex: i,
+    signalTimeIso: new Date(decision.signalTimestamp).toISOString(),
+    direction: decision.action as PositionDirection,
+    candlesSinceLastSignal: Number.isFinite(since) ? since : null,
+    outcome,
+    decisionCode,
+    cooldownConsumed,
+    entryPrice,
+    stopLoss: plan?.stopLoss ?? null,
+    takeProfit: plan?.takeProfit ?? null,
+    riskAtBrokerMinVolume: null
+  };
+}
+
+export interface XauModeDivergenceRow {
+  capPercent: number;
+  capKey: string;
+  controlledSignals: number;
+  productionFaithfulSignals: number;
+  signalsUniqueToControlled: number;
+  signalsUniqueToProductionFaithful: number;
+  controlledEntries: number;
+  productionFaithfulEntries: number;
+  entriesUniqueToControlled: number;
+  entriesUniqueToProductionFaithful: number;
+  controlledTotalR: number;
+  productionFaithfulTotalR: number;
+  /** Production-faithful total R − controlled total R. */
+  totalRDifference: number;
+  uniqueToControlledSignalTimes: string[];
+  uniqueToProductionFaithfulSignalTimes: string[];
 }
 
 export interface XauRiskCapSignalRow {
@@ -368,6 +662,17 @@ export interface XauRiskCapComparisonReport {
   signals: XauRiskCapSignalRow[];
   dataIntegrity: XauDataIntegrity;
   limitations: string[];
+  comparisonModes: {
+    controlled: { id: "CONTROLLED_SHARED_SIGNAL"; purpose: string };
+    productionFaithful: { id: "PRODUCTION_FAITHFUL_CHRONOLOGICAL"; purpose: string };
+  };
+  productionFaithful: {
+    cooldownPolicy: string;
+    variants: XauProductionFaithfulCapResult[];
+    simulatorCrossCheckAllMatch: boolean;
+    limitations: string[];
+  };
+  divergence: XauModeDivergenceRow[];
 }
 
 function emptyStats(): XauGroupStats {
@@ -504,13 +809,15 @@ export function runXauRiskCapComparison(input: {
   const tickSize = input.instrument.tickSize;
   const paramsById = new Map([[strategy.id, parameters]]);
 
+  const evaluationCache = new Map<string, StrategyDecision>();
   const gen = generateXauTrendPullbackSignals({
     m15,
     h4,
     analysisStartMs: input.analysisStartMs,
     analysisEndMs: input.analysisEndMs,
     parameters,
-    strategy
+    strategy,
+    evaluationCache
   });
 
   const admission = (direction: PositionDirection, entryPrice: number, stopLoss: number, riskPercent: number) =>
@@ -527,27 +834,7 @@ export function runXauRiskCapComparison(input: {
   const rows: XauRiskCapSignalRow[] = gen.signals.map((s) => {
     const direction = s.evaluation.action as PositionDirection;
     const meta = s.evaluation.decisionMetadata;
-    const entryCandle = m15[s.signalCandleIndex + 1];
-    let plan: ReplayTradePlanSnapshot | null = null;
-    if (entryCandle) {
-      const window = m15.slice(Math.max(0, s.signalCandleIndex + 1 - XAU_REPLAY_FEATURE_LOOKBACK), s.signalCandleIndex + 1);
-      const features = extractFeatures(window, DEFAULT_FEATURE_CONFIG).at(-1);
-      if (features) {
-        plan = buildReplayTradePlan({
-          strategyId: s.evaluation.strategyId,
-          action: direction,
-          confidence: s.evaluation.confidence,
-          signalTimestampMs: s.evaluation.signalTimestampMs,
-          entryPrice: entryCandle.open,
-          features,
-          candles: window,
-          metadata: meta,
-          tickSize,
-          parameters
-        });
-      }
-    }
-    const scorable = !!plan?.scorable && plan.stopLoss != null && plan.takeProfit != null && entryCandle != null;
+    const { entryCandle, plan, scorable } = planAtNextOpen(m15, s, parameters, tickSize);
     const admissionByCap: XauRiskCapSignalRow["admissionByCap"] = {};
     let riskAtMin: number | null = null;
     for (const cap of caps) {
@@ -705,6 +992,62 @@ export function runXauRiskCapComparison(input: {
   const ii = input.integrityInputs;
   const h4Gaps = h4.reduce((n, c, i) => (i > 0 && c.openTime - h4[i - 1]!.openTime > 4 * 3_600_000 * 1.5 ? n + 1 : n), 0);
 
+  const productionFaithfulVariants = caps.map((cap) =>
+    simulateXauProductionFaithfulCap({
+      m15,
+      h4,
+      analysisStartMs: input.analysisStartMs,
+      analysisEndMs: input.analysisEndMs,
+      parameters,
+      strategy,
+      evaluationCache,
+      capPercent: cap,
+      equity: input.equity,
+      instrument: input.instrument,
+      engineMaxVolume: input.engineMaxVolume
+    })
+  );
+
+  const signalId = (s: { signalCandleIndex: number; direction: PositionDirection }) => `${s.signalCandleIndex}:${s.direction}`;
+  const controlledSignalIds = new Set(rows.map(signalId));
+  const timeOf = new Map<string, string>(rows.map((r) => [signalId(r), r.signalTimeIso] as const));
+  const divergence = caps.map((cap, k): XauModeDivergenceRow => {
+    const ctrl = variants[k]!;
+    const pf = productionFaithfulVariants[k]!;
+    const pfSignalIds = new Set(pf.events.map(signalId));
+    for (const e of pf.events) timeOf.set(signalId(e), e.signalTimeIso);
+    const enteredIds = (ts: ReadonlyArray<ReplaySimulatedTrade>) =>
+      new Set(ts.filter((t) => t.outcome !== "UNSCORABLE" && t.entryTimeMs != null).map(signalId));
+    const ctrlEntries = enteredIds(ctrl.trades);
+    const pfEntries = enteredIds(pf.trades);
+    const onlyCtrl = [...controlledSignalIds].filter((x) => !pfSignalIds.has(x));
+    const onlyPf = [...pfSignalIds].filter((x) => !controlledSignalIds.has(x));
+    return {
+      capPercent: cap,
+      capKey: capKey(cap),
+      controlledSignals: controlledSignalIds.size,
+      productionFaithfulSignals: pfSignalIds.size,
+      signalsUniqueToControlled: onlyCtrl.length,
+      signalsUniqueToProductionFaithful: onlyPf.length,
+      controlledEntries: ctrlEntries.size,
+      productionFaithfulEntries: pfEntries.size,
+      entriesUniqueToControlled: [...ctrlEntries].filter((x) => !pfEntries.has(x)).length,
+      entriesUniqueToProductionFaithful: [...pfEntries].filter((x) => !ctrlEntries.has(x)).length,
+      controlledTotalR: ctrl.simulation.totalR,
+      productionFaithfulTotalR: pf.totalR,
+      totalRDifference: pf.totalR - ctrl.simulation.totalR,
+      uniqueToControlledSignalTimes: onlyCtrl.map((x) => timeOf.get(x)!),
+      uniqueToProductionFaithfulSignalTimes: onlyPf.map((x) => timeOf.get(x)!)
+    };
+  });
+
+  const productionFaithfulLimitations = [
+    "Cooldown source: LiveEngineSession MT5 path sets lastSignalCandle only when shouldConsumeStrategySignalCooldown({ opened, decisionCode }) is true (OPENED / EXECUTION_REJECTED / EXECUTION_AMBIGUOUS). Broker rejections and ambiguous fills are not modeled, so only OPENED consumes here.",
+    "A BUY/SELL while this cap's position is open is recorded as MAX_CONCURRENT_POSITIONS (live capacity gate runs before sizing) and does not consume cooldown. Live capacity is account-wide; positions on other symbols are not modeled.",
+    "Risk-engine gates (daily loss, max daily trades, consecutive-loss cooldown, min seconds between trades) and worker restarts (which reset the in-memory cooldown map) are not modeled.",
+    "Each admitted trade is scored by the replay simulator; the whole per-cap signal path is then replayed through the simulator with the admission gate as a cross-check."
+  ];
+
   const limitations = [
     ...(input.extraLimitations ?? []),
     "No spread, commission, swap or slippage modeled — R is gross, identical to the counterfactual replay simulator.",
@@ -787,9 +1130,25 @@ export function runXauRiskCapComparison(input: {
         firstBarWithFullWarmupIso: gen.firstBarWithFullWarmupIso
       }
     },
-    limitations
+    limitations,
+    comparisonModes: {
+      controlled: { id: "CONTROLLED_SHARED_SIGNAL", purpose: CONTROLLED_PURPOSE },
+      productionFaithful: { id: "PRODUCTION_FAITHFUL_CHRONOLOGICAL", purpose: PRODUCTION_FAITHFUL_PURPOSE }
+    },
+    productionFaithful: {
+      cooldownPolicy: PRODUCTION_FAITHFUL_COOLDOWN_POLICY,
+      variants: productionFaithfulVariants,
+      simulatorCrossCheckAllMatch: productionFaithfulVariants.every((v) => v.simulatorCrossCheck.matches),
+      limitations: productionFaithfulLimitations
+    },
+    divergence
   };
 }
+
+const CONTROLLED_PURPOSE =
+  "Isolate the economic quality of signals admitted at higher risk caps: one shared signal stream, the cap only decides broker-minimum-lot admission.";
+const PRODUCTION_FAITHFUL_PURPOSE =
+  "Replay each cap chronologically as the live MT5 session would: rejected signals do not consume cooldown, so each cap can follow a different later signal path.";
 
 export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport): string {
   const n = (v: number | null | undefined, d = 2) => (v == null ? "—" : (Math.abs(v) < 1e-9 ? 0 : v).toFixed(d));
@@ -814,8 +1173,11 @@ export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport
   lines.push(`- Research only. The risk cap changes only whether a signal can execute at the broker minimum lot; stops, targets and R are identical across caps.`);
   lines.push("");
 
+  lines.push(`## A. Controlled shared-signal comparison (${r.comparisonModes.controlled.id})`);
+  lines.push(`Purpose: ${r.comparisonModes.controlled.purpose}`);
+  lines.push("");
   const g = r.signalGeneration;
-  lines.push(`## Signal generation`);
+  lines.push(`### Signal generation`);
   lines.push(`- Evaluated M15 closes: ${g.evaluatedBars}; strategy signals: ${g.strategySignals} (BUY ${g.buy}, SELL ${g.sell})`);
   lines.push(`- Cooldown policy: ${g.cooldownPolicy}`);
   lines.push(
@@ -826,7 +1188,7 @@ export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport
   );
   lines.push("");
 
-  lines.push(`## Risk-cap variants`);
+  lines.push(`### Risk-cap variants`);
   lines.push(`| Metric | ${r.variants.map((v) => v.capKey).join(" | ")} |`);
   lines.push(`|---|${r.variants.map(() => "---:").join("|")}|`);
   const row = (label: string, f: (v: XauRiskCapVariantResult) => string) =>
@@ -858,12 +1220,12 @@ export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport
   lines.push(`Entries and R come from one single-position simulation per cap; admission counts are per signal, independent of position state.`);
   lines.push("");
 
-  lines.push(`## Admission bands (lowest cap that admits the signal; each signal scored standalone)`);
+  lines.push(`### Admission bands (lowest cap that admits the signal; each signal scored standalone)`);
   lines.push(...statsHeader);
   for (const b of r.admissionBands) lines.push(statsRow(b.band, b.stats));
   lines.push("");
 
-  lines.push(`## Incremental analysis`);
+  lines.push(`### Incremental analysis`);
   lines.push(`| Step | Newly admitted: signals / W-L / R / avg | Simulated added: trades / W-L / R | Simulated displaced: trades / W-L / R | Net Δ R | Reconciles |`);
   lines.push(`|---|---|---|---|---:|---|`);
   for (const x of r.increments) {
@@ -877,7 +1239,7 @@ export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport
   lines.push("");
 
   const rc = r.reconciliation;
-  lines.push(`## Reconciliation`);
+  lines.push(`### Reconciliation`);
   lines.push(`- Identical signal set across variants: ${rc.identicalSignalSetAcrossVariants ? "yes" : "NO"}`);
   lines.push(`- Admission monotonic in cap: ${rc.admissionMonotonic ? "yes" : `NO (${rc.monotonicViolations} violations)`}`);
   lines.push(`- Bands sum to admitted standalone totals: ${rc.bandsSumToAdmittedStandalone ? "yes" : "NO"}`);
@@ -885,12 +1247,66 @@ export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport
   lines.push(`- Signals whose required-% band differs from the admission band (broker $0.01 risk tolerance): ${rc.requiredPercentBandMismatches}`);
   lines.push("");
 
-  lines.push(`## Signals`);
+  lines.push(`### Signals`);
   lines.push(`| Signal (M15 close) | Dir | Entry | Stop | Target | Stop dist | Risk @0.01 lot | Required % | Band | Standalone |`);
   lines.push(`|---|---|---:|---:|---:|---:|---:|---:|---|---|`);
   for (const s of r.signals) {
     lines.push(
       `| ${s.signalTimeIso} | ${s.direction} | ${n(s.entryPrice)} | ${n(s.plan?.stopLoss)} | ${n(s.plan?.takeProfit)} | ${n(s.stopDistance)} | ${n(s.riskAtBrokerMinVolume)} | ${s.requiredRiskPercentForMinLot == null ? "—" : `${s.requiredRiskPercentForMinLot.toFixed(3)}%`} | ${s.admissionBand} | ${s.standalone.outcome}${s.standalone.realizedR == null ? "" : ` ${n(s.standalone.realizedR)}R`} |`
+    );
+  }
+  lines.push("");
+
+  const pf = r.productionFaithful;
+  lines.push(`## B. Production-faithful chronological comparison (${r.comparisonModes.productionFaithful.id})`);
+  lines.push(`Purpose: ${r.comparisonModes.productionFaithful.purpose}`);
+  lines.push(`- Cooldown policy: ${pf.cooldownPolicy}`);
+  lines.push(`- Replay-simulator cross-check (per-cap signal path + admission gate reproduces the chronological trades): ${pf.simulatorCrossCheckAllMatch ? "yes" : "NO"}`);
+  lines.push("");
+  lines.push(`| Metric | ${pf.variants.map((v) => v.capKey).join(" | ")} |`);
+  lines.push(`|---|${pf.variants.map(() => "---:").join("|")}|`);
+  const pfRow = (label: string, f: (v: XauProductionFaithfulCapResult) => string) =>
+    lines.push(`| ${label} | ${pf.variants.map(f).join(" | ")} |`);
+  pfRow("Strategy evaluations", (v) => String(v.strategyEvaluations));
+  pfRow("BUY/SELL signals generated", (v) => `${v.signalsGenerated} (${v.buySignals}/${v.sellSignals})`);
+  pfRow("Rejected MIN_VOLUME_EXCEEDS_RISK", (v) => String(v.rejectedMinVolumeExceedsRisk));
+  pfRow("Rejected (other)", (v) => Object.entries(v.rejectedOther).map(([k, x]) => `${k} ${x}`).join(", ") || "0");
+  pfRow("Admitted signals", (v) => String(v.admittedSignals));
+  pfRow("Entries", (v) => String(v.entries));
+  pfRow("Skipped due to cooldown", (v) => String(v.skippedCooldown));
+  pfRow("Skipped due to open position", (v) => String(v.skippedOpenPosition));
+  pfRow("Resolved trades", (v) => String(v.resolvedTrades));
+  pfRow("W/L", (v) => `${v.wins}/${v.losses}`);
+  pfRow("Win rate", (v) => pct(v.winRate));
+  pfRow("Total R", (v) => n(v.totalR));
+  pfRow("Avg R", (v) => n(v.avgR));
+  pfRow("Max drawdown R", (v) => n(v.maxDrawdownR));
+  pfRow("Longest losing streak", (v) => String(v.longestLosingStreak));
+  pfRow("Open at end", (v) => String(v.openAtEnd));
+  pfRow("Ambiguous", (v) => String(v.ambiguous));
+  for (const dir of ["BUY", "SELL"] as const) {
+    pfRow(`${dir} trades / W-L / R`, (v) => {
+      const s = v.byDirection[dir];
+      return `${s.entries} / ${s.wins}-${s.losses} / ${n(s.totalR)}`;
+    });
+  }
+  lines.push("");
+  lines.push(`"Skipped due to cooldown" counts M15 closes the strategy held with COOLDOWN_ACTIVE on this cap's own path.`);
+  lines.push("");
+
+  lines.push(`## Mode divergence (controlled vs production-faithful)`);
+  lines.push(`| Cap | Controlled signals | Production-faithful signals | Unique to controlled | Unique to production-faithful | Entries (ctrl / pf) | Entries unique (ctrl / pf) | Controlled R | Production-faithful R | R difference (pf − ctrl) |`);
+  lines.push(`|---|---:|---:|---:|---:|---|---|---:|---:|---:|`);
+  for (const x of r.divergence) {
+    lines.push(
+      `| ${x.capKey} | ${x.controlledSignals} | ${x.productionFaithfulSignals} | ${x.signalsUniqueToControlled} | ${x.signalsUniqueToProductionFaithful} | ${x.controlledEntries} / ${x.productionFaithfulEntries} | ${x.entriesUniqueToControlled} / ${x.entriesUniqueToProductionFaithful} | ${n(x.controlledTotalR)} | ${n(x.productionFaithfulTotalR)} | ${n(x.totalRDifference)} |`
+    );
+  }
+  lines.push("");
+  for (const x of r.divergence) {
+    if (x.uniqueToControlledSignalTimes.length + x.uniqueToProductionFaithfulSignalTimes.length === 0) continue;
+    lines.push(
+      `- ${x.capKey}: only controlled ${x.uniqueToControlledSignalTimes.slice(0, 10).join(", ") || "—"}; only production-faithful ${x.uniqueToProductionFaithfulSignalTimes.slice(0, 10).join(", ") || "—"}`
     );
   }
   lines.push("");
@@ -922,5 +1338,8 @@ export function formatXauRiskCapComparisonMarkdown(r: XauRiskCapComparisonReport
 
   lines.push(`## Limitations`);
   for (const l of r.limitations) lines.push(`- ${l}`);
+  lines.push("");
+  lines.push(`### Production-faithful mode`);
+  for (const l of r.productionFaithful.limitations) lines.push(`- ${l}`);
   return `${lines.join("\n")}\n`;
 }

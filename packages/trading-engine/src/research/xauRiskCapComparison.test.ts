@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type Candle, type StrategyDecision } from "@regimex/shared";
 import {
@@ -6,6 +8,7 @@ import {
   VOLUME_RAISED_TO_BROKER_MIN_WITHIN_RISK,
   resolveMt5EngineVolume
 } from "../broker/mt5/engineVolume.js";
+import { shouldConsumeStrategySignalCooldown } from "../broker/mt5/strategySignalCooldown.js";
 import { DefaultPositionSizingService } from "../execution/positionSizing.js";
 import { extractFeatures } from "../features/featureExtractor.js";
 import { XauTrendPullbackStrategy, XAU_TREND_PULLBACK_DEFAULTS } from "../strategies/xauTrendPullback.js";
@@ -18,6 +21,7 @@ import {
   formatXauRiskCapComparisonMarkdown,
   generateXauTrendPullbackSignals,
   runXauRiskCapComparison,
+  simulateXauProductionFaithfulCap,
   type XauRiskCapComparisonReport
 } from "./xauRiskCapComparison.js";
 
@@ -116,7 +120,8 @@ function run(
   m15: Candle[],
   plan: Map<number, PlannedSignal>,
   caps: ReadonlyArray<number> = XAU_RISK_CAP_PERCENTS,
-  seen?: number[]
+  seen?: number[],
+  strategy: TradingStrategy = plannedStrategy(plan, seen)
 ): XauRiskCapComparisonReport {
   return runXauRiskCapComparison({
     symbol: "XAUUSD",
@@ -129,8 +134,67 @@ function run(
     engineMaxVolume: ENGINE_MAX_VOLUME,
     riskCapsPercent: caps,
     parameters: {},
-    strategy: plannedStrategy(plan, seen)
+    strategy
   });
+}
+
+/** Planned signals gated by a 4-bar cooldown checked first, like XauTrendPullbackStrategy (COOLDOWN_ACTIVE). */
+function cooldownStrategy(plan: Map<number, PlannedSignal>, seenByIndex?: Map<number, number>): TradingStrategy {
+  const inner = plannedStrategy(plan);
+  return {
+    ...inner,
+    evaluate(ctx): StrategyDecision {
+      const idx = Math.round((ctx.candles.at(-1)!.openTime - START) / M15);
+      seenByIndex?.set(idx, ctx.candlesSinceLastSignal);
+      const d = inner.evaluate(ctx);
+      if (ctx.candlesSinceLastSignal < 4) {
+        return { ...d, action: "HOLD", confidence: 0, metadata: { entryQualityReasonCodes: ["COOLDOWN_ACTIVE"] } };
+      }
+      return d;
+    }
+  };
+}
+
+/**
+ * 300: wide BUY (0.34% needed at 0.01 lot) that reaches target at bar 312.
+ * 302/308/310/313: tight BUYs (0.09%) reaching target at 305, 312, 312 and 318.
+ */
+function divergenceScenario() {
+  const plan = new Map<number, PlannedSignal>([
+    [300, { action: "BUY", stopDist: 34 }],
+    [302, { action: "BUY", stopDist: 9 }],
+    [308, { action: "BUY", stopDist: 9 }],
+    [310, { action: "BUY", stopDist: 9 }],
+    [313, { action: "BUY", stopDist: 9 }]
+  ]);
+  const m15 = Array.from({ length: 340 }, (_, i) => bar(i));
+  m15[305] = bar(305, { high: 2019 });
+  m15[312] = bar(312, { high: 2069 });
+  m15[318] = bar(318, { high: 2019 });
+  return { plan, m15 };
+}
+
+function faithfulCap(m15: Candle[], strategy: TradingStrategy, capPercent: number) {
+  return simulateXauProductionFaithfulCap({
+    m15,
+    h4: [],
+    analysisStartMs: m15[0]!.openTime,
+    analysisEndMs: m15.at(-1)!.closeTime,
+    parameters: {},
+    strategy,
+    capPercent,
+    equity: EQUITY,
+    instrument: INSTRUMENT,
+    engineMaxVolume: ENGINE_MAX_VOLUME
+  });
+}
+
+/** Everything the controlled comparison reported before the production-faithful mode existed. */
+function controlledHash(r: XauRiskCapComparisonReport): string {
+  const keys = ["kind", "config", "signalGeneration", "variants", "admissionBands", "increments", "reconciliation", "signals", "dataIntegrity", "limitations"] as const;
+  return createHash("sha256")
+    .update(JSON.stringify(Object.fromEntries(keys.map((k) => [k, r[k]]))))
+    .digest("hex");
 }
 
 describe("XAUUSD broker-min-volume risk-cap comparison", () => {
@@ -261,7 +325,14 @@ describe("XAUUSD broker-min-volume risk-cap comparison", () => {
     ]);
     expect(r.reconciliation.requiredPercentBandMismatches).toBe(0);
     const md = formatXauRiskCapComparisonMarkdown(r);
-    for (const h of ["## Risk-cap variants", "## Admission bands", "## Incremental analysis", "## Data integrity", "## Limitations"]) {
+    for (const h of [
+      "## A. Controlled shared-signal comparison (CONTROLLED_SHARED_SIGNAL)",
+      "### Risk-cap variants",
+      "### Admission bands",
+      "### Incremental analysis",
+      "## Data integrity",
+      "## Limitations"
+    ]) {
       expect(md).toContain(h);
     }
     expect(md).toContain("| Rejected MIN_VOLUME_EXCEEDS_RISK | 5 | 4 | 3 | 2 | 1 |");
@@ -393,5 +464,185 @@ describe("XAUUSD broker-min-volume risk-cap comparison", () => {
       .split("\n");
     expect(ignored).toEqual(latest);
     expect(execFileSync("git", ["ls-files", "--", ...latest], { cwd: repoRoot, encoding: "utf8" }).trim()).toBe("");
+  });
+});
+
+describe("XAUUSD risk-cap comparison — production-faithful chronological mode", () => {
+  it("pins the production cooldown rule this mode reuses", () => {
+    expect(shouldConsumeStrategySignalCooldown({ opened: true, decisionCode: "OPENED" })).toBe(true);
+    expect(shouldConsumeStrategySignalCooldown({ opened: false, decisionCode: MIN_VOLUME_EXCEEDS_RISK })).toBe(false);
+    expect(shouldConsumeStrategySignalCooldown({ opened: false, decisionCode: "MAX_CONCURRENT_POSITIONS" })).toBe(false);
+    expect(shouldConsumeStrategySignalCooldown({ opened: false, decisionCode: "STOP_INVALID" })).toBe(false);
+  });
+
+  it("a MIN_VOLUME_EXCEEDS_RISK rejection does not consume cooldown", () => {
+    const { plan, m15 } = divergenceScenario();
+    const seen = new Map<number, number>();
+    const low = faithfulCap(m15, cooldownStrategy(plan, seen), 0.1);
+    const first = low.events[0]!;
+    expect(first).toMatchObject({
+      signalCandleIndex: 300,
+      outcome: "VOLUME_REJECTED",
+      decisionCode: MIN_VOLUME_EXCEEDS_RISK,
+      cooldownConsumed: false,
+      riskAtBrokerMinVolume: 34
+    });
+    expect(seen.get(301)).toBe(Number.POSITIVE_INFINITY);
+    expect(seen.get(302)).toBe(Number.POSITIVE_INFINITY);
+    expect(low.events[1]).toMatchObject({ signalCandleIndex: 302, outcome: "OPENED", candlesSinceLastSignal: null, cooldownConsumed: true });
+    expect(seen.get(303)).toBe(1);
+    expect(low).toMatchObject({ rejectedMinVolumeExceedsRisk: 1, admittedSignals: 3, entries: 3, cooldownConsumptions: 3 });
+  });
+
+  it("an admitted signal consumes cooldown on its signal bar; open-position skips do not", () => {
+    const { plan, m15 } = divergenceScenario();
+    const seen = new Map<number, number>();
+    const high = faithfulCap(m15, cooldownStrategy(plan, seen), 0.35);
+    expect(high.events.map((e) => [e.signalCandleIndex, e.outcome, e.decisionCode, e.cooldownConsumed, e.candlesSinceLastSignal])).toEqual([
+      [300, "OPENED", "OPENED", true, null],
+      [308, "SKIPPED_OPEN_POSITION", "MAX_CONCURRENT_POSITIONS", false, 8],
+      [310, "SKIPPED_OPEN_POSITION", "MAX_CONCURRENT_POSITIONS", false, 10],
+      [313, "OPENED", "OPENED", true, 13]
+    ]);
+    // lastSignalCandle = candleIndex of the OPENED signal, as in LiveEngineSession.
+    [1, 2, 3].forEach((k) => expect(seen.get(300 + k)).toBe(k));
+    expect(seen.get(314)).toBe(1);
+    for (const e of [...high.events, ...faithfulCap(m15, cooldownStrategy(plan), 0.1).events]) {
+      expect(e.cooldownConsumed).toBe(shouldConsumeStrategySignalCooldown({ opened: e.outcome === "OPENED", decisionCode: e.decisionCode }));
+    }
+    expect(high).toMatchObject({ skippedOpenPosition: 2, skippedCooldown: 6, entries: 2, wins: 2, losses: 0, openAtEnd: 0 });
+    expect(high.totalR).toBeCloseTo(4, 9);
+    expect(high.simulatorCrossCheck).toEqual({ matches: true, mismatches: [] });
+  });
+
+  it("lower and higher caps legitimately follow different later signal paths", () => {
+    const { plan, m15 } = divergenceScenario();
+    const r = run(m15, plan, XAU_RISK_CAP_PERCENTS, undefined, cooldownStrategy(plan));
+    expect(r.signals.map((s) => s.signalCandleIndex)).toEqual([300, 308, 313]);
+    const pf = r.productionFaithful.variants;
+    const signalsAt = (k: number) => pf[k]!.events.map((e) => e.signalCandleIndex);
+    for (const k of [0, 1, 2, 3]) expect(signalsAt(k)).toEqual([300, 302, 308, 313]);
+    expect(signalsAt(4)).toEqual([300, 308, 310, 313]);
+    expect(pf.map((v) => v.totalR)).toEqual([6, 6, 6, 6, 4]);
+    expect(pf[0]!.skippedCooldown).toBe(9);
+    expect(r.productionFaithful.simulatorCrossCheckAllMatch).toBe(true);
+
+    const [low, , , , high] = r.divergence;
+    expect(low).toMatchObject({
+      controlledSignals: 3,
+      productionFaithfulSignals: 4,
+      signalsUniqueToControlled: 0,
+      signalsUniqueToProductionFaithful: 1,
+      controlledEntries: 2,
+      productionFaithfulEntries: 3,
+      entriesUniqueToControlled: 0,
+      entriesUniqueToProductionFaithful: 1,
+      uniqueToProductionFaithfulSignalTimes: [new Date(m15[302]!.closeTime).toISOString()]
+    });
+    expect(low!.totalRDifference).toBeCloseTo(2, 9);
+    expect(high).toMatchObject({ signalsUniqueToControlled: 0, signalsUniqueToProductionFaithful: 1, entriesUniqueToControlled: 0, entriesUniqueToProductionFaithful: 0 });
+    expect(high!.totalRDifference).toBeCloseTo(0, 9);
+
+    const md = formatXauRiskCapComparisonMarkdown(r);
+    for (const h of ["## A. Controlled shared-signal comparison (CONTROLLED_SHARED_SIGNAL)", "## B. Production-faithful chronological comparison (PRODUCTION_FAITHFUL_CHRONOLOGICAL)", "## Mode divergence"]) {
+      expect(md).toContain(h);
+    }
+    expect(md).toContain("| Skipped due to open position | 0 | 0 | 0 | 0 | 2 |");
+  });
+
+  it("each cap keeps independent cooldown and position state", () => {
+    const { plan, m15 } = divergenceScenario();
+    const both = run(m15, plan, [0.1, 0.35], undefined, cooldownStrategy(plan)).productionFaithful.variants;
+    const reversed = run(m15, plan, [0.35, 0.1], undefined, cooldownStrategy(plan)).productionFaithful.variants;
+    const aloneLow = run(m15, plan, [0.1], undefined, cooldownStrategy(plan)).productionFaithful.variants[0]!;
+    const aloneHigh = run(m15, plan, [0.35], undefined, cooldownStrategy(plan)).productionFaithful.variants[0]!;
+    expect(both[0]).toEqual(aloneLow);
+    expect(both[1]).toEqual(aloneHigh);
+    expect(reversed).toEqual(both);
+    // The shared evaluation cache inside the report does not leak state between caps.
+    expect(faithfulCap(m15, cooldownStrategy(plan), 0.1)).toEqual(aloneLow);
+    expect(faithfulCap(m15, cooldownStrategy(plan), 0.35)).toEqual(aloneHigh);
+  });
+
+  it("controlled mode is result-for-result unchanged", () => {
+    const band = bandScenario();
+    expect(controlledHash(run(band.m15, band.plan))).toBe("6cc9d32476af47b607719211ece10cb38364972a320749329172fabd4744ad7a");
+
+    const ind = new Map<number, PlannedSignal>([
+      [300, { action: "BUY", stopDist: 34 }],
+      [320, { action: "BUY", stopDist: 5 }]
+    ]);
+    const im = Array.from({ length: 360 }, (_, i) => bar(i));
+    im[330] = bar(330, { high: 2010.5 });
+    expect(controlledHash(run(im, ind, [0.1, 0.35]))).toBe("83f4cc80a64721931e2ff3b647a560e8cc9624b5c16e190c412c777d7cf7a9a5");
+
+    const div = divergenceScenario();
+    expect(controlledHash(run(div.m15, div.plan, XAU_RISK_CAP_PERCENTS, undefined, cooldownStrategy(div.plan)))).toBe(
+      "af2af048568e0b661d12f6d19d2932438ee4d6f7c3a8eefc25ba65aada7c644b"
+    );
+
+    const real: Candle[] = Array.from({ length: 1400 }, (_, i) => {
+      const px = 2000 + i * 0.4 + Math.sin(i / 5) * 6 + Math.sin(i / 23) * 9;
+      return bar(i, { open: px - 0.3, high: px + 2.5, low: px - 2.5, close: px });
+    });
+    const h4: Candle[] = Array.from({ length: 200 }, (_, i) => {
+      const openTime = START - 140 * H4 + i * H4;
+      const px = 1900 + i * 2;
+      return { ...bar(0), interval: "4h" as Candle["interval"], openTime, closeTime: openTime + H4, open: px - 1, high: px + 3, low: px - 3, close: px };
+    });
+    const realReport = runXauRiskCapComparison({
+      symbol: "XAUUSD",
+      m15: real,
+      h4,
+      analysisStartMs: real[0]!.openTime,
+      analysisEndMs: real.at(-1)!.closeTime,
+      equity: EQUITY,
+      instrument: INSTRUMENT,
+      engineMaxVolume: ENGINE_MAX_VOLUME,
+      parameters: { ...XAU_TREND_PULLBACK_DEFAULTS, sessionStartHourUtc: 0, sessionEndHourUtc: 24 }
+    });
+    expect(controlledHash(realReport)).toBe("5e8ad5e373a79154ca294e06e48ccc808c0bd87fd3f88c2d08c8e94fbcfb2d37");
+    expect(realReport.productionFaithful.variants.every((v) => v.strategyEvaluations === realReport.signalGeneration.evaluatedBars)).toBe(true);
+  });
+
+  it("strategy parameters, stops and targets are identical in both modes", () => {
+    const { plan, m15 } = divergenceScenario();
+    const parameters = Object.freeze({ ...XAU_TREND_PULLBACK_DEFAULTS });
+    const instrument = Object.freeze({ ...INSTRUMENT });
+    const r = runXauRiskCapComparison({
+      symbol: "XAUUSD",
+      m15,
+      h4: [],
+      analysisStartMs: m15[0]!.openTime,
+      analysisEndMs: m15.at(-1)!.closeTime,
+      equity: EQUITY,
+      instrument,
+      engineMaxVolume: ENGINE_MAX_VOLUME,
+      parameters,
+      strategy: cooldownStrategy(plan)
+    });
+    expect(r.config.parameters).toEqual({ ...XAU_TREND_PULLBACK_DEFAULTS });
+    const strategyStop = (i: number) => m15[i]!.close - plan.get(i)!.stopDist;
+    const strategyTarget = (i: number) => m15[i]!.close + 2 * plan.get(i)!.stopDist;
+    for (const v of r.productionFaithful.variants) {
+      for (const e of v.events.filter((x) => x.outcome !== "SKIPPED_OPEN_POSITION")) {
+        expect(e.stopLoss).toBe(strategyStop(e.signalCandleIndex));
+        expect(e.takeProfit).toBe(strategyTarget(e.signalCandleIndex));
+      }
+      for (const t of v.trades) {
+        expect(t.stopPrice).toBe(strategyStop(t.signalCandleIndex));
+        expect(t.targetPrice).toBe(strategyTarget(t.signalCandleIndex));
+      }
+    }
+    const ctrlTrade = r.variants.at(-1)!.trades.find((t) => t.signalCandleIndex === 313)!;
+    const pfTrade = r.productionFaithful.variants.at(-1)!.trades.find((t) => t.signalCandleIndex === 313)!;
+    expect(pfTrade).toEqual(ctrlTrade);
+  });
+
+  it("the comparison module has no DB, env or config access", () => {
+    const src = readFileSync(new URL("./xauRiskCapComparison.ts", import.meta.url), "utf8");
+    for (const banned of ["prisma", "Prisma", "process.env", "@regimex/config", "writeFile", "loadConfig"]) {
+      expect(src).not.toContain(banned);
+    }
   });
 });
