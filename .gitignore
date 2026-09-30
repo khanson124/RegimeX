@@ -24,3 +24,7 @@ research-datasets/auto-selection-counterfactual/*_latest.md
 # Generated R_10 AUTO forward-validation reports (regenerate via replayR10AutoForwardValidation.ts)
 research-datasets/auto-selection-forward-validation/*.json
 research-datasets/auto-selection-forward-validation/*_latest.md
+
+# Generated XAUUSD risk-cap comparison reports (regenerate via replayXauRiskCapComparison.ts)
+research-datasets/xau-risk-cap-comparison/*.json
+research-datasets/xau-risk-cap-comparison/*_latest.md

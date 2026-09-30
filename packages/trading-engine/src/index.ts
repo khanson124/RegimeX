@@ -151,6 +151,7 @@ export * from "./research/mt5ForwardLedger.js";
 export * from "./research/evidenceRanking.js";
 export * from "./research/autoSelectionCounterfactualReplay.js";
 export * from "./research/autoSelectionForwardValidation.js";
+export * from "./research/xauRiskCapComparison.js";
 export * from "./research/mt5CandleContinuity.js";
 export * from "./logging/redactSecrets.js";
 export * from "./logging/oncePerCode.js";
