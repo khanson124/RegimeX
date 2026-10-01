@@ -28,3 +28,7 @@ research-datasets/auto-selection-forward-validation/*_latest.md
 # Generated XAUUSD risk-cap comparison reports (regenerate via replayXauRiskCapComparison.ts)
 research-datasets/xau-risk-cap-comparison/*.json
 research-datasets/xau-risk-cap-comparison/*_latest.md
+
+# Generated XAUUSD session-hours comparison reports (regenerate via replayXauSessionHoursComparison.ts)
+research-datasets/xau-session-hours-comparison/*.json
+research-datasets/xau-session-hours-comparison/*_latest.md

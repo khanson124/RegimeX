@@ -102,4 +102,20 @@ describe("XAU risk-cap comparison loader (read-only)", () => {
     expect(writes.every((w) => w.includes("paths."))).toBe(true);
     expect(sources.cli).toContain('"../../research-datasets/xau-risk-cap-comparison"');
   });
+
+  it("session-hours CLI is read-only and does not mutate DEMO/REAL config", () => {
+    const cli = read("../../scripts/replayXauSessionHoursComparison.ts");
+    const moduleSrc = read("../../../../packages/trading-engine/src/research/xauSessionHoursComparison.ts");
+    const writeCall = /\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw|\$transaction/;
+    expect(writeCall.test(cli)).toBe(false);
+    expect(writeCall.test(moduleSrc)).toBe(false);
+    expect(/config\.[A-Z_]+\s*=[^=]/.test(cli)).toBe(false);
+    expect(moduleSrc).not.toContain("resolveMt5EngineRiskCap");
+    expect(cli.match(/process\.env\[[^\]]+\]\s*=[^=]/g)).toEqual(["process.env[key] = "]);
+    const writes = cli.match(/writeFileSync\(([^,]+),/g) ?? [];
+    expect(writes).toHaveLength(4);
+    expect(writes.every((w) => w.includes("paths."))).toBe(true);
+    expect(cli).toContain('"../../research-datasets/xau-session-hours-comparison"');
+    expect(cli).toContain("XAU_SESSION_HOURS_RISK_PERCENT");
+  });
 });
