@@ -1397,12 +1397,12 @@ export class LiveEngineSession {
       return;
     }
 
-    const chosen = eligible.find((s) => s.strategy.id === selectionResult.selectedStrategyId)!;
-    const chosenPerf = performanceById.get(chosen.strategy.id) ?? null;
-    const mt5Forward = cfdVenue && this.executionBackend === "broker_demo_mt5"
+    let chosen = eligible.find((s) => s.strategy.id === selectionResult.selectedStrategyId)!;
+    let chosenPerf = performanceById.get(chosen.strategy.id) ?? null;
+    let mt5Forward = cfdVenue && this.executionBackend === "broker_demo_mt5"
       ? await this.loadMt5ForwardSnapshot(chosen.strategy.id, regime.regime)
       : null;
-    const evidenceSummary = chosenPerf
+    const summarizeEvidence = () => chosenPerf
       ? {
           tradeCount: chosenPerf.trades,
           expectancyR: chosenPerf.expectancyR ?? null,
@@ -1440,6 +1440,7 @@ export class LiveEngineSession {
             })
           }
         : null;
+    let evidenceSummary = summarizeEvidence();
     await publish(this.userId, "strategy.selected", {
       ...selectionResult,
       selectionMode: selectionResult.selectionMode,
@@ -1478,39 +1479,42 @@ export class LiveEngineSession {
       }
     });
 
-    // Evaluate.
-    const lastSignal = this.lastSignalCandle.get(chosen.strategy.id);
-    const sessionHours = resolveMt5DemoXauSession({
-      executionMode: this.executionBackend,
-      symbol: this.symbol,
-      interval: this.interval,
-      strategyId: chosen.strategy.id,
-      parameters: chosen.parameters,
-      sessionStartUtc: this.deps.config.MT5_DEMO_XAUUSD_SESSION_START_UTC,
-      sessionEndUtc: this.deps.config.MT5_DEMO_XAUUSD_SESSION_END_UTC
-    });
-    if (this.symbol === "XAUUSD") {
-      this.log.info({
+    // Every executable decision uses production cooldown and normal session parameters.
+    const evaluateProductionStrategy = (chosen: LoadedStrategy) => {
+      const lastSignal = this.lastSignalCandle.get(chosen.strategy.id);
+      const sessionHours = resolveMt5DemoXauSession({
+        executionMode: this.executionBackend,
         symbol: this.symbol,
         interval: this.interval,
         strategyId: chosen.strategy.id,
-        executionMode: this.executionBackend,
-        defaultSession: sessionHours.defaultSession,
-        selectedSession: sessionHours.selectedSession,
-        demoSessionOverrideApplied: sessionHours.demoSessionOverrideApplied
-      }, "XAU evaluation session hours");
-    }
-    const decision = chosen.strategy.evaluate({
-      candles: this.candles,
-      features,
-      regime,
-      parameters: sessionHours.parameters,
-      candlesSinceLastSignal: lastSignal === undefined ? Number.POSITIVE_INFINITY : this.candleIndex - lastSignal,
-      contextCandles:
-        this.mt5ContextCandles.size > 0
-          ? Object.fromEntries(this.mt5ContextCandles.entries())
-          : undefined
-    });
+        parameters: chosen.parameters,
+        sessionStartUtc: this.deps.config.MT5_DEMO_XAUUSD_SESSION_START_UTC,
+        sessionEndUtc: this.deps.config.MT5_DEMO_XAUUSD_SESSION_END_UTC
+      });
+      if (this.symbol === "XAUUSD") {
+        this.log.info({
+          symbol: this.symbol,
+          interval: this.interval,
+          strategyId: chosen.strategy.id,
+          executionMode: this.executionBackend,
+          defaultSession: sessionHours.defaultSession,
+          selectedSession: sessionHours.selectedSession,
+          demoSessionOverrideApplied: sessionHours.demoSessionOverrideApplied
+        }, "XAU evaluation session hours");
+      }
+      return chosen.strategy.evaluate({
+        candles: this.candles,
+        features,
+        regime,
+        parameters: sessionHours.parameters,
+        candlesSinceLastSignal: lastSignal === undefined ? Number.POSITIVE_INFINITY : this.candleIndex - lastSignal,
+        contextCandles:
+          this.mt5ContextCandles.size > 0
+            ? Object.fromEntries(this.mt5ContextCandles.entries())
+            : undefined
+      });
+    };
+    let decision = evaluateProductionStrategy(chosen);
 
     // Opt-in observational shadow — never submits, never touches production cooldown/selection.
     let shadowReport: AutoShadowEvaluationReport | null = null;
@@ -1527,6 +1531,45 @@ export class LiveEngineSession {
         });
       } catch (err) {
         this.log.warn({ err, correlationId, symbol: this.symbol }, "AUTO_SHADOW_EVAL failed (non-fatal)");
+      }
+    }
+
+    // DEMO R_10 AUTO only: shadow identifies an ID, never an executable decision.
+    if (
+      this.executionBackend === "broker_demo_mt5" &&
+      this.mode === "DEMO_TRADING" &&
+      this.symbol === "R_10" &&
+      this.engineSelectionMode === "AUTO" &&
+      decision.action === "HOLD" &&
+      shadowReport
+    ) {
+      const candidate = shadowReport.candidates
+        .filter((item) => !item.isProductionSelected && item.shadowSignalEligible && item.rank != null)
+        .sort((a, b) => a.rank! - b.rank!)[0];
+      const fallback = candidate
+        ? eligible.find((item) => item.strategy.id === candidate.strategyId && item !== chosen)
+        : undefined;
+      if (fallback && candidate) {
+        const fallbackDecision = evaluateProductionStrategy(fallback);
+        if (fallbackDecision.action === "BUY" || fallbackDecision.action === "SELL") {
+          const fallbackForward = await this.loadMt5ForwardSnapshot(fallback.strategy.id, regime.regime);
+          const activation = {
+            event: "DEMO_AUTO_HOLD_FALLBACK_ACTIVATED",
+            originalStrategyId: chosen.strategy.id,
+            fallbackStrategyId: fallback.strategy.id,
+            fallbackRank: candidate.rank,
+            originalAction: decision.action,
+            fallbackAction: fallbackDecision.action,
+            correlationId
+          };
+          // Switch the entire effective context before any downstream signal or submission check.
+          chosen = fallback;
+          decision = fallbackDecision;
+          chosenPerf = performanceById.get(chosen.strategy.id) ?? null;
+          mt5Forward = fallbackForward;
+          evidenceSummary = summarizeEvidence();
+          this.log.info(activation, "DEMO_AUTO_HOLD_FALLBACK_ACTIVATED");
+        }
       }
     }
 

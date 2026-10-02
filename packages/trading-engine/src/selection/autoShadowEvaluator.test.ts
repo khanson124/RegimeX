@@ -49,7 +49,11 @@ function mockStrategy(input: {
     kind: input.kind,
     supportedRegimes: ["STRONG_UPTREND", "BREAKOUT_EXPANSION"] as MarketRegime[],
     minimumHistory: 1,
-    eligibility: { minimumRegimeConfidence: 0.1 },
+    eligibility: {
+      supportedRegimes: ["STRONG_UPTREND", "BREAKOUT_EXPANSION"],
+      requiredIndicators: [], minimumHistory: 1, minimumRegimeConfidence: 0.1,
+      minimumStrategyConfidence: 0, allowedSymbols: [], allowedIntervals: [], cooldownCandles: cooldown
+    },
     validateParameters: (raw) => raw as Record<string, number | boolean | string>,
     evaluate(ctx: StrategyContext): StrategyDecision {
       input.onEvaluate?.();
@@ -222,7 +226,7 @@ describe("autoShadowEvaluator", () => {
       selectionResult: {
         selectedStrategyId: holder.id,
         selectionScore: 60,
-        selectionMode: "BOOTSTRAP",
+        selectionMode: "BOOTSTRAP" as const,
         alternatives: [{ strategyId: buyer.id, score: 40, componentScores: {} }]
       },
       productionDecision: holdLike(holder, ts + 60_000, "HOLD", ["no"]),
