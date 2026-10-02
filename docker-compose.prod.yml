@@ -10,6 +10,9 @@ services:
     ports: !reset []
 
   api:
+    # Code-only restarts must not migrate or seed shared trading state.
+    entrypoint: []
+    command: ["pnpm", "--filter", "@regimex/api", "start"]
     ports: !override
       - "127.0.0.1:4000:4000"
     environment:
