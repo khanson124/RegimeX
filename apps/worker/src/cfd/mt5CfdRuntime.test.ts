@@ -94,3 +94,14 @@ describe("Mt5CfdRuntime execution guards", () => {
     expect(src).not.toMatch(/process\.env\[[^\]]+\]\s*=[^=]/);
   });
 });
+
+
+it("passes engine scope to the adapter without changing the request risk or sizing", () => {
+  const src = readFileSync(join(here, "mt5CfdRuntime.ts"), "utf8");
+  expect(src).toContain(`this.adapter.openMarketPosition(openRequest, {
+        executionMode: this.deps.config.EXECUTION_MODE,
+        symbol: input.symbol,
+        interval: input.interval,
+        strategyId: input.strategyId
+      })`);
+});

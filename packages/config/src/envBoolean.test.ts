@@ -73,3 +73,29 @@ describe("loadConfig boolean env", () => {
     expect(invalid.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBeUndefined();
   });
 });
+
+
+describe("DEMO XAU session env", () => {
+  it("accepts midnight and end-of-day without altering risk settings", () => {
+    resetConfigCache();
+    const config = loadConfig({ ...required,
+      MT5_DEMO_XAUUSD_SESSION_START_UTC: "0", MT5_DEMO_XAUUSD_SESSION_END_UTC: "24",
+      MT5_DEMO_XAUUSD_MAX_RISK_PERCENT: "0.2"
+    });
+    expect(config.MT5_DEMO_XAUUSD_SESSION_START_UTC).toBe(0);
+    expect(config.MT5_DEMO_XAUUSD_SESSION_END_UTC).toBe(24);
+    expect(config.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBe(0.2);
+    expect(config.MT5_ENGINE_MAX_RISK_PERCENT).toBe(0.1);
+  });
+
+  it.each([undefined, "", " ", "invalid", "NaN", "Infinity", "-1", "25", "0.5"])(
+    "disables invalid optional hours: %s", (value) => {
+      resetConfigCache();
+      const config = loadConfig({ ...required,
+        MT5_DEMO_XAUUSD_SESSION_START_UTC: value, MT5_DEMO_XAUUSD_SESSION_END_UTC: value
+      });
+      expect(config.MT5_DEMO_XAUUSD_SESSION_START_UTC).toBeUndefined();
+      expect(config.MT5_DEMO_XAUUSD_SESSION_END_UTC).toBeUndefined();
+    }
+  );
+});

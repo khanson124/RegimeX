@@ -1617,7 +1617,12 @@ export class Mt5CfdRuntime {
       const openRequest = buildOpenRequest();
       (openRequest.metadata.finalExecution as { invalidStopsResubmits?: number }).invalidStopsResubmits =
         invalidStopsResubmits;
-      result = await this.adapter.openMarketPosition(openRequest);
+      result = await this.adapter.openMarketPosition(openRequest, {
+        executionMode: this.deps.config.EXECUTION_MODE,
+        symbol: input.symbol,
+        interval: input.interval,
+        strategyId: input.strategyId
+      });
 
       if (result.accepted && result.position) {
         break;

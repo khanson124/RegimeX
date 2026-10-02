@@ -24,6 +24,13 @@ function demoConfig(overrides: Record<string, unknown> = {}) {
 }
 
 describe("shared MT5 adapter factory (R_10 + XAUUSD tooling)", () => {
+  it("passes the existing DEMO Gold cap without raising the default execution cap", () => {
+    const cfg = buildDerivMt5BrokerConfig(demoConfig({ MT5_DEMO_XAUUSD_MAX_RISK_PERCENT: 0.2 }));
+    expect(cfg.maxTestRiskPercent).toBe(0.1);
+    expect(cfg.demoXauMaxRiskPercent).toBe(0.2);
+    expect(buildDerivMt5BrokerConfig(demoConfig()).demoXauMaxRiskPercent).toBeUndefined();
+  });
+
   it("resolves bridge URL without MT5_BRIDGE_URL (Compose/default host path)", () => {
     expect(
       resolveMt5BridgeUrl({

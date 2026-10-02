@@ -84,6 +84,7 @@ import {
   type Mt5QuotePollHealth,
   type Mt5SessionHealthContribution
 } from "@regimex/trading-engine";
+import { resolveMt5DemoXauSession } from "./mt5DemoXauSession.js";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
 import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
 import { closeMt5LocalPosition, emergencyCloseOwnedMt5Positions } from "../cfd/mt5CloseRuntime.js";
@@ -1479,11 +1480,31 @@ export class LiveEngineSession {
 
     // Evaluate.
     const lastSignal = this.lastSignalCandle.get(chosen.strategy.id);
+    const sessionHours = resolveMt5DemoXauSession({
+      executionMode: this.executionBackend,
+      symbol: this.symbol,
+      interval: this.interval,
+      strategyId: chosen.strategy.id,
+      parameters: chosen.parameters,
+      sessionStartUtc: this.deps.config.MT5_DEMO_XAUUSD_SESSION_START_UTC,
+      sessionEndUtc: this.deps.config.MT5_DEMO_XAUUSD_SESSION_END_UTC
+    });
+    if (this.symbol === "XAUUSD") {
+      this.log.info({
+        symbol: this.symbol,
+        interval: this.interval,
+        strategyId: chosen.strategy.id,
+        executionMode: this.executionBackend,
+        defaultSession: sessionHours.defaultSession,
+        selectedSession: sessionHours.selectedSession,
+        demoSessionOverrideApplied: sessionHours.demoSessionOverrideApplied
+      }, "XAU evaluation session hours");
+    }
     const decision = chosen.strategy.evaluate({
       candles: this.candles,
       features,
       regime,
-      parameters: chosen.parameters,
+      parameters: sessionHours.parameters,
       candlesSinceLastSignal: lastSignal === undefined ? Number.POSITIVE_INFINITY : this.candleIndex - lastSignal,
       contextCandles:
         this.mt5ContextCandles.size > 0

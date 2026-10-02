@@ -47,6 +47,13 @@ import {
   type Mt5SymbolInfo
 } from "./mt5/types.js";
 import { assertMt5VolumeValid, normalizeLotsToMt5Step } from "./mt5/volume.js";
+import { resolveMt5EngineRiskCap, type ResolveMt5EngineRiskCapInput } from "./mt5/engineRiskCap.js";
+
+/** Worker-supplied scope, separate from arbitrary order metadata or manual test orders. */
+export type Mt5EngineOrderScope = Pick<
+  ResolveMt5EngineRiskCapInput,
+  "executionMode" | "symbol" | "interval" | "strategyId"
+>;
 
 export interface DerivMt5BrokerConfig {
   /**
@@ -62,6 +69,8 @@ export interface DerivMt5BrokerConfig {
   maxQuoteAgeMs: number;
   maxTestVolume: number;
   maxTestRiskPercent: number;
+  /** Existing DEMO Gold cap; only honored for an explicitly scoped engine order. */
+  demoXauMaxRiskPercent?: number | null;
   magic: number;
   expectedBroker?: string | null;
   expectedServer?: string | null;
@@ -388,7 +397,10 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
     };
   }
 
-  async openMarketPosition(request: OpenMarketPositionRequest): Promise<OpenMarketPositionResult> {
+  async openMarketPosition(
+    request: OpenMarketPositionRequest,
+    engineScope?: Mt5EngineOrderScope
+  ): Promise<OpenMarketPositionResult> {
     this.assertEnvironmentHedging();
     this.config.logger?.info(
       {
@@ -455,7 +467,32 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
     );
     const lossAtStop = perUnit * normalized.lots;
     const equity = this.account?.equity ?? 0;
-    const maxRisk = (equity * this.config.maxTestRiskPercent) / 100;
+    const executionRiskCap = resolveMt5EngineRiskCap({
+      executionMode:
+        this.executionEnvironment === "demo" && this.account?.tradeMode === "DEMO"
+          ? (engineScope?.executionMode ?? "")
+          : "broker_real_mt5",
+      symbol: engineScope?.symbol ?? "",
+      interval: engineScope?.interval ?? "",
+      strategyId: engineScope?.strategyId ?? "",
+      globalCap: this.config.maxTestRiskPercent,
+      demoXauCap: this.config.demoXauMaxRiskPercent
+    });
+    if (engineScope?.symbol === "XAUUSD") {
+      this.config.logger?.info({
+        symbol: engineScope.symbol,
+        brokerSymbol: request.symbol,
+        executionEnvironment: this.executionEnvironment,
+        strategyId: engineScope.strategyId,
+        interval: engineScope.interval,
+        defaultExecutionRiskCap: executionRiskCap.globalRiskCap,
+        selectedExecutionRiskCap: executionRiskCap.selectedRiskCap,
+        demoXauRiskOverrideApplied: executionRiskCap.demoXauRiskOverrideApplied,
+        lossAtStop,
+        equity
+      }, "XAU execution risk cap");
+    }
+    const maxRisk = (equity * executionRiskCap.selectedRiskCap) / 100;
     if (maxRisk > 0 && lossAtStop > maxRisk + 1e-6) {
       return this.reject(null, ["RISK_EXCEEDS_MT5_MAX_TEST_RISK_PERCENT"]);
     }

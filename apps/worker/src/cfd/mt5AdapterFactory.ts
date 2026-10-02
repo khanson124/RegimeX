@@ -27,6 +27,7 @@ export function buildDerivMt5BrokerConfig(config: AppConfig): DerivMt5BrokerConf
     maxQuoteAgeMs: config.MAX_EXECUTION_QUOTE_AGE_MS,
     maxTestVolume: config.MT5_MAX_TEST_VOLUME,
     maxTestRiskPercent: config.MT5_MAX_TEST_RISK_PERCENT,
+    demoXauMaxRiskPercent: config.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT,
     magic: config.MT5_MAGIC_NUMBER,
     expectedBroker: config.MT5_EXPECTED_BROKER,
     expectedServer: config.MT5_EXPECTED_SERVER,

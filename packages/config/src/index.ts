@@ -6,6 +6,13 @@ export * from "./crypto.js";
 export * from "./redis.js";
 export { parseEnvBoolean, envBoolean } from "./envBoolean.js";
 
+// Invalid optional session hours disable the override instead of preventing startup.
+const optionalUtcSessionHour = z.preprocess((val) => {
+  if (val === undefined || val === null || String(val).trim() === "") return undefined;
+  const hour = Number(val);
+  return Number.isInteger(hour) && hour >= 0 && hour <= 24 ? hour : undefined;
+}, z.number().int().min(0).max(24).optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().default(4000),
@@ -192,6 +199,9 @@ const envSchema = z.object({
     if (!Number.isFinite(n) || n <= 0) return undefined;
     return n;
   }, z.number().positive().optional()),
+  /** Paired override, used only for DEMO XAUUSD 15m xau-trend-pullback-v1. */
+  MT5_DEMO_XAUUSD_SESSION_START_UTC: optionalUtcSessionHour,
+  MT5_DEMO_XAUUSD_SESSION_END_UTC: optionalUtcSessionHour,
   /**
    * After maxConsecutiveLosses (RiskProfile) is reached, block new CFD trades for this
    * many minutes from the last loss close time. Durable CLOSED position timestamps —

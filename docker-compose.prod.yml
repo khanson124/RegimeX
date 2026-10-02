@@ -1,0 +1,39 @@
+services:
+  postgres:
+    environment:
+      POSTGRES_USER: regimex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: regimex
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  api:
+    ports: !override
+      - "127.0.0.1:4000:4000"
+    environment:
+      DATABASE_URL: postgresql://regimex:${POSTGRES_PASSWORD}@postgres:5432/regimex
+      REDIS_URL: redis://redis:6379
+
+  worker:
+    entrypoint: []
+    command: ["pnpm", "--filter", "@regimex/worker", "start"]
+    environment:
+      MT5_DEMO_XAUUSD_SESSION_START_UTC: "0"
+      MT5_DEMO_XAUUSD_SESSION_END_UTC: "24"
+      DATABASE_URL: postgresql://regimex:${POSTGRES_PASSWORD}@postgres:5432/regimex
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./research-datasets:/app/research-datasets
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        EXPO_PUBLIC_API_URL: https://regimex.duckdns.org/api
+        EXPO_PUBLIC_WS_URL: wss://regimex.duckdns.org
+    ports:
+      - "127.0.0.1:3000:80"
+    restart: unless-stopped

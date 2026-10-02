@@ -3,7 +3,6 @@ node_modules
 .env
 .env.*
 !.env.example
-apps/mobile
 **/*.test.ts
 **/*.spec.ts
 **/dist
