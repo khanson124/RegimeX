@@ -42,6 +42,26 @@ export function parseCsvAllowlist(raw: string | null | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
+/** Exact, case-sensitive CSV pairs. Malformed entries and wildcards fail closed. */
+export function isMt5DemoLifecycleBypassListed(
+  config: Mt5EngineRolloutConfig,
+  symbol: string,
+  strategyId: string
+): boolean {
+  if (config.EXECUTION_MODE !== "broker_demo_mt5") return false;
+  return parseCsvAllowlist(config.MT5_DEMO_LIFECYCLE_BYPASS).some((entry) => {
+    const parts = entry.split(":").map((part) => part.trim());
+    if (parts.length !== 2) return false;
+    const [listedSymbol, listedStrategy] = parts;
+    const identifier = /^[A-Za-z0-9_.-]+$/;
+    return Boolean(
+      listedSymbol && listedStrategy &&
+      identifier.test(listedSymbol) && identifier.test(listedStrategy) &&
+      listedSymbol === symbol && listedStrategy === strategyId
+    );
+  });
+}
+
 /** Parsed MT5_ENGINE_STRATEGY_ALLOWLIST — empty means fail-closed for broker_demo_mt5 selection. */
 export function resolveMt5EngineStrategyAllowlist(config: Mt5EngineRolloutConfig): string[] {
   return parseCsvAllowlist(config.MT5_ENGINE_STRATEGY_ALLOWLIST);
@@ -107,6 +127,7 @@ export function allowlistMatchesInternalSymbol(allowlist: string[], internalSymb
 export interface Mt5EngineRolloutConfig extends Mt5AccessConfig {
   MT5_ENGINE_SYMBOL_ALLOWLIST?: string | null;
   MT5_ENGINE_STRATEGY_ALLOWLIST?: string | null;
+  MT5_DEMO_LIFECYCLE_BYPASS?: string | null;
   MT5_ENGINE_MAX_CONCURRENT_POSITIONS?: number | null;
   MT5_ENGINE_MAX_VOLUME?: number | null;
   MT5_ENGINE_MAX_RISK_PERCENT?: number | null;
@@ -252,7 +273,9 @@ export function gateMt5EngineSubmission(input: Mt5EngineSubmissionInput): Mt5Eng
   const mappingGate = gateMt5MappingAndVolume({ config, symbol, mapping: mapping ?? null });
   if (!mappingGate.allowed) return mappingGate;
 
-  if (lifecycle && BLOCKED_LIFECYCLES.has(lifecycle)) {
+  const bypassSuspension = lifecycle === "SUSPENDED" &&
+    isMt5DemoLifecycleBypassListed(config, symbol, strategyId);
+  if (lifecycle && BLOCKED_LIFECYCLES.has(lifecycle) && !bypassSuspension) {
     return {
       allowed: false,
       reason: `${MT5_ENGINE_LIFECYCLE_BLOCKED}:${lifecycle}`,

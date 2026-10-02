@@ -175,6 +175,8 @@ const envSchema = z.object({
    */
   MT5_ENGINE_SYMBOL_ALLOWLIST: z.string().default(""),
   MT5_ENGINE_STRATEGY_ALLOWLIST: z.string().default(""),
+  // Exact internal-symbol:strategyId pairs; only DEMO SUSPENDED submissions may bypass.
+  MT5_DEMO_LIFECYCLE_BYPASS: z.string().default(""),
   MT5_ENGINE_MAX_CONCURRENT_POSITIONS: z.coerce.number().int().min(0).max(5).default(1),
   /** Hard ceiling. Never raised to satisfy broker minVolume. */
   MT5_ENGINE_MAX_VOLUME: z.coerce.number().positive().default(0.01),
