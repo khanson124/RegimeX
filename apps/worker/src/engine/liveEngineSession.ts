@@ -121,6 +121,7 @@ export interface SessionDeps {
    * session contributions so one closed symbol cannot overwrite another.
    */
   reconcileMt5SharedEngineHealth?: (userId: string) => Promise<void>;
+  readDemoLossBypass?: (userId: string) => Promise<string | null>;
 }
 
 interface LoadedStrategy {
@@ -422,7 +423,8 @@ export class LiveEngineSession {
         prisma,
         config,
         publish,
-        logger: this.deps.logger
+        logger: this.deps.logger,
+        readDemoLossBypass: this.deps.readDemoLossBypass
       });
       await this.mt5Cfd.init();
     }
@@ -1849,6 +1851,7 @@ export class LiveEngineSession {
         return;
       }
       const result = await this.mt5Cfd.executeCfdSignal({
+        sessionMode: this.mode,
         signalId: signal.id,
         correlationId,
         symbol: this.symbol,

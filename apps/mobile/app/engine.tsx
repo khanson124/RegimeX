@@ -3,6 +3,8 @@ import { RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from "reac
 import { ApiError } from "../src/api/client";
 import {
   useConfigureEngine,
+  useDemoLossBypass,
+  useSetDemoLossBypass,
   useEngine,
   useEngineAction,
   useMt5Status,
@@ -56,6 +58,8 @@ export default function EngineScreen() {
   const { data: mt5Data } = useMt5Status();
   const action = useEngineAction();
   const configure = useConfigureEngine();
+  const lossBypass = useDemoLossBypass();
+  const setLossBypass = useSetDemoLossBypass();
 
   const [symbol, setSymbol] = useState<string | null>(null);
   const [interval, setInterval] = useState<(typeof INTERVALS)[number] | null>(null);
@@ -180,6 +184,33 @@ export default function EngineScreen() {
           <Text style={styles.emergency}>
             Clear the emergency stop before starting again.
           </Text>
+        ) : null}
+      </SoftCard>
+
+      <SectionHeader title="R_10 DEMO data collection" />
+      <SoftCard>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={styles.fieldLabel}>Bypass loss suspension and cooldown</Text>
+          <Switch
+            accessibilityLabel="R_10 DEMO temporary loss bypass"
+            value={lossBypass.data?.enabled ?? false}
+            disabled={lossBypass.isLoading || lossBypass.isError || setLossBypass.isPending ||
+              (!lossBypass.data?.supported && !lossBypass.data?.enabled)}
+            onValueChange={(enabled) => setLossBypass.mutate(enabled)}
+          />
+        </View>
+        <Text style={styles.hint}>
+          All R_10 strategies on DEMO only. Risk per trade, daily limits, position limits,
+          ordinary cooldowns and broker checks still apply. Loss history is preserved.
+        </Text>
+        <Text style={styles.hint}>
+          {lossBypass.data?.enabled
+            ? `ON · Automatically turns off ${new Date(lossBypass.data.expiresAt!).toLocaleString()}.`
+            : "OFF · Normal loss rules apply. Turning on lasts 48 hours; you can turn it off sooner."}
+          {lossBypass.data && !lossBypass.data.supported ? " Unavailable in the current trading environment." : ""}
+        </Text>
+        {(lossBypass.error || setLossBypass.error) ? (
+          <Text style={styles.emergency}>{String((lossBypass.error ?? setLossBypass.error)?.message)}</Text>
         ) : null}
       </SoftCard>
 

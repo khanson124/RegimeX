@@ -1,5 +1,7 @@
 import {
   DEFAULT_CFD_RISK_LIMITS,
+  isDemoR10LossBypassActive,
+  type DemoR10LossBypassScope,
   type CfdRiskLimits,
   type InstrumentMetadata
 } from "@regimex/shared";
@@ -30,6 +32,8 @@ export interface CfdRiskEvaluationInput {
   maxConsecutiveLosses: number;
   /** Suspension duration after the streak limit is reached. Defaults to 60 minutes. */
   consecutiveLossCooldownMs?: number;
+  /** Narrow, expiring DEMO exception; all other risk checks remain active. */
+  demoLossBypass?: DemoR10LossBypassScope;
   idempotencyKeyExists: boolean;
   stopLossPresent: boolean;
   riskRewardRatio: number | null;
@@ -114,7 +118,8 @@ export class CfdRiskManager {
       consecutiveLossCooldownMs,
       now: input.now
     });
-    if (consecutiveLossGate.blocked) {
+    if (consecutiveLossGate.blocked &&
+      !(input.demoLossBypass && isDemoR10LossBypassActive(input.demoLossBypass, input.now))) {
       if (consecutiveLossGate.decisionCode === "CONSECUTIVE_LOSS_COOLDOWN") {
         const remainingMinutes = Math.ceil((consecutiveLossGate.cooldownRemainingMs ?? 0) / 60_000);
         return reject(

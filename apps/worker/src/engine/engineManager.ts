@@ -35,7 +35,8 @@ export class EngineManager {
     private readonly publish: EventPublisher,
     private readonly logger: Logger,
     private readonly credentialDecrypt: (ciphertext: string) => string,
-    private readonly enqueueCounterfactual?: (candidateId: string) => Promise<void>
+    private readonly enqueueCounterfactual?: (candidateId: string) => Promise<void>,
+    private readonly readDemoLossBypass?: (userId: string) => Promise<string | null>
   ) {}
 
   private sessionDeps(): SessionDeps {
@@ -46,6 +47,7 @@ export class EngineManager {
       logger: this.logger,
       credentialDecrypt: this.credentialDecrypt,
       enqueueCounterfactual: this.enqueueCounterfactual,
+      readDemoLossBypass: this.readDemoLossBypass,
       reconcileMt5SharedEngineHealth: (userId) => this.reconcileMt5SharedEngineHealth(userId)
     };
   }

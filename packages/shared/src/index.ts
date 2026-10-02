@@ -28,3 +28,4 @@ export * from "./schemas/instrument.js";
 export * from "./backend.js";
 export * from "./config/engineConfigurationPolicy.js";
 export * from "./config/riskProfileMerge.js";
+export * from "./config/demoR10LossBypass.js";

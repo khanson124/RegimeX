@@ -206,3 +206,37 @@ describe("CfdRiskManager consecutive-loss cooldown", () => {
     });
   });
 });
+
+describe("temporary DEMO loss bypass risk isolation", () => {
+  const demoLossBypass = { executionMode: "broker_demo_mt5", sessionMode: "DEMO_TRADING",
+    symbol: "R_10", strategyId: "ema-pullback-v1", expiresAtMs: BASE_NOW + 1000 };
+  const withLosses = (override: Partial<CfdRiskEvaluationInput> = {}) => baseInput({
+    consecutiveLosses: 9, lastLossClosedAt: BASE_NOW - 60_000, demoLossBypass, ...override
+  });
+  it("bypasses only the loss streak while retaining observed losses and thresholds", () => {
+    const input = withLosses();
+    expect(rm.evaluate(input).approved).toBe(true);
+    expect(input.consecutiveLosses).toBe(9);
+    expect(input.maxConsecutiveLosses).toBe(3);
+  });
+  it.each([
+    { executionMode: "broker_real_mt5" }, { sessionMode: "LIVE_TRADING" },
+    { symbol: "XAUUSD" }, { expiresAtMs: BASE_NOW }, { expiresAtMs: null }
+  ])("does not bypass outside DEMO R_10 or after expiry: %s", (override) => {
+    expect(rm.evaluate(withLosses({ demoLossBypass: { ...demoLossBypass, ...override } }))
+      .rejectionCode).toBe("CONSECUTIVE_LOSS_COOLDOWN");
+  });
+  it("missing switch retains the existing block", () => {
+    expect(rm.evaluate(withLosses({ demoLossBypass: undefined })).rejectionCode).toBe("CONSECUTIVE_LOSS_COOLDOWN");
+  });
+  it.each([
+    [{ emergencyStop: true }, "EMERGENCY_STOP"],
+    [{ dailyRealizedLoss: -100 }, "DAILY_LOSS_LIMIT"],
+    [{ dailyTradeCount: 10 }, "DAILY_TRADE_LIMIT"],
+    [{ marketDataFresh: false }, "MARKET_DATA_STALE"],
+    [{ stopLossPresent: false }, "STOP_LOSS_REQUIRED"],
+    [{ minCooldownSeconds: 120, lastTradeAt: BASE_NOW - 1000 }, "COOLDOWN_ACTIVE"]
+  ] as const)("preserves other risk rejection %s", (override, code) => {
+    expect(rm.evaluate(withLosses(override)).rejectionCode).toBe(code);
+  });
+});

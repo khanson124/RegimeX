@@ -1,3 +1,4 @@
+import { demoR10LossBypassKey } from "@regimex/shared";
 import { Worker, Queue } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
@@ -79,7 +80,8 @@ async function main(): Promise<void> {
     (ciphertext) => credentialCrypto.decrypt(ciphertext),
     async (candidateId) => {
       await counterfactualQueue.add("evaluate", { candidateId, userId: "" }, { removeOnComplete: 500 });
-    }
+    },
+    (userId) => redis.get(demoR10LossBypassKey(userId))
   );
   await engineManager.init();
 

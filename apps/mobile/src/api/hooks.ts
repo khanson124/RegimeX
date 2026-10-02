@@ -888,3 +888,25 @@ export const useSwitchTradingEnvironment = () => {
     }
   });
 };
+
+export interface DemoLossBypassStatus {
+  supported: boolean;
+  enabled: boolean;
+  expiresAt: string | null;
+  symbol: string;
+  strategyScope: string;
+}
+export const useDemoLossBypass = () => useQuery({
+  queryKey: ["demo-loss-bypass"], queryFn: () => api<DemoLossBypassStatus>("/engine/demo-loss-bypass"),
+  refetchInterval: 5_000
+});
+export const useSetDemoLossBypass = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api<DemoLossBypassStatus>("/engine/demo-loss-bypass", {
+      method: "PUT", body: { enabled }
+    }),
+    onSuccess: (data) => qc.setQueryData(["demo-loss-bypass"], data),
+    onSettled: () => void qc.invalidateQueries({ queryKey: ["demo-loss-bypass"] })
+  });
+};

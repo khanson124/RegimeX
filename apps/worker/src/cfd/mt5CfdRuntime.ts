@@ -1,8 +1,10 @@
+import { readDemoLossBypassScope, demoLossBypassGateConfig } from "./demoLossBypass.js";
 import { type PrismaClient } from "@regimex/database";
 import { type AppConfig } from "@regimex/config";
 import { type Logger } from "pino";
 import {
   resolveCfdRiskLimits,
+  isDemoR10LossBypassActive,
   roundMoney,
   isAutonomousDecisionCode,
   type AutonomousDecisionCode,
@@ -106,6 +108,7 @@ export interface Mt5CfdRuntimeDeps {
   logger: Logger;
   /** Optional inject for tests. Defaults to worker Telegram notifier. */
   telegram?: TelegramTradeNotifier;
+  readDemoLossBypass?: (userId: string) => Promise<string | null>;
 }
 
 export interface Mt5ExecuteResult {
@@ -187,6 +190,7 @@ export class Mt5CfdRuntime {
   }
 
   async executeCfdSignal(input: {
+    sessionMode?: string;
     signalId: string;
     correlationId: string;
     symbol: string;
@@ -238,6 +242,7 @@ export class Mt5CfdRuntime {
   }
 
   private async executeCfdSignalInner(input: {
+    sessionMode?: string;
     signalId: string;
     correlationId: string;
     symbol: string;
@@ -313,6 +318,16 @@ export class Mt5CfdRuntime {
       },
       "MT5 capacity check"
     );
+    const readLossBypass = () => readDemoLossBypassScope({
+      userId: this.userId, executionMode: this.deps.config.EXECUTION_MODE,
+      sessionMode: input.sessionMode ?? "", symbol: input.symbol, strategyId: input.strategyId
+    }, this.deps.readDemoLossBypass,
+    (err) => this.log.warn({ err }, "DEMO loss bypass unavailable; normal loss rules apply"));
+    const demoLossBypass = await readLossBypass();
+    const lossBypassActive = isDemoR10LossBypassActive(demoLossBypass, Date.now());
+    const demoLossBypassTag = lossBypassActive ? {
+      enabled: true, expiresAtMs: demoLossBypass.expiresAtMs, symbol: "R_10", strategyScope: "all"
+    } : null;
     const lifecycle = await loadLifecycle(this.deps.prisma, {
       userId: this.userId,
       strategyId: input.strategyId,
@@ -320,7 +335,7 @@ export class Mt5CfdRuntime {
       interval: input.interval
     });
     const gate = gateMt5EngineSubmission({
-      config: this.deps.config,
+      config: demoLossBypassGateConfig(this.deps.config, demoLossBypass, Date.now()),
       symbol: input.symbol,
       strategyId: input.strategyId,
       openOwnedCount: gateOwnedCount,
@@ -894,6 +909,7 @@ export class Mt5CfdRuntime {
     }
 
     const riskDecision = this.cfdRisk.evaluate({
+      demoLossBypass,
       limits,
       emergencyStop: engine?.emergencyStop ?? false,
       tradingEnabled:
@@ -1105,6 +1121,7 @@ export class Mt5CfdRuntime {
             venue: this.deps.config.EXECUTION_MODE === "broker_real_mt5" ? "MT5_LIVE" : "MT5_DEMO",
             ownedByRegimeX: true,
             engineSymbol: input.symbol,
+            ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
             ...symbolAudit,
             volumePreflight: preflight,
             executionTelemetry,
@@ -1519,6 +1536,7 @@ export class Mt5CfdRuntime {
         internalSymbol: input.symbol,
         brokerSymbol: submitBrokerSymbol,
         frozenResume: resumeBeforeSubmit,
+        ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
         volumePreflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
         finalExecution: {
@@ -1613,6 +1631,17 @@ export class Mt5CfdRuntime {
     let result: Awaited<ReturnType<DerivMT5BrokerAdapter["openMarketPosition"]>> | null = null;
 
     for (;;) {
+      // Re-read just before broker submission: OFF/expiry applies to an in-flight bypass too.
+      if (lossBypassActive && !isDemoR10LossBypassActive(await readLossBypass(), Date.now())) {
+        await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,
+          executionIntentId: executionIntent.id, code: "DEMO_LOSS_BYPASS_DISABLED",
+          message: "Temporary DEMO loss bypass disabled or expired before submit", logger: this.log });
+        return { opened: false, reasons: ["DEMO_LOSS_BYPASS_DISABLED"], decisionCode: "NO_TRADE", preflight };
+      }
+      if (lossBypassActive) this.log.info({ strategyId: input.strategyId, signalId: input.signalId,
+        correlationId: input.correlationId, demoLossBypass: demoLossBypassTag, lifecycle, consecutiveLosses },
+        "DEMO_R10_LOSS_BYPASS_SUBMISSION");
+
       await markExecutionIntentSubmitted(this.deps.prisma, executionIntent.id, this.log);
       const openRequest = buildOpenRequest();
       (openRequest.metadata.finalExecution as { invalidStopsResubmits?: number }).invalidStopsResubmits =
