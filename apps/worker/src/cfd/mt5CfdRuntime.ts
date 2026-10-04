@@ -1,3 +1,4 @@
+import { liveGoldEntriesAllowed } from "./liveGoldEntries.js";
 import { resolveDemoTradeExperiment } from "./demoTradeExperiment.js";
 import { readDemoLossBypassScope, demoLossBypassGateConfig } from "./demoLossBypass.js";
 import { type PrismaClient } from "@regimex/database";
@@ -5,6 +6,7 @@ import { type AppConfig } from "@regimex/config";
 import { type Logger } from "pino";
 import {
   resolveCfdRiskLimits,
+  LIVE_GOLD_ENTRIES_DISABLED,
   isDemoR10LossBypassActive,
   roundMoney,
   isAutonomousDecisionCode,
@@ -111,6 +113,7 @@ export interface Mt5CfdRuntimeDeps {
   telegram?: TelegramTradeNotifier;
   readDemoLossBypass?: (userId: string) => Promise<string | null>;
   readDemoTradeExperiment?: (userId: string) => Promise<string | null>;
+  readLiveGoldEntryPermission?: (userId: string) => Promise<string | null>;
 }
 
 export interface Mt5ExecuteResult {
@@ -269,6 +272,18 @@ export class Mt5CfdRuntime {
     }
     if (input.decision.action === "HOLD") {
       return { opened: false, reasons: ["HOLD"], decisionCode: "STRATEGY_HOLD" };
+    }
+
+    const goldEntriesAllowed = () => liveGoldEntriesAllowed({
+      userId: this.userId, executionMode: this.deps.config.EXECUTION_MODE, symbol: input.symbol
+    }, this.deps.readLiveGoldEntryPermission,
+    (err) => this.log.warn({ err }, "LIVE Gold entry permission unavailable; new Gold entries blocked"));
+    if (!(await goldEntriesAllowed())) {
+      this.log.warn({ symbol: input.symbol, strategyId: input.strategyId,
+        correlationId: input.correlationId }, LIVE_GOLD_ENTRIES_DISABLED);
+      this.logExecutionDecision({ ...input, decisionCode: "RISK_BLOCKED", reasons: [LIVE_GOLD_ENTRIES_DISABLED],
+        mappingStatus: null, riskStatus: "blocked", volumePreflight: null, opened: false });
+      return { opened: false, reasons: [LIVE_GOLD_ENTRIES_DISABLED], decisionCode: "RISK_BLOCKED" };
     }
 
     const blocked = this.executionBlockIfUnhealthy();
@@ -1646,6 +1661,15 @@ export class Mt5CfdRuntime {
     let result: Awaited<ReturnType<DerivMT5BrokerAdapter["openMarketPosition"]>> | null = null;
 
     for (;;) {
+      // OFF takes effect on in-flight attempts and broker retries; closes/reconciliation are independent.
+      if (!(await goldEntriesAllowed())) {
+        await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,
+          executionIntentId: executionIntent.id, code: LIVE_GOLD_ENTRIES_DISABLED,
+          message: "New LIVE Gold entries disabled before broker submission", logger: this.log });
+        this.log.warn({ symbol: input.symbol, strategyId: input.strategyId,
+          correlationId: input.correlationId }, LIVE_GOLD_ENTRIES_DISABLED);
+        return { opened: false, reasons: [LIVE_GOLD_ENTRIES_DISABLED], decisionCode: "RISK_BLOCKED", preflight };
+      }
       if (tradeExperiment.active && !(await readTradeExperiment()).active) {
         await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,
           executionIntentId: executionIntent.id, code: "DEMO_TRADE_EXPERIMENT_DISABLED",

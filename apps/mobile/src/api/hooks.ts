@@ -926,3 +926,25 @@ export const useSetDemoTradeExperiment = () => {
     onSettled: () => void qc.invalidateQueries({ queryKey: ["demo-trade-experiment"] })
   });
 };
+
+export interface LiveGoldEntryStatus {
+  supported: boolean;
+  enabled: boolean;
+  storageAvailable: boolean;
+  symbol: string;
+  executionMode: string;
+}
+export const useLiveGoldEntries = () => useQuery({
+  queryKey: ["live-gold-entries"], queryFn: () => api<LiveGoldEntryStatus>("/engine/live-gold-entries"),
+  refetchInterval: 5_000
+});
+export const useSetLiveGoldEntries = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api<LiveGoldEntryStatus>("/engine/live-gold-entries", {
+      method: "PUT", body: { enabled }
+    }),
+    onSuccess: (data) => qc.setQueryData(["live-gold-entries"], data),
+    onSettled: () => void qc.invalidateQueries({ queryKey: ["live-gold-entries"] })
+  });
+};

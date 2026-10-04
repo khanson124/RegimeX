@@ -31,3 +31,5 @@ export * from "./config/riskProfileMerge.js";
 export * from "./config/demoR10LossBypass.js";
 
 export * from "./config/demoR10TradeExperiment.js";
+
+export * from "./config/liveGoldEntries.js";

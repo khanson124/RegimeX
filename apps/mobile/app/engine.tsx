@@ -4,6 +4,8 @@ import { ApiError } from "../src/api/client";
 import {
   useConfigureEngine,
   useDemoLossBypass,
+  useLiveGoldEntries,
+  useSetLiveGoldEntries,
   useDemoTradeExperiment,
   useSetDemoTradeExperiment,
   useSetDemoLossBypass,
@@ -62,6 +64,8 @@ export default function EngineScreen() {
   const configure = useConfigureEngine();
   const tradeExperiment = useDemoTradeExperiment();
   const setTradeExperiment = useSetDemoTradeExperiment();
+  const liveGoldEntries = useLiveGoldEntries();
+  const setLiveGoldEntries = useSetLiveGoldEntries();
   const lossBypass = useDemoLossBypass();
   const setLossBypass = useSetDemoLossBypass();
 
@@ -188,6 +192,36 @@ export default function EngineScreen() {
           <Text style={styles.emergency}>
             Clear the emergency stop before starting again.
           </Text>
+        ) : null}
+      </SoftCard>
+
+      <SectionHeader title="LIVE Gold trading" />
+      <SoftCard>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={styles.fieldLabel}>Allow new LIVE Gold entries</Text>
+          <Switch
+            accessibilityLabel="Allow new LIVE Gold entries"
+            value={liveGoldEntries.data?.enabled ?? false}
+            disabled={liveGoldEntries.isLoading || liveGoldEntries.isError || setLiveGoldEntries.isPending ||
+              liveGoldEntries.data?.storageAvailable === false ||
+              (!liveGoldEntries.data?.supported && !liveGoldEntries.data?.enabled)}
+            onValueChange={(enabled) => setLiveGoldEntries.mutate(enabled)}
+          />
+        </View>
+        <Text style={styles.hint}>
+          XAUUSD LIVE only. R_10 and DEMO are unaffected. Turning OFF blocks new Gold entries;
+          existing positions keep their stop, exit and reconciliation management.
+        </Text>
+        <Text style={styles.hint}>
+          {liveGoldEntries.data?.enabled
+            ? "ON · Gold entry permission is enabled. LIVE arming, configuration and all risk checks still apply."
+            : "OFF · New LIVE Gold entries are blocked. There is no automatic expiry or re-enable."}
+          {liveGoldEntries.data && !liveGoldEntries.data.supported
+            ? " Enabling is unavailable on this server or in the current environment. This switch does not enable LIVE trading." : ""}
+          {liveGoldEntries.data?.storageAvailable === false ? " Control storage is unavailable; new LIVE Gold entries are blocked." : ""}
+        </Text>
+        {(liveGoldEntries.error || setLiveGoldEntries.error) ? (
+          <Text style={styles.emergency}>{String((liveGoldEntries.error ?? setLiveGoldEntries.error)?.message)}</Text>
         ) : null}
       </SoftCard>
 
