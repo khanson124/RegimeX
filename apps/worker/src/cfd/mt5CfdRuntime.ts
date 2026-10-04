@@ -1,4 +1,5 @@
 import { livePositionFilter, positionMatchesLiveScope } from "./livePositionScope.js";
+import { observeDemoR10SpreadShadow, type SpreadShadowPhase } from "./demoR10SpreadShadow.js";
 import { liveGoldEntriesAllowed } from "./liveGoldEntries.js";
 import { resolveDemoTradeExperiment } from "./demoTradeExperiment.js";
 import { readDemoLossBypassScope, demoLossBypassGateConfig } from "./demoLossBypass.js";
@@ -568,6 +569,17 @@ export class Mt5CfdRuntime {
       initialRiskReward: intendedTargetRMultiple,
       riskRewardRatio: intendedTargetRMultiple
     };
+
+    const observeSpread = (phase: SpreadShadowPhase, quote: typeof preflightQuote, direction: string, adjustedStopLoss: number) =>
+      observeDemoR10SpreadShadow({
+        enabled: this.deps.config.MT5_DEMO_R10_SPREAD_SHADOW_ENABLED,
+        executionMode: this.deps.config.EXECUTION_MODE, symbol: input.symbol, interval: input.interval,
+        direction, quote, adjustedStopLoss, phase, evaluatedAtMs: Date.now(),
+        maxQuoteAgeMs: this.deps.config.MAX_EXECUTION_QUOTE_AGE_MS
+      }, assessment => this.log.info({ event: "DEMO_R10_SPREAD_SHADOW", signalId: input.signalId,
+        correlationId: input.correlationId, strategyId: input.strategyId, symbol: input.symbol,
+        interval: input.interval, executionMode: this.deps.config.EXECUTION_MODE, assessment }, "DEMO_R10_SPREAD_SHADOW"));
+    const initialSpreadShadow = observeSpread("initial", preflightQuote, proposal.direction, proposal.stopLoss);
 
     const account = await this.adapter.getAccount();
     const engineRiskCap = resolveMt5EngineRiskCap({
@@ -1155,6 +1167,7 @@ export class Mt5CfdRuntime {
             ...symbolAudit,
             volumePreflight: preflight,
             executionTelemetry,
+            ...(initialSpreadShadow ? { demoR10SpreadShadow: { initial: initialSpreadShadow } } : {}),
             ...(input.entryFeatureTelemetry
               ? { entryFeatureTelemetry: input.entryFeatureTelemetry }
               : {})
@@ -1533,6 +1546,8 @@ export class Mt5CfdRuntime {
 
     const buildOpenRequest = () => {
       const localNow = Date.now();
+      const submissionSpreadShadow = observeSpread(invalidStopsResubmits > 0 ? "invalid_stops_retry" : "pre_submit",
+        submitQuote, submitDirection, submitStopLoss);
       const preSubmit = buildPreSubmitQuoteSnapshot({
         symbol: input.symbol,
         side: submitDirection,
@@ -1570,6 +1585,9 @@ export class Mt5CfdRuntime {
         ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
         volumePreflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
+        ...(submissionSpreadShadow ? { demoR10SpreadShadow: {
+          initial: initialSpreadShadow, submission: submissionSpreadShadow
+        } } : {}),
         finalExecution: {
           ...finalExecutionCostFields(preSubmit),
           finalEntry: submitDirection === "BUY" ? submitQuote.ask : submitQuote.bid,
