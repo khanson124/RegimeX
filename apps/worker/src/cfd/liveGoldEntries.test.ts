@@ -29,7 +29,7 @@ describe("LIVE Gold entry gate", () => {
     const adapter = { getOpenPositions: vi.fn().mockResolvedValue([{ brokerPositionId: "42", symbol: "XAUUSD",
       stopLoss: 1995, takeProfit: 2020, currentPrice: 2010 }]) };
     const prisma = { position: { findMany: vi.fn().mockResolvedValue([{ id: "gold1", symbol: "XAUUSD", status: "OPEN",
-      brokerPositionId: "42", stopLoss: 1990, takeProfit: 2020 }]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) } };
+      brokerPositionId: "42", stopLoss: 1990, takeProfit: 2020, metadata: { executionModel: "broker_real_mt5" } }]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) } };
     const runtime = new Mt5CfdRuntime("u1", { config: { EXECUTION_MODE: "broker_real_mt5" }, prisma, logger,
       readLiveGoldEntryPermission: read, telegram: {} } as unknown as Mt5CfdRuntimeDeps);
     const state = runtime as unknown as { adapter: unknown; lastCreatedExpirySweepAt: number };
@@ -41,6 +41,22 @@ describe("LIVE Gold entry gate", () => {
       data: { stopLoss: 1995, takeProfit: 2020, currentPrice: 2010 }
     }));
     expect(read).not.toHaveBeenCalled();
+  });
+  it("does not reconcile a DEMO record against the LIVE account even if broker ticket IDs overlap", async () => {
+    const logger = { child: vi.fn(), warn: vi.fn(), info: vi.fn() }; logger.child.mockReturnValue(logger);
+    const adapter = { getOpenPositions: vi.fn().mockResolvedValue([{ brokerPositionId: "42", symbol: "R_10",
+      stopLoss: 95, takeProfit: 120, currentPrice: 110 }]), reconstructClosedPosition: vi.fn() };
+    const prisma = { position: { findMany: vi.fn().mockResolvedValue([{ id: "demo1", symbol: "R_10", status: "OPEN",
+      brokerPositionId: "42", stopLoss: 90, takeProfit: 120, metadata: { executionModel: "broker_demo_mt5" } }]),
+      updateMany: vi.fn(), update: vi.fn() } };
+    const runtime = new Mt5CfdRuntime("u1", { config: { EXECUTION_MODE: "broker_real_mt5" }, prisma, logger,
+      telegram: {} } as unknown as Mt5CfdRuntimeDeps);
+    const state = runtime as unknown as { adapter: unknown; lastCreatedExpirySweepAt: number };
+    state.adapter = adapter; state.lastCreatedExpirySweepAt = Date.now();
+    await runtime.reconcileOpen();
+    expect(prisma.position.updateMany).not.toHaveBeenCalled();
+    expect(prisma.position.update).not.toHaveBeenCalled();
+    expect(adapter.reconstructClosedPosition).not.toHaveBeenCalled();
   });
   it("blocks actual runtime entry before broker or database work, while ON retains existing gates", async () => {
     const logger = { child: vi.fn(), warn: vi.fn(), info: vi.fn() }; logger.child.mockReturnValue(logger);

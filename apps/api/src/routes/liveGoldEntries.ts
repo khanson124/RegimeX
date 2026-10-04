@@ -1,3 +1,4 @@
+import { resolveMt5EnvironmentConfig } from "@regimex/config";
 import { randomUUID } from "node:crypto";
 import { type FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -14,11 +15,13 @@ export function registerLiveGoldEntryRoutes(app: FastifyInstance, ctx: AppContex
     try { enabled = isLiveGoldEntryPermissionEnabled(await ctx.redis.get(liveGoldEntryPermissionKey(userId))); }
     catch { storageAvailable = false; }
     const environment = await ctx.prisma.tradingEnvironmentState.findUnique({ where: { userId } });
-    const supported = ctx.config.EXECUTION_MODE === "broker_real_mt5" &&
-      resolveLiveTradingCapability(ctx.config).liveTradingSupported &&
+    const venueConfig = resolveMt5EnvironmentConfig(ctx.config, environment?.activeEnvironment === "LIVE" ? "LIVE" :
+      environment?.activeEnvironment === "DEMO" ? "DEMO" : null);
+    const supported = venueConfig.EXECUTION_MODE === "broker_real_mt5" &&
+      resolveLiveTradingCapability(venueConfig).liveTradingSupported &&
       parseLiveAllowedSymbols(ctx.config.LIVE_ALLOWED_SYMBOLS).includes("XAUUSD") &&
       (!environment || environment.activeEnvironment === "LIVE");
-    return { supported, enabled, storageAvailable, symbol: "XAUUSD", executionMode: ctx.config.EXECUTION_MODE };
+    return { supported, enabled, storageAvailable, symbol: "XAUUSD", executionMode: venueConfig.EXECUTION_MODE };
   }
   app.get("/engine/live-gold-entries", { preHandler: auth }, async (request) => status(request.userId));
   app.put("/engine/live-gold-entries", { preHandler: auth }, async (request) => {

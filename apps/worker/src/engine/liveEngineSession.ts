@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type PrismaClient } from "@regimex/database";
-import { type AppConfig } from "@regimex/config";
+import { resolveMt5EnvironmentConfig, type AppConfig } from "@regimex/config";
 import {
   utcDayStart,
   type AutoCandidateEligibilityRow,
@@ -205,10 +205,14 @@ export class LiveEngineSession {
   /** Retention for execution candles; derived from session warm-up requirement. */
   private candleBufferCapacity = CANDLE_BUFFER_BASE;
 
+  private readonly baseConfig: AppConfig;
+
   constructor(
     readonly userId: string,
     private readonly deps: SessionDeps
   ) {
+    this.baseConfig = deps.config;
+    this.deps = { ...deps };
     const mode =
       deps.config.STRATEGY_SELECTION_MODE === "validated" ? "VALIDATED" : "BOOTSTRAP";
     this.selection = new StrategySelectionService({
@@ -227,7 +231,7 @@ export class LiveEngineSession {
     configurationId?: string;
     symbol?: string;
   }): Promise<void> {
-    const { prisma, config, publish } = this.deps;
+    const { prisma, publish } = this.deps;
 
     const envState = await prisma.tradingEnvironmentState.findUnique({ where: { userId: this.userId } });
     if (envState?.submissionsBlocked || envState?.switchState === "SWITCHING") {
@@ -241,21 +245,10 @@ export class LiveEngineSession {
           ? ("DEMO" as const)
           : null;
 
-    // Operator environment selector overrides EXECUTION_MODE for MT5 venues.
-    if (activeTradingEnv === "LIVE") {
-      this.executionBackend = resolveExecutionBackend({
-        ...config,
-        EXECUTION_MODE: "broker_real_mt5"
-      });
-    } else if (activeTradingEnv === "DEMO") {
-      this.executionBackend = resolveExecutionBackend({
-        ...config,
-        EXECUTION_MODE: "broker_demo_mt5",
-        MT5_EXPECTED_ENVIRONMENT: "demo"
-      });
-    } else {
-      this.executionBackend = resolveExecutionBackend(config);
-    }
+    // The backend label, broker factory, warmup, entry gates and reconciliation share one venue config.
+    this.deps.config = resolveMt5EnvironmentConfig(this.baseConfig, activeTradingEnv);
+    const config = this.deps.config;
+    this.executionBackend = resolveExecutionBackend(config);
 
     const isMt5Backend =
       this.executionBackend === "broker_demo_mt5" || this.executionBackend === "broker_real_mt5";

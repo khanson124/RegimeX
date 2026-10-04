@@ -39,10 +39,14 @@ describe("LIVE Gold entry control", () => {
     expect((await f.request(false)).json().enabled).toBe(false);
     expect(f.redis.set).toHaveBeenLastCalledWith(liveGoldEntryPermissionKey("u1"), "disabled");
   });
-  it.each([{ mode: "broker_demo_mt5" }, { mode: "paper_cfd" }, { environment: "DEMO" },
+  it.each([{ mode: "broker_demo_mt5", environment: "DEMO" }, { mode: "paper_cfd" }, { environment: "DEMO" },
     { hasConfig: false }, { realMoney: false }, { allowedSymbols: "R_10" }])("rejects enabling outside configured/allowed LIVE Gold: %s", async (options) => {
     const f = fixture(options); expect((await f.request(true)).statusCode).toBe(400);
     expect(f.redis.set).not.toHaveBeenCalled();
+  });
+  it("uses the selected LIVE venue even when the base process defaults to DEMO", async () => {
+    const f = fixture({ mode: "broker_demo_mt5", environment: "LIVE" });
+    expect((await f.request(true)).json()).toMatchObject({ enabled: true, supported: true, executionMode: "broker_real_mt5" });
   });
   it("permits disabling in DEMO even without a LIVE configuration", async () => {
     const f = fixture({ mode: "broker_demo_mt5", environment: "DEMO", hasConfig: false });

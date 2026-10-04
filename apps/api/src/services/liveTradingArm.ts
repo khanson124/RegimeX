@@ -1,8 +1,10 @@
 import { type PrismaClient } from "@regimex/database";
-import { type AppConfig } from "@regimex/config";
+import { resolveMt5EnvironmentConfig, type AppConfig } from "@regimex/config";
 import { ValidationError } from "@regimex/shared";
 import {
   DerivMT5BrokerAdapter,
+  HttpMt5BridgeClient,
+  Mt5BridgeCircuitBreaker,
   evaluateLiveArmPreflight,
   LIVE_TRADING_ARM_FAILED,
   LIVE_TRADING_ARMED,
@@ -100,6 +102,9 @@ async function probeLiveAccount(config: AppConfig): Promise<{
     executionEnvironment: "live",
     expectedEnvironment: "live",
     bridgeUrl: resolveMt5BridgeUrl(config),
+    // An offline LIVE status probe must not open the API's shared DEMO circuit.
+    transport: new HttpMt5BridgeClient({ baseUrl: resolveMt5BridgeUrl(config), secret: config.MT5_BRIDGE_SECRET ?? "",
+      timeoutMs: config.MT5_COMMAND_TIMEOUT_MS, circuit: new Mt5BridgeCircuitBreaker() }),
     bridgeSecret: config.MT5_BRIDGE_SECRET ?? "",
     timeoutMs: config.MT5_COMMAND_TIMEOUT_MS,
     maxQuoteAgeMs: config.MAX_EXECUTION_QUOTE_AGE_MS,
@@ -173,6 +178,7 @@ export async function getLiveTradingStatus(
   config: AppConfig,
   userId: string
 ): Promise<LiveTradingStatusResponse> {
+  config = resolveMt5EnvironmentConfig(config, "LIVE");
   const engine = await ensureEngine(prisma, userId, config.ENGINE_VERSION);
   const slice = liveConfigSlice(config);
   const arm = resolveLiveTradingArmState(slice, engine.liveTradingArmed === true);
@@ -223,6 +229,11 @@ export async function armLiveTrading(
   config: AppConfig,
   userId: string
 ): Promise<LiveTradingStatusResponse> {
+  const environment = await prisma.tradingEnvironmentState.findUnique({ where: { userId } });
+  if (environment?.activeEnvironment !== "LIVE" || environment.submissionsBlocked || environment.switchState === "SWITCHING") {
+    throw new ValidationError("Select a verified LIVE environment before arming real trading.");
+  }
+  config = resolveMt5EnvironmentConfig(config, "LIVE");
   const engine = await ensureEngine(prisma, userId, config.ENGINE_VERSION);
   const slice = liveConfigSlice(config);
   const account = await probeLiveAccount(config);

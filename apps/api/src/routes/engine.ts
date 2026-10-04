@@ -1,3 +1,4 @@
+import { resolveMt5EnvironmentConfig } from "@regimex/config";
 import { randomUUID } from "node:crypto";
 import { type FastifyInstance } from "fastify";
 import {
@@ -29,6 +30,12 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
     return message.correlationId;
   }
 
+  async function executionConfig(userId: string) {
+    const state = await prisma.tradingEnvironmentState.findUnique({ where: { userId } });
+    return resolveMt5EnvironmentConfig(config, state?.activeEnvironment === "LIVE" ? "LIVE" :
+      state?.activeEnvironment === "DEMO" ? "DEMO" : null);
+  }
+
   async function engineWithConfig(userId: string) {
     return prisma.liveEngine.findUnique({
       where: { userId },
@@ -39,7 +46,7 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.get("/engine", { preHandler: auth }, async (request) => {
     const engine = await engineWithConfig(request.userId);
     const persistedArmed = engine?.liveTradingArmed === true;
-    const liveArm = resolveLiveTradingArmState(config, persistedArmed);
+    const liveArm = resolveLiveTradingArmState(await executionConfig(request.userId), persistedArmed);
     if (!engine) {
       return {
         engine: null,
@@ -83,7 +90,8 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
     }
 
     if (body.mode === "LIVE_TRADING") {
-      const liveCap = resolveLiveTradingCapability(config);
+      const venueConfig = await executionConfig(request.userId);
+      const liveCap = resolveLiveTradingCapability(venueConfig);
       if (!liveCap.liveTradingSupported) {
         throw new ValidationError(
           `Live trading is not supported on this server (${liveCap.reasons.join("; ") || "LIVE_TRADING_DISABLED"}).`,
@@ -91,10 +99,10 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
           "LIVE_TRADING_DISABLED"
         );
       }
-      if (config.EXECUTION_MODE !== "broker_real_mt5") {
+      if (venueConfig.EXECUTION_MODE !== "broker_real_mt5") {
         throw new ValidationError(
           "LIVE_TRADING requires EXECUTION_MODE=broker_real_mt5 on the server. Refusing to silently downgrade to demo.",
-          { executionMode: config.EXECUTION_MODE },
+          { executionMode: venueConfig.EXECUTION_MODE },
           "LIVE_TRADING_DISABLED"
         );
       }

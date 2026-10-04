@@ -1,3 +1,4 @@
+import { livePositionFilter, positionMatchesLiveScope } from "./livePositionScope.js";
 import { liveGoldEntriesAllowed } from "./liveGoldEntries.js";
 import { resolveDemoTradeExperiment } from "./demoTradeExperiment.js";
 import { readDemoLossBypassScope, demoLossBypassGateConfig } from "./demoLossBypass.js";
@@ -2440,6 +2441,7 @@ export class Mt5CfdRuntime {
           prisma: this.deps.prisma,
           adapter: this.adapter,
           userId: this.userId,
+          executionMode: this.deps.config.EXECUTION_MODE,
           logger: this.log
         });
         this.lastCreatedExpirySweepAt = Date.now();
@@ -2457,12 +2459,13 @@ export class Mt5CfdRuntime {
         }
       }
       const brokerOpen = await this.adapter.getOpenPositions();
-      const localOpen = await this.deps.prisma.position.findMany({
+      const localOpen = (await this.deps.prisma.position.findMany({
         where: {
           userId: this.userId,
+          ...livePositionFilter(this.deps.config.EXECUTION_MODE),
           status: { in: ["OPEN", "PENDING", "OPEN_REQUESTED", "CLOSE_REQUESTED"] }
         }
-      });
+      })).filter(position => positionMatchesLiveScope(this.deps.config.EXECUTION_MODE, position.metadata));
 
       // R_10 progressive profit-lock before ordinary SL/TP sync can overwrite local state.
       await applyR10ProfitLocks({
@@ -2494,6 +2497,7 @@ export class Mt5CfdRuntime {
         where: {
           userId: this.userId,
           brokerPositionId: id,
+          ...livePositionFilter(this.deps.config.EXECUTION_MODE),
           status: { in: ["OPEN", "PENDING", "OPEN_REQUESTED", "CLOSE_REQUESTED"] }
         },
         data: { stopLoss: broker.stopLoss, takeProfit: broker.takeProfit, currentPrice: broker.currentPrice }

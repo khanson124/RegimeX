@@ -1,3 +1,4 @@
+import { livePositionFilter, positionMatchesLiveScope } from "./livePositionScope.js";
 import { type PrismaClient } from "@regimex/database";
 import { type AppConfig } from "@regimex/config";
 import {
@@ -36,7 +37,8 @@ export async function recoverUnresolvedMt5ExecutionIntents(input: {
   let awaitingResume = 0;
 
   const intents = await prisma.executionIntent.findMany({
-    where: { userId, state: { in: [...UNRESOLVED_STATES] } },
+    where: { userId, state: { in: [...UNRESOLVED_STATES] },
+      ...(config.EXECUTION_MODE === "broker_real_mt5" ? { position: { is: livePositionFilter(config.EXECUTION_MODE) } } : {}) },
     orderBy: { createdAt: "asc" }
   });
 
@@ -51,7 +53,7 @@ export async function recoverUnresolvedMt5ExecutionIntents(input: {
     }
 
     const position = await prisma.position.findUnique({ where: { id: intent.positionId } });
-    if (!position) {
+    if (!position || !positionMatchesLiveScope(config.EXECUTION_MODE, position.metadata)) {
       stillUnresolved += 1;
       continue;
     }
@@ -161,9 +163,10 @@ export async function recoverUnresolvedMt5ExecutionIntents(input: {
   }
 
   const pendingWithoutIntent = await prisma.position.findMany({
-    where: { userId, status: "PENDING", origin: "ENGINE" }
+    where: { userId, status: "PENDING", origin: "ENGINE", ...livePositionFilter(config.EXECUTION_MODE) }
   });
   for (const row of pendingWithoutIntent) {
+    if (!positionMatchesLiveScope(config.EXECUTION_MODE, row.metadata)) continue;
     if (!row.signalId) continue;
     const existingIntent = await prisma.executionIntent.findUnique({ where: { signalId: row.signalId } });
     if (existingIntent) continue;

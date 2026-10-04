@@ -255,3 +255,5 @@ export function loadConfig(overrides: Partial<Record<string, string>> = {}): App
 export function resetConfigCache(): void {
   cached = null;
 }
+
+export { resolveMt5EnvironmentConfig } from "./mt5EnvironmentConfig.js";

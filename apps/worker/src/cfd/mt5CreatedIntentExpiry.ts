@@ -1,3 +1,4 @@
+import { livePositionFilter, positionMatchesLiveScope } from "./livePositionScope.js";
 import { type PrismaClient } from "@regimex/database";
 import {
   type DerivMT5BrokerAdapter,
@@ -35,6 +36,7 @@ export async function expireStaleCreatedExecutionIntents(input: {
   prisma: PrismaClient;
   adapter: DerivMT5BrokerAdapter;
   userId: string;
+  executionMode?: string;
   logger: Logger;
   now?: number;
 }): Promise<ExpireStaleCreatedResult> {
@@ -45,6 +47,7 @@ export async function expireStaleCreatedExecutionIntents(input: {
   const intents = await prisma.executionIntent.findMany({
     where: {
       userId,
+      ...(input.executionMode === "broker_real_mt5" ? { position: { is: livePositionFilter(input.executionMode) } } : {}),
       state: "CREATED",
       submittedAt: null,
       createdAt: { lt: cutoff }
@@ -76,7 +79,7 @@ export async function expireStaleCreatedExecutionIntents(input: {
     }
 
     const position = await prisma.position.findUnique({ where: { id: intent.positionId } });
-    if (!position) {
+    if (!position || !positionMatchesLiveScope(input.executionMode, position.metadata)) {
       skipped += 1;
       continue;
     }
