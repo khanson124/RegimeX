@@ -240,3 +240,21 @@ describe("temporary DEMO loss bypass risk isolation", () => {
     expect(rm.evaluate(withLosses(override)).rejectionCode).toBe(code);
   });
 });
+
+describe("temporary DEMO daily cap preserves the remaining risk checks", () => {
+  it("allows the 30th qualifying trade and blocks the 31st", () => {
+    expect(rm.evaluate(baseInput({ maxDailyTrades: 30, dailyTradeCount: 29 })).approved).toBe(true);
+    expect(rm.evaluate(baseInput({ maxDailyTrades: 30, dailyTradeCount: 30 })).rejectionCode).toBe("DAILY_TRADE_LIMIT");
+    expect(rm.evaluate(baseInput({ maxDailyTrades: 10, dailyTradeCount: 10 })).rejectionCode).toBe("DAILY_TRADE_LIMIT");
+  });
+  it("still blocks daily loss, loss streaks, ordinary cooldown and emergency stop", () => {
+    for (const overrides of [
+      { dailyRealizedLoss: -101 },
+      { consecutiveLosses: 3, lastLossClosedAt: BASE_NOW - 1000 },
+      { lastTradeAt: BASE_NOW - 1000, minCooldownSeconds: 120 },
+      { emergencyStop: true }
+    ]) {
+      expect(rm.evaluate(baseInput({ maxDailyTrades: 30, dailyTradeCount: 10, ...overrides })).approved).toBe(false);
+    }
+  });
+});

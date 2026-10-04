@@ -122,6 +122,7 @@ export interface SessionDeps {
    */
   reconcileMt5SharedEngineHealth?: (userId: string) => Promise<void>;
   readDemoLossBypass?: (userId: string) => Promise<string | null>;
+  readDemoTradeExperiment?: (userId: string) => Promise<string | null>;
 }
 
 interface LoadedStrategy {
@@ -424,7 +425,8 @@ export class LiveEngineSession {
         config,
         publish,
         logger: this.deps.logger,
-        readDemoLossBypass: this.deps.readDemoLossBypass
+        readDemoLossBypass: this.deps.readDemoLossBypass,
+        readDemoTradeExperiment: this.deps.readDemoTradeExperiment
       });
       await this.mt5Cfd.init();
     }

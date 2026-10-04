@@ -1,3 +1,4 @@
+import { resolveDemoTradeExperiment } from "./demoTradeExperiment.js";
 import { readDemoLossBypassScope, demoLossBypassGateConfig } from "./demoLossBypass.js";
 import { type PrismaClient } from "@regimex/database";
 import { type AppConfig } from "@regimex/config";
@@ -109,6 +110,7 @@ export interface Mt5CfdRuntimeDeps {
   /** Optional inject for tests. Defaults to worker Telegram notifier. */
   telegram?: TelegramTradeNotifier;
   readDemoLossBypass?: (userId: string) => Promise<string | null>;
+  readDemoTradeExperiment?: (userId: string) => Promise<string | null>;
 }
 
 export interface Mt5ExecuteResult {
@@ -908,6 +910,17 @@ export class Mt5CfdRuntime {
       }
     }
 
+    const readTradeExperiment = () => resolveDemoTradeExperiment({
+      userId: this.userId, executionMode: this.deps.config.EXECUTION_MODE,
+      sessionMode: input.sessionMode ?? "", symbol: input.symbol,
+      maxDailyTrades: profile?.maxDailyTrades ?? 10, closedToday, openPositions
+    }, this.deps.readDemoTradeExperiment,
+    (err) => this.log.warn({ err }, "DEMO trade experiment unavailable; normal daily limit applies"));
+    const tradeExperiment = await readTradeExperiment();
+    if (tradeExperiment.active) {
+      this.log.info({ correlationId: input.correlationId, symbol: input.symbol,
+        strategyId: input.strategyId, ...tradeExperiment }, "DEMO_R10_TRADE_EXPERIMENT_RISK_CHECK");
+    }
     const riskDecision = this.cfdRisk.evaluate({
       demoLossBypass,
       limits,
@@ -927,8 +940,8 @@ export class Mt5CfdRuntime {
       lastTradeAt: lastTrade?.openedAt?.getTime() ?? null,
       minCooldownSeconds: profile?.minCooldownSeconds ?? 120,
       maxDailyLoss: profile ? Number(profile.maxDailyLoss) : 5,
-      maxDailyTrades: profile?.maxDailyTrades ?? 10,
-      dailyTradeCount: closedToday.length + openPositions.length,
+      maxDailyTrades: tradeExperiment.maxDailyTrades,
+      dailyTradeCount: tradeExperiment.dailyTradeCount,
       maxConsecutiveLosses: profile?.maxConsecutiveLosses ?? 3,
       consecutiveLossCooldownMs:
         this.deps.config.MT5_CONSECUTIVE_LOSS_COOLDOWN_MINUTES * 60_000,
@@ -1122,6 +1135,7 @@ export class Mt5CfdRuntime {
             ownedByRegimeX: true,
             engineSymbol: input.symbol,
             ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
+            ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
             ...symbolAudit,
             volumePreflight: preflight,
             executionTelemetry,
@@ -1537,6 +1551,7 @@ export class Mt5CfdRuntime {
         brokerSymbol: submitBrokerSymbol,
         frozenResume: resumeBeforeSubmit,
         ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
+        ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
         volumePreflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
         finalExecution: {
@@ -1631,6 +1646,12 @@ export class Mt5CfdRuntime {
     let result: Awaited<ReturnType<DerivMT5BrokerAdapter["openMarketPosition"]>> | null = null;
 
     for (;;) {
+      if (tradeExperiment.active && !(await readTradeExperiment()).active) {
+        await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,
+          executionIntentId: executionIntent.id, code: "DEMO_TRADE_EXPERIMENT_DISABLED",
+          message: "Temporary DEMO daily cap disabled or expired before submit", logger: this.log });
+        return { opened: false, reasons: ["DEMO_TRADE_EXPERIMENT_DISABLED"], decisionCode: "NO_TRADE", preflight };
+      }
       // Re-read just before broker submission: OFF/expiry applies to an in-flight bypass too.
       if (lossBypassActive && !isDemoR10LossBypassActive(await readLossBypass(), Date.now())) {
         await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,

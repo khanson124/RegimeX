@@ -12,12 +12,14 @@ import {
 import { resolveLiveTradingArmState, resolveLiveTradingCapability } from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
+import { registerDemoTradeExperimentRoutes } from "./demoTradeExperiment.js";
 import { registerDemoLossBypassRoutes } from "./demoLossBypass.js";
 
 export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { prisma, redis, config } = ctx;
   const auth = requireAuth(ctx);
   registerDemoLossBypassRoutes(app, ctx);
+  registerDemoTradeExperimentRoutes(app, ctx);
 
   async function publishControl(command: EngineControlMessage["command"], userId: string): Promise<string> {
     const message: EngineControlMessage = { command, userId, correlationId: randomUUID() };

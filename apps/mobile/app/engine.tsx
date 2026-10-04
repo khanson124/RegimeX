@@ -4,6 +4,8 @@ import { ApiError } from "../src/api/client";
 import {
   useConfigureEngine,
   useDemoLossBypass,
+  useDemoTradeExperiment,
+  useSetDemoTradeExperiment,
   useSetDemoLossBypass,
   useEngine,
   useEngineAction,
@@ -58,6 +60,8 @@ export default function EngineScreen() {
   const { data: mt5Data } = useMt5Status();
   const action = useEngineAction();
   const configure = useConfigureEngine();
+  const tradeExperiment = useDemoTradeExperiment();
+  const setTradeExperiment = useSetDemoTradeExperiment();
   const lossBypass = useDemoLossBypass();
   const setLossBypass = useSetDemoLossBypass();
 
@@ -211,6 +215,32 @@ export default function EngineScreen() {
         </Text>
         {(lossBypass.error || setLossBypass.error) ? (
           <Text style={styles.emergency}>{String((lossBypass.error ?? setLossBypass.error)?.message)}</Text>
+        ) : null}
+      </SoftCard>
+
+      <SoftCard>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={styles.fieldLabel}>30 trades per day for seven days</Text>
+          <Switch
+            accessibilityLabel="R_10 DEMO temporary daily trade cap"
+            value={tradeExperiment.data?.enabled ?? false}
+            disabled={tradeExperiment.isLoading || tradeExperiment.isError || setTradeExperiment.isPending ||
+              (!tradeExperiment.data?.supported && !tradeExperiment.data?.enabled)}
+            onValueChange={(enabled) => setTradeExperiment.mutate(enabled)}
+          />
+        </View>
+        <Text style={styles.hint}>
+          R_10 DEMO only. Counts DEMO R_10 positions closed today (UTC) plus open positions.
+          Entry rules, daily-loss and other risk limits remain in effect. The loss bypass is a separate switch.
+        </Text>
+        <Text style={styles.hint}>
+          {tradeExperiment.data?.enabled
+            ? `ON · Automatically returns to the normal cap ${new Date(tradeExperiment.data.expiresAt!).toLocaleString()}.`
+            : "OFF · Normal daily cap applies. Turning on lasts seven days; you can turn it off sooner."}
+          {tradeExperiment.data && !tradeExperiment.data.supported ? " Unavailable in the current trading environment." : ""}
+        </Text>
+        {(tradeExperiment.error || setTradeExperiment.error) ? (
+          <Text style={styles.emergency}>{String((tradeExperiment.error ?? setTradeExperiment.error)?.message)}</Text>
         ) : null}
       </SoftCard>
 

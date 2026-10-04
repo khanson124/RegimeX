@@ -910,3 +910,19 @@ export const useSetDemoLossBypass = () => {
     onSettled: () => void qc.invalidateQueries({ queryKey: ["demo-loss-bypass"] })
   });
 };
+
+export interface DemoTradeExperimentStatus extends DemoLossBypassStatus { dailyCap: number }
+export const useDemoTradeExperiment = () => useQuery({
+  queryKey: ["demo-trade-experiment"], queryFn: () => api<DemoTradeExperimentStatus>("/engine/demo-trade-experiment"),
+  refetchInterval: 5_000
+});
+export const useSetDemoTradeExperiment = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api<DemoTradeExperimentStatus>("/engine/demo-trade-experiment", {
+      method: "PUT", body: { enabled }
+    }),
+    onSuccess: (data) => qc.setQueryData(["demo-trade-experiment"], data),
+    onSettled: () => void qc.invalidateQueries({ queryKey: ["demo-trade-experiment"] })
+  });
+};
