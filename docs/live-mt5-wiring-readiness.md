@@ -27,8 +27,10 @@ Read-only diagnostic from an API image containing this source:
 
     pnpm --filter @regimex/api exec tsx src/scripts/liveReadiness.ts <userId>
 
-It reads engine/environment/intents, bridge readiness and (only if the EA is online) native account
-and R_10 instrument metadata. It never calls environment switch, arm, engine START/STOP, broker open,
+It reads engine/environment/intents, bridge response freshness, native account and R_10 instrument
+metadata. It always attempts one bounded read-only account probe: readiness is not an EA heartbeat,
+and an idle EA may still answer. It reports the effective smoke-test lot ceiling as well as the
+configured ceiling. It never calls environment switch, arm, engine START/STOP, broker open,
 modify or close; it never writes database rows. It masks account login. An offline EA remains a blocker
 although the bridge HTTP process is healthy. No diagnostic failure changes limits or configuration.
 Connection readiness does not mean strategies are eligible: normal REAL lifecycle, capability, stop,
@@ -37,13 +39,14 @@ forward-trial and risk checks still apply. The DEMO loss bypass and daily-cap ex
 ## Server findings on October 4, 2026
 
 - Shared runtime remains broker_demo_mt5 with REAL_MONEY_ENABLED=false and LIVE_MT5_ENABLED=false.
-- LIVE bridge HTTP is healthy; EA readiness is offline and getAccount timed out.
-- The inspected mt5-terminal.service is inactive; the DEMO terminal service is active.
+- The operator started mt5-terminal.service on October 4 at 21:51 UTC. Native LIVE account/instrument
+  requests now succeed and identify the expected REAL account. The bridge reports online immediately
+  after those requests; stale response-freshness telemetry must not be mistaken for an offline terminal.
 - One AMBIGUOUS execution intent blocks the existing environment-switch gate. Do not delete/reset it;
   reconcile it against broker evidence under a separately approved process.
 - LIVE lot ceiling is 0.01, engine ceiling 0.5, LIVE risk cap 0.25%, global engine cap 0.10%, LIVE daily-loss cap 1.
-  LIVE R_10 minimum volume cannot be verified until the EA responds. The minimum was 0.5 on DEMO;
-  do not assume a compatible LIVE instrument or raise the ceiling automatically.
+  Verified LIVE R_10 minimum volume is 0.5 lots, above the 0.01 LIVE ceiling. LIVE_SMOKE_TEST_MODE=true
+  independently clamps LIVE volume to 0.01 lots; changing the configured ceiling alone is insufficient.
 - Stored LIVE policy names R_10 and has an empty strategy list. Existing engine submission gates use
   MT5_ENGINE_STRATEGY_ALLOWLIST plus REAL lifecycle/policy checks; review the intended LIVE strategy set
   explicitly instead of assuming the stored empty list is an execution permission.
