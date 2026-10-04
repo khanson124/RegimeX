@@ -163,6 +163,8 @@ const envSchema = z.object({
   MT5_PASSIVE_SPREAD_SAMPLE_MS: z.coerce.number().int().min(0).default(60_000),
   /** R_10 1m DEMO only: observational spread-to-adjusted-stop comparisons. Never gates orders. */
   MT5_DEMO_R10_SPREAD_SHADOW_ENABLED: envBoolean.default(false),
+  /** R_10 1m DEMO only: completed 15m/4h trend observations. Never gates orders. */
+  MT5_DEMO_R10_HTF_SHADOW_ENABLED: envBoolean.default(false),
   MT5_MAX_TEST_VOLUME: z.coerce.number().positive().default(0.01),
   MT5_MAX_TEST_RISK_PERCENT: z.coerce.number().positive().default(0.1),
   MT5_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),

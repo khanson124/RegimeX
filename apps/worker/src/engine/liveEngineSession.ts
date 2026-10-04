@@ -85,6 +85,7 @@ import {
   type Mt5SessionHealthContribution
 } from "@regimex/trading-engine";
 import { resolveMt5DemoXauSession } from "./mt5DemoXauSession.js";
+import { DemoR10HtfShadowObserver, DEMO_R10_HTF_HISTORY_LIMIT } from "./demoR10HtfShadow.js";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
 import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
 import { closeMt5LocalPosition, emergencyCloseOwnedMt5Positions } from "../cfd/mt5CloseRuntime.js";
@@ -202,6 +203,7 @@ export class LiveEngineSession {
   /** Context HTF buffers (e.g. 4h) — never mixed into the execution candle ring. */
   private mt5ContextCandles = new Map<string, Candle[]>();
   private mt5MtfSpec: MultiTimeframeWarmupSpec | null = null;
+  private readonly demoR10HtfShadow: DemoR10HtfShadowObserver;
   /** Retention for execution candles; derived from session warm-up requirement. */
   private candleBufferCapacity = CANDLE_BUFFER_BASE;
 
@@ -213,6 +215,23 @@ export class LiveEngineSession {
   ) {
     this.baseConfig = deps.config;
     this.deps = { ...deps };
+    this.demoR10HtfShadow = new DemoR10HtfShadowObserver(async cutoff => {
+      const rows = await this.deps.prisma.candle.findMany({
+        where: { symbol: { derivSymbol: "R_10" }, interval: "1m", isComplete: true,
+          source: { in: ["MT5_HISTORY", "MT5_LIVE_TICKS"] },
+          openTime: { gte: new Date(cutoff - DEMO_R10_HTF_HISTORY_LIMIT * 60_000) },
+          closeTime: { lte: new Date(cutoff) } },
+        orderBy: { openTime: "desc" }, take: DEMO_R10_HTF_HISTORY_LIMIT,
+        select: { openTime: true, closeTime: true, open: true, high: true, low: true, close: true,
+          tickCount: true, isComplete: true, source: true }
+      });
+      return rows.map(row => ({ symbol: "R_10", interval: "1m" as const,
+        openTime: row.openTime.getTime(), closeTime: row.closeTime.getTime(),
+        open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close),
+        tickCount: row.tickCount, isComplete: row.isComplete, source: row.source as Candle["source"] }));
+    }, assessment => this.log.info({ event: "DEMO_R10_HTF_SHADOW", ...assessment }, "DEMO_R10_HTF_SHADOW"),
+    (signal, reason) => this.log.warn({ event: "DEMO_R10_HTF_SHADOW_UNAVAILABLE", signalId: signal.signalId,
+      correlationId: signal.correlationId, reason }, "DEMO_R10_HTF_SHADOW_UNAVAILABLE"));
     const mode =
       deps.config.STRATEGY_SELECTION_MODE === "validated" ? "VALIDATED" : "BOOTSTRAP";
     this.selection = new StrategySelectionService({
@@ -1644,6 +1663,10 @@ export class LiveEngineSession {
         correlationId
       }
     });
+    this.demoR10HtfShadow.observe({ enabled: config.MT5_DEMO_R10_HTF_SHADOW_ENABLED,
+      executionBackend: this.executionBackend, mode: this.mode, symbol: this.symbol, interval: this.interval,
+      action: decision.action, decisionCloseTimeMs: candle.closeTime, signalId: signal.id,
+      strategyId: decision.strategyId, correlationId });
     await publish(this.userId, "strategy.signal", {
       signalId: signal.id,
       action: decision.action,

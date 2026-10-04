@@ -67,22 +67,24 @@ function fixture(options: {
   backend?: ExecutionBackend; mode?: Internals["mode"]; selectionMode?: Internals["engineSelectionMode"];
   symbol?: string; interval?: CandleInterval; originalAction?: StrategyDecision["action"];
   fallbackAction?: (ctx: StrategyContext) => StrategyDecision["action"]; shadowEnabled?: boolean;
-  resultCode?: string; opened?: boolean;
+  resultCode?: string; opened?: boolean; htfShadowEnabled?: boolean;
 } = {}) {
   resetConfigCache(); resetSharedMt5BridgeCircuit();
   const config = loadConfig({
     DATABASE_URL: "postgresql://test:test@localhost/test", JWT_ACCESS_SECRET: "a".repeat(32),
     JWT_REFRESH_SECRET: "b".repeat(32), CREDENTIAL_ENCRYPTION_KEY: "c".repeat(32),
     EXECUTION_MODE: "broker_demo_mt5", DEMO_TRADING_ENABLED: "true",
+    MT5_DEMO_R10_HTF_SHADOW_ENABLED: String(options.htfShadowEnabled ?? false),
     MT5_BRIDGE_SECRET: "test-secret-at-least-16", MT5_BRIDGE_URL: "http://localhost:8765",
     FEATURE_AUTO_SHADOW_EVAL: String(options.shadowEnabled ?? true), MT5_ENGINE_ENABLED: "true",
     MT5_ENGINE_SYMBOL_ALLOWLIST: "R_10", MT5_ENGINE_STRATEGY_ALLOWLIST: `${originalId},${fallbackId},${thirdId}`
   });
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => logger };
   const signal = { create: vi.fn().mockResolvedValue({ id: "signal" }), update: vi.fn() };
+  const candleRead = vi.fn().mockResolvedValue([]);
   const publish = vi.fn();
   const session = new LiveEngineSession("user", { config, logger, publish,
-    prisma: { signal }, credentialDecrypt: (value: string) => value } as unknown as SessionDeps) as unknown as Internals;
+    prisma: { signal, candle: { findMany: candleRead } }, credentialDecrypt: (value: string) => value } as unknown as SessionDeps) as unknown as Internals;
   const original = strategy(originalId, () => options.originalAction ?? "HOLD");
   const fallback = strategy(fallbackId, options.fallbackAction ?? (() => "BUY"));
   const third = strategy(thirdId, () => "SELL");
@@ -117,7 +119,7 @@ function fixture(options: {
     lastTickAt: Date.now()
   });
   recordMt5QuotePollSuccess(session.mt5QuoteHealth, Date.now(), Date.now());
-  return { session, original, fallback, third, signal, publish, logger,
+  return { session, original, fallback, third, signal, publish, logger, candleRead,
     run: () => session.analyze(candles.at(-1)!) };
 }
 afterEach(() => { resetConfigCache(); resetSharedMt5BridgeCircuit(); });
@@ -223,5 +225,59 @@ describe("R_10 DEMO AUTO HOLD fallback", () => {
     expect(f.session.recordCandidate).toHaveBeenCalledWith(expect.anything(), expect.any(String),
       expect.objectContaining({ strategyId: fallbackId, rejectionCode: "R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY" }));
     expect(f.session.lastSignalCandle.get(fallbackId)).toBe(80);
+  });
+});
+
+describe("HTF observation in the real session analysis path", () => {
+  const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+  it("uses the effective fallback ID and candle close; indeterminate research never blocks a trade", async () => {
+    const f = fixture({ htfShadowEnabled: true }); await f.run(); await flush();
+    expect(f.candleRead).toHaveBeenCalledTimes(1);
+    expect(f.candleRead).toHaveBeenCalledWith(expect.objectContaining({ take: 6000,
+      where: expect.objectContaining({ symbol: { derivSymbol: "R_10" }, interval: "1m", isComplete: true,
+        source: { in: ["MT5_HISTORY", "MT5_LIVE_TICKS"] }, closeTime: { lte: new Date(6000000) } }) }));
+    const observation = f.logger.info.mock.calls.find(([data]) => data.event === "DEMO_R10_HTF_SHADOW")![0];
+    expect(observation).toMatchObject({ strategyId: fallbackId, signalId: "signal", decisionCloseTimeMs: 6000000,
+      action: "BUY", observationalOnly: true, correlationId: expect.any(String) });
+    expect(observation.comparisons.every((c: { wouldPassTrendFilter: unknown }) => c.wouldPassTrendFilter === null)).toBe(true);
+    expect(f.session.mt5Cfd.executeCfdSignal).toHaveBeenCalledWith(expect.objectContaining({ strategyId: fallbackId }));
+  });
+  it.each([{ htfShadowEnabled: false }, { htfShadowEnabled: true, backend: "broker_real_mt5", mode: "LIVE_TRADING", originalAction: "BUY" },
+    { htfShadowEnabled: true, symbol: "XAUUSD", originalAction: "BUY" },
+    { htfShadowEnabled: true, selectionMode: "SINGLE" } ] as const)("does not read research history for excluded cases: %s", async options => {
+    const f = fixture(options); await f.run(); await flush(); expect(f.candleRead).not.toHaveBeenCalled();
+  });
+  it.each(["unresolved", "reject", "logging"])("research %s cannot delay execution or change cooldown", async kind => {
+    const f = fixture({ htfShadowEnabled: true });
+    if (kind === "unresolved") f.candleRead.mockImplementation(() => new Promise(() => {}));
+    if (kind === "reject") f.candleRead.mockRejectedValue(Error("research unavailable"));
+    if (kind === "logging") f.logger.info.mockImplementation(data => { if (data.event === "DEMO_R10_HTF_SHADOW") throw Error("research logger"); });
+    await f.run(); await flush();
+    expect(f.session.mt5Cfd.executeCfdSignal).toHaveBeenCalledTimes(1);
+    expect(f.session.lastSignalCandle.get(fallbackId)).toBe(100);
+  });
+  it("enabled/disabled observation submits identical execution inputs apart from generated correlation ID", async () => {
+    const off = fixture(); await off.run();
+    const on = fixture({ htfShadowEnabled: true }); await on.run(); await flush();
+    const normalize = (value: Record<string, unknown>) => ({ ...value, correlationId: "same" });
+    expect(normalize(on.session.mt5Cfd.executeCfdSignal.mock.calls[0]![0]))
+      .toEqual(normalize(off.session.mt5Cfd.executeCfdSignal.mock.calls[0]![0]));
+    expect(on.session.lastSignalCandle).toEqual(off.session.lastSignalCandle);
+    expect(on.session.shadowLastSignalCandle).toEqual(off.session.shadowLastSignalCandle);
+  });
+  it("even a determinate trend disagreement remains observational", async () => {
+    const f = fixture({ htfShadowEnabled: true, fallbackAction: () => "SELL" });
+    // End at the fixture decision's last completed H4 boundary (epoch zero).
+    f.candleRead.mockResolvedValue(Array.from({ length: 5040 }, (_, i) => ({
+      openTime: new Date((i - 5040) * 60000), closeTime: new Date((i - 5039) * 60000),
+      open: 100 + i / 10000, close: 100 + (i + 1) / 10000,
+      high: 101 + i / 10000, low: 99 + i / 10000, tickCount: 10,
+      source: "MT5_HISTORY", isComplete: true
+    })));
+    await f.run(); await flush();
+    const observation = f.logger.info.mock.calls.find(([data]) => data.event === "DEMO_R10_HTF_SHADOW")![0];
+    expect(observation.comparisons[1]).toMatchObject({ interval: "4h", bias: "BULLISH", wouldPassTrendFilter: false });
+    expect(f.session.mt5Cfd.executeCfdSignal).toHaveBeenCalledWith(expect.objectContaining({ strategyId: fallbackId,
+      decision: expect.objectContaining({ action: "SELL" }) }));
   });
 });
