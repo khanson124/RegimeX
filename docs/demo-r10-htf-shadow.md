@@ -74,3 +74,47 @@ independent timeframe coverage, unchanged inputs, contained read/logger errors,
 one in-flight read, and real session integration with effective fallback ID.
 The real session tests compare enabled/disabled execution arguments and both
 cooldown maps, and prove unresolved research reads do not block submission.
+
+## Standalone background study (no trading-worker restart)
+
+`apps/worker/src/research/runDemoR10HtfStudy.ts` can run in a dedicated one-off
+container from the existing worker image, with its three committed source files
+mounted read-only from an immutable snapshot. This mode does not require enabling
+the observer inside the shared trading worker. It imports no engine controls,
+Redis publisher or broker adapter. PostgreSQL enforces read-only transactions
+and an eight-second statement timeout. Artifacts are filesystem-only.
+
+Explicit inputs: `EXECUTION_MODE=broker_demo_mt5`,
+`MT5_DEMO_R10_HTF_SHADOW_ENABLED=true`, fixed `R10_HTF_STUDY_FROM`,
+`R10_HTF_STUDY_COMMIT`, and `R10_HTF_STUDY_DIR`. No server `.env` edits are needed.
+Use the standard production Compose files with `run --no-deps --entrypoint ""`;
+never build/recreate the shared worker for this standalone study. `--once` runs a
+single validation cycle and exits nonzero on a read/artifact failure.
+
+Every 30 seconds, the process observes new ENGINE-origin R_10 1m OPEN/CLOSED
+positions whose metadata explicitly identifies `broker_demo_mt5`. REAL, paper,
+manual-origin, rejected and pending positions are excluded. Position and signal
+direction/strategy IDs must agree. At most five new assessments are made per
+cycle; the forward batch freezes after 200 assessed filled positions. Missing
+history is assessed once and retained as indeterminate rather than backfilled
+later. On restart, the manifest must match and recorded position IDs are resumed
+without duplicate observations. A malformed/truncated artifact fails startup
+rather than silently dropping evidence.
+
+`manifest.json` fixes the experiment scope/start/model/commit;
+`observations.jsonl` preserves individual assessments and recorded bypass/experiment
+metadata; `summary.json` refreshes closed results, open counts, coverage and
+baseline/aligned/opposed-or-neutral cohorts for M15 and H4. Each comparison also
+reports its *covered baseline*, so missing H4 history cannot inflate a result by
+quietly removing trades. Strategy/version and stored close-reason cohorts are
+separate. Summaries use the stored realized PnL: broker costs and manual exit
+provenance must still be checked before drawing conclusions. Filtering existing
+trades does not simulate changed capacity, position sizing or subsequent signals.
+
+Operational health is `R10_HTF_STUDY_HEARTBEAT` plus a recently updated summary.
+A zero-position batch is healthy when no new trade has filled. Read failures emit
+`R10_HTF_STUDY_RETRY` without credentials and retry; monitoring must distinguish
+those from normal heartbeat output. Stop or restart only the dedicated research
+container; this has no effect on trading. Preserve the study directory when
+stopping. A new batch requires a new start timestamp/directory; never rewrite the
+current manifest or use these metrics to switch trading automatically.
