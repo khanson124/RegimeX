@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import type { DemoR10Review, DemoR10ReviewGroup, DemoR10ReviewMetrics } from "../api/hooks";
 import { Collapsible, SoftCard, StatRow, StatTile } from "./design";
 import { colors, font, spacing } from "../theme";
+import { DemoR10SqueezeEntryAudit } from "./DemoR10SqueezeEntryAudit";
 const fixed = (n: number | null, digits = 2) => n == null ? "—" : n.toFixed(digits);
 const labels: Record<string, string> = { MANUAL: "Recorded manual closes", AUTOMATIC: "Recorded automatic exits",
   SAFETY: "Safety exits", UNKNOWN: "Unclassified", AUTO_ORIGINAL: "AUTO original selection",
@@ -47,6 +48,7 @@ export function DemoR10TradeReview({ review, asOf }: { review: DemoR10Review; as
       <Breakdown title="Loss bypass at entry" groups={review.lossBypass} />
       <Breakdown title="Trade experiment at entry" groups={review.tradeExperiment} />
       <Breakdown title="Recorded strategy selection" groups={review.selection} />
+      {review.squeezeEntryAudit ? <DemoR10SqueezeEntryAudit audit={review.squeezeEntryAudit} /> : null}
     </>}
     <Text style={styles.note}>Stored realized P&L; no added cost estimate. Profit factor is unavailable when there are no losses. Missing history stays unclassified.</Text>
     <Text style={styles.note}>These groups describe recorded exits, not what the same trades would have earned without manual closes. Stops and targets may also have been edited.</Text>

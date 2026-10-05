@@ -964,9 +964,21 @@ export interface DemoR10Review {
   strategies: (DemoR10ReviewGroup & { strategyId: string; strategyVersion: string | null })[];
   lossBypass: DemoR10ReviewGroup[]; tradeExperiment: DemoR10ReviewGroup[]; selection: DemoR10ReviewGroup[];
   selectionHistoryTruncated: boolean;
+  squeezeEntryAudit?: DemoR10SqueezeEntryAudit;
 }
 export const useDemoR10TradeReview = (enabled: boolean) => useQuery({
   queryKey: ["demo-r10-trade-review"],
   queryFn: () => api<{ review: DemoR10Review; asOf: string }>("/positions/demo-r10-review"),
   enabled, staleTime: 30_000, refetchInterval: enabled ? 30_000 : false
 });
+
+export interface DemoR10SqueezeEntryAudit {
+  observationalOnly: true; model: string; recentLimit: number; hasMore: boolean;
+  targetClosedTrades: number; automaticClosedTrades: number; excludedManualTrades: number;
+  excludedSafetyOrUnknownTrades: number;
+  versions: { strategyVersion: string | null; automatic: DemoR10ReviewMetrics; undatedTrades: number;
+    recent: DemoR10ReviewMetrics & { firstCloseAt: string | null; lastCloseAt: string | null };
+    earlier: DemoR10ReviewMetrics & { firstCloseAt: string | null; lastCloseAt: string | null };
+    dimensions: { key: string; label: string; recentCovered: number; earlierCovered: number;
+      buckets: { key: string; recent: DemoR10ReviewMetrics; earlier: DemoR10ReviewMetrics }[] }[] }[];
+}

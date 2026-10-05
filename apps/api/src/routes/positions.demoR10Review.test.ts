@@ -56,4 +56,17 @@ describe("authenticated read-only R_10 DEMO review route", () => {
     const f = fixture(); f.prisma.position.findMany.mockRejectedValue(Error("database unavailable"));
     expect((await f.get()).statusCode).toBe(500); expect(f.prisma.decisionLog.findMany).not.toHaveBeenCalled();
   });
+  it("includes the entry audit from existing snapshots without new reads or state changes", async () => {
+    const item = { ...row(), closeReason: "STOP_LOSS", direction: "BUY", openedAt: new Date("2026-10-03T23:59:00Z"),
+      metadata: { ...row().metadata, entryFeatureTelemetry: { telemetryVersion: 1,
+        symbol: "R_10", interval: "1m", strategyId: "squeeze-breakout-v1", direction: "BUY",
+        timestamp: Date.parse("2026-10-03T23:58:00Z"), adx: 25 } } };
+    const f = fixture([item]); const r = (await f.get()).json().review.squeezeEntryAudit;
+    expect(r).toMatchObject({ observationalOnly: true, model: "R10_SQUEEZE_ENTRY_BINS_V1", automaticClosedTrades: 1 });
+    expect(r.versions[0].recent).toMatchObject({ trades: 1, wins: 1, netPnl: 2 });
+    expect(r.versions[0].dimensions.find((d: { key: string }) => d.key === "ADX").recentCovered).toBe(1);
+    expect(f.prisma.position.findMany).toHaveBeenCalledTimes(1);
+    expect(f.prisma.position.findMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ direction: true, openedAt: true }) }));
+    expect(f.prisma.position.update).not.toHaveBeenCalled(); expect(f.redis.publish).not.toHaveBeenCalled();
+  });
 });

@@ -4,6 +4,7 @@ export interface ReviewTrade {
   strategyId: string; strategyVersion: string | null; closeReason: string | null;
   realizedPnl: number | null; initialRiskAmount: number | null;
   closedAt: Date | null; metadata: unknown; correlationId: string | null;
+  direction?: string; openedAt?: Date | null;
 }
 export interface ReviewSelection {
   correlationId: string; strategyId: string | null; featureSummary: unknown;
@@ -21,7 +22,7 @@ function exitGroup(t: ReviewTrade): string {
   if (t.closeReason === "RISK_SHUTDOWN") return "SAFETY";
   return "UNKNOWN";
 }
-function metrics(trades: readonly ReviewTrade[]) {
+export function measureReviewTrades(trades: readonly ReviewTrade[]) {
   const valued = trades.filter(t => t.realizedPnl != null && Number.isFinite(t.realizedPnl));
   const wins = valued.filter(t => t.realizedPnl! > 0);
   const losses = valued.filter(t => t.realizedPnl! < 0);
@@ -63,14 +64,14 @@ export function buildDemoR10TradeReview(input: readonly ReviewTrade[], selection
   function groups(classify: (t: ReviewTrade) => string, keys?: string[]) {
     return (keys ?? [...new Set(trades.map(classify))].sort()).map(key => {
       const rows = trades.filter(t => classify(t) === key);
-      return { key, ...metrics(rows), exits: ["MANUAL", "AUTOMATIC", "SAFETY", "UNKNOWN"].map(exit => ({ key: exit, ...metrics(rows.filter(t => exitGroup(t) === exit)) })) };
+      return { key, ...measureReviewTrades(rows), exits: ["MANUAL", "AUTOMATIC", "SAFETY", "UNKNOWN"].map(exit => ({ key: exit, ...measureReviewTrades(rows.filter(t => exitGroup(t) === exit)) })) };
     });
   }
   const times = trades.map(t => t.closedAt?.getTime()).filter((n): n is number => n != null && Number.isFinite(n));
   return { scope: "R_10 / 1m / MT5 DEMO / ENGINE" as const, limit: DEMO_R10_REVIEW_LIMIT, hasMore,
     sampledClosedTrades: trades.length, firstCloseAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
     lastCloseAt: times.length ? new Date(Math.max(...times)).toISOString() : null,
-    overall: metrics(trades), exits: groups(exitGroup, ["MANUAL", "AUTOMATIC", "SAFETY", "UNKNOWN"]),
+    overall: measureReviewTrades(trades), exits: groups(exitGroup, ["MANUAL", "AUTOMATIC", "SAFETY", "UNKNOWN"]),
     strategies: groups(t => JSON.stringify([t.strategyId, t.strategyVersion])).map(g => {
       const [strategyId, strategyVersion] = JSON.parse(g.key) as [string, string | null];
       return { ...g, strategyId, strategyVersion };

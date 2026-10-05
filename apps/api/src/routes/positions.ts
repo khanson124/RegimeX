@@ -10,6 +10,7 @@ import {
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
 import { buildDemoR10TradeReview, DEMO_R10_REVIEW_LIMIT } from "../services/demoR10TradeReview.js";
+import { buildDemoR10SqueezeEntryAudit } from "../services/demoR10SqueezeEntryAudit.js";
 
 export function registerPositionRoutes(app: FastifyInstance, ctx: AppContext): void {
   const auth = requireAuth(ctx);
@@ -22,7 +23,7 @@ export function registerPositionRoutes(app: FastifyInstance, ctx: AppContext): v
       orderBy: [{ closedAt: { sort: "desc", nulls: "last" } }, { id: "desc" }], take: DEMO_R10_REVIEW_LIMIT + 1,
       select: { id: true, symbol: true, interval: true, origin: true, status: true,
         strategyId: true, strategyVersion: true, closeReason: true, realizedPnl: true,
-        initialRiskAmount: true, closedAt: true, metadata: true,
+        initialRiskAmount: true, closedAt: true, metadata: true, direction: true, openedAt: true,
         signal: { select: { correlationId: true } } }
     });
     const sample = rows.slice(0, DEMO_R10_REVIEW_LIMIT);
@@ -33,10 +34,13 @@ export function registerPositionRoutes(app: FastifyInstance, ctx: AppContext): v
       // At most one selector row is expected per signal; duplicates remain unknown.
       take: DEMO_R10_REVIEW_LIMIT * 2 + 1
     }) : [];
-    return { review: { ...buildDemoR10TradeReview(sample.map(row => ({ ...row,
+    const trades = sample.map(row => ({ ...row,
       realizedPnl: row.realizedPnl == null ? null : Number(row.realizedPnl),
       initialRiskAmount: row.initialRiskAmount == null ? null : Number(row.initialRiskAmount),
-      correlationId: row.signal?.correlationId ?? null })), selections.length > DEMO_R10_REVIEW_LIMIT * 2 ? [] : selections, rows.length > DEMO_R10_REVIEW_LIMIT),
+      correlationId: row.signal?.correlationId ?? null }));
+    return { review: { ...buildDemoR10TradeReview(trades,
+      selections.length > DEMO_R10_REVIEW_LIMIT * 2 ? [] : selections, rows.length > DEMO_R10_REVIEW_LIMIT),
+      squeezeEntryAudit: buildDemoR10SqueezeEntryAudit(trades, rows.length > DEMO_R10_REVIEW_LIMIT),
       selectionHistoryTruncated: selections.length > DEMO_R10_REVIEW_LIMIT * 2 },
       asOf: new Date().toISOString() };
   });
