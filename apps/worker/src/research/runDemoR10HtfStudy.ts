@@ -5,6 +5,8 @@ import type { Candle } from "@regimex/shared";
 import { assessDemoR10HtfShadow, DEMO_R10_HTF_HISTORY_LIMIT } from "../engine/demoR10HtfShadow.js";
 import { isDemoR10StudyTrade, summarizeHtfStudy, type StudyObservation, type StudyTrade } from "./demoR10HtfStudy.js";
 
+import { assessDemoR10SupportResistance, summarizeR10SupportResistance, R10_SR_MODEL } from "./demoR10SupportResistance.js";
+
 // Dedicated research process: imports no engine, broker or Redis control capabilities.
 if (process.env.MT5_DEMO_R10_HTF_SHADOW_ENABLED !== "true" || process.env.EXECUTION_MODE !== "broker_demo_mt5") {
   throw new Error("DEMO HTF research must be explicitly enabled with broker_demo_mt5 scope");
@@ -13,8 +15,10 @@ const from = new Date(process.env.R10_HTF_STUDY_FROM ?? "");
 if (!Number.isFinite(from.getTime())) throw new Error("R10_HTF_STUDY_FROM must be a valid fixed timestamp");
 const dir = process.env.R10_HTF_STUDY_DIR;
 if (!dir) throw new Error("R10_HTF_STUDY_DIR is required");
+const srEnabled = process.env.R10_SR_STUDY_ENABLED === "true";
 const manifest = { studyVersion: 1, from: from.toISOString(), maxPositions: 200, model: "UTC_COMPLETED_EMA_8_21_LAST_21",
-  sourceCommit: process.env.R10_HTF_STUDY_COMMIT ?? "unknown", scope: "R_10/1m/ENGINE/broker_demo_mt5", observationalOnly: true };
+  sourceCommit: process.env.R10_HTF_STUDY_COMMIT ?? "unknown", scope: "R_10/1m/ENGINE/broker_demo_mt5", observationalOnly: true,
+  ...(srEnabled ? { supportResistanceModel: R10_SR_MODEL } : {}) };
 await mkdir(dir, { recursive: true });
 const manifestPath = join(dir, "manifest.json");
 try {
@@ -36,7 +40,7 @@ let stopping = false;
 let wake: (() => void) | undefined;
 for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => { stopping = true; wake?.(); });
 const select = { id: true, symbol: true, interval: true, origin: true, direction: true, strategyId: true, strategyVersion: true,
-  signalId: true, status: true, realizedPnl: true, closeReason: true, metadata: true,
+  signalId: true, entryPrice: true, initialStopLoss: true, status: true, realizedPnl: true, closeReason: true, metadata: true,
   signal: { select: { signalTime: true, correlationId: true, strategyId: true, action: true } } } satisfies Prisma.PositionSelect;
 console.log(JSON.stringify({ event: "R10_HTF_STUDY_STARTED", ...manifest, resumedObservations: assessed.size }));
 try {
@@ -62,12 +66,15 @@ try {
           const candles: Candle[] = history.map(c => ({ symbol: "R_10", interval: "1m", openTime: c.openTime.getTime(),
             closeTime: c.closeTime.getTime(), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
             isComplete: c.isComplete, tickCount: c.tickCount, source: c.source as Candle["source"] }));
-          const assessment = assessDemoR10HtfShadow({ enabled: true, executionBackend: "broker_demo_mt5", mode: "DEMO_TRADING",
+          const shadowSignal = { enabled: true, executionBackend: "broker_demo_mt5", mode: "DEMO_TRADING",
             symbol: row.symbol, interval: row.interval!, action: row.direction, strategyId: row.strategyId,
-            signalId: row.signalId!, correlationId: row.signal.correlationId, decisionCloseTimeMs: cutoff }, candles)!;
+            signalId: row.signalId!, correlationId: row.signal.correlationId, decisionCloseTimeMs: cutoff };
+          const assessment = assessDemoR10HtfShadow(shadowSignal, candles)!;
           const meta = row.metadata as Record<string, unknown>;
           fresh.push({ positionId: row.id, strategyVersion: row.strategyVersion, assessedAt: new Date().toISOString(),
-            demoLossBypass: meta.demoLossBypass ?? null, demoTradeExperiment: meta.demoTradeExperiment ?? null, assessment });
+            demoLossBypass: meta.demoLossBypass ?? null, demoTradeExperiment: meta.demoTradeExperiment ?? null, assessment,
+            ...(srEnabled ? { supportResistance: assessDemoR10SupportResistance(shadowSignal, candles, {
+              entryPrice: row.entryPrice == null ? null : Number(row.entryPrice), initialStopLoss: Number(row.initialStopLoss) })! } : {}) });
         }
         return { trades, fresh };
       }, { timeout: 15_000, maxWait: 3000 });
@@ -76,7 +83,8 @@ try {
         observations.push(observation); assessed.add(observation.positionId);
         console.log(JSON.stringify({ event: "R10_HTF_STUDY_OBSERVATION", ...observation }));
       }
-      const summary = { ...manifest, updatedAt: new Date().toISOString(), ...summarizeHtfStudy(batch.trades, observations) };
+      const summary = { ...manifest, updatedAt: new Date().toISOString(), ...summarizeHtfStudy(batch.trades, observations),
+        ...(srEnabled ? { supportResistance: summarizeR10SupportResistance(batch.trades, observations) } : {}) };
       await writeFile(join(dir, "summary.json.tmp"), JSON.stringify(summary, null, 2) + "\n");
       await rename(join(dir, "summary.json.tmp"), join(dir, "summary.json"));
       console.log(JSON.stringify({ event: "R10_HTF_STUDY_HEARTBEAT", observed: assessed.size, closed: summary.closedPositions,

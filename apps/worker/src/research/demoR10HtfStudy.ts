@@ -1,3 +1,4 @@
+import type { SrAssessment } from "./demoR10SupportResistance.js";
 import type { HtfShadowAssessment } from "../engine/demoR10HtfShadow.js";
 
 export interface StudyTrade {
@@ -15,6 +16,7 @@ export function isDemoR10StudyTrade(trade: StudyTrade): boolean {
 export interface StudyObservation {
   positionId: string; strategyVersion: string | null; assessedAt: string;
   demoLossBypass: unknown; demoTradeExperiment: unknown; assessment: HtfShadowAssessment;
+  supportResistance?: SrAssessment;
 }
 export function summarizeHtfStudy(trades: readonly StudyTrade[], observations: readonly StudyObservation[]) {
   const matched = trades.filter(isDemoR10StudyTrade).map(trade => ({ trade,

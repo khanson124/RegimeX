@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./structure-swings": "./src/strategies/structureSwings.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
