@@ -948,3 +948,25 @@ export const useSetLiveGoldEntries = () => {
     onSettled: () => void qc.invalidateQueries({ queryKey: ["live-gold-entries"] })
   });
 };
+
+export interface DemoR10ReviewMetrics {
+  trades: number; valuedTrades: number; missingPnl: number; wins: number; losses: number; pushes: number;
+  netPnl: number | null; winRate: number | null; expectancy: number | null;
+  profitFactor: number | null; riskValuedTrades: number; expectancyR: number | null;
+}
+export interface DemoR10ReviewGroup extends DemoR10ReviewMetrics {
+  key: string; exits: (DemoR10ReviewMetrics & { key: string })[];
+}
+export interface DemoR10Review {
+  scope: string; limit: number; hasMore: boolean; sampledClosedTrades: number;
+  firstCloseAt: string | null; lastCloseAt: string | null; overall: DemoR10ReviewMetrics;
+  exits: DemoR10ReviewGroup[];
+  strategies: (DemoR10ReviewGroup & { strategyId: string; strategyVersion: string | null })[];
+  lossBypass: DemoR10ReviewGroup[]; tradeExperiment: DemoR10ReviewGroup[]; selection: DemoR10ReviewGroup[];
+  selectionHistoryTruncated: boolean;
+}
+export const useDemoR10TradeReview = (enabled: boolean) => useQuery({
+  queryKey: ["demo-r10-trade-review"],
+  queryFn: () => api<{ review: DemoR10Review; asOf: string }>("/positions/demo-r10-review"),
+  enabled, staleTime: 30_000, refetchInterval: enabled ? 30_000 : false
+});

@@ -9,9 +9,37 @@ import {
 } from "@regimex/shared";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
+import { buildDemoR10TradeReview, DEMO_R10_REVIEW_LIMIT } from "../services/demoR10TradeReview.js";
 
 export function registerPositionRoutes(app: FastifyInstance, ctx: AppContext): void {
   const auth = requireAuth(ctx);
+
+  app.get("/positions/demo-r10-review", { preHandler: auth }, async (request) => {
+    // Explicit historical DEMO scope, independent of the currently selected trading environment.
+    const rows = await ctx.prisma.position.findMany({
+      where: { userId: request.userId, symbol: "R_10", interval: "1m", origin: "ENGINE", status: "CLOSED",
+        metadata: { path: ["executionModel"], equals: "broker_demo_mt5" } },
+      orderBy: [{ closedAt: { sort: "desc", nulls: "last" } }, { id: "desc" }], take: DEMO_R10_REVIEW_LIMIT + 1,
+      select: { id: true, symbol: true, interval: true, origin: true, status: true,
+        strategyId: true, strategyVersion: true, closeReason: true, realizedPnl: true,
+        initialRiskAmount: true, closedAt: true, metadata: true,
+        signal: { select: { correlationId: true } } }
+    });
+    const sample = rows.slice(0, DEMO_R10_REVIEW_LIMIT);
+    const correlationIds = [...new Set(sample.flatMap(row => row.signal?.correlationId ? [row.signal.correlationId] : []))];
+    const selections = correlationIds.length ? await ctx.prisma.decisionLog.findMany({
+      where: { userId: request.userId, eventType: "STRATEGY_SELECTED", correlationId: { in: correlationIds } },
+      select: { correlationId: true, strategyId: true, featureSummary: true },
+      // At most one selector row is expected per signal; duplicates remain unknown.
+      take: DEMO_R10_REVIEW_LIMIT * 2 + 1
+    }) : [];
+    return { review: { ...buildDemoR10TradeReview(sample.map(row => ({ ...row,
+      realizedPnl: row.realizedPnl == null ? null : Number(row.realizedPnl),
+      initialRiskAmount: row.initialRiskAmount == null ? null : Number(row.initialRiskAmount),
+      correlationId: row.signal?.correlationId ?? null })), selections.length > DEMO_R10_REVIEW_LIMIT * 2 ? [] : selections, rows.length > DEMO_R10_REVIEW_LIMIT),
+      selectionHistoryTruncated: selections.length > DEMO_R10_REVIEW_LIMIT * 2 },
+      asOf: new Date().toISOString() };
+  });
 
   app.get("/paper-account", { preHandler: auth }, async (request) => {
     const account = await ctx.prisma.paperAccount.findUnique({

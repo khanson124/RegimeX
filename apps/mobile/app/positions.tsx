@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { useClosePosition, useModifyPosition, useMt5Status, usePaperAccount, usePositions } from "../src/api/hooks";
+import { useClosePosition, useModifyPosition, useMt5Status, usePaperAccount, usePositions, useDemoR10TradeReview } from "../src/api/hooks";
+import { DemoR10TradeReview } from "../src/components/DemoR10TradeReview";
 import { alertMessage, confirmAsync } from "../src/lib/confirm";
 import { EmptyState, ErrorView, Skeleton } from "../src/components/ui";
 import {
@@ -260,6 +261,7 @@ function PositionCard({
 
 export default function PositionsScreen() {
   const [tab, setTab] = useState<"OPEN" | "CLOSED">("OPEN");
+  const reviewQuery = useDemoR10TradeReview(tab === "CLOSED");
   const { data: accountData, refetch: refetchAccount, isRefetching: acctRefetching } = usePaperAccount();
   const { data: mt5Data, refetch: refetchMt5, isRefetching: mt5Refetching } = useMt5Status();
   const { data, isLoading, isError, error, refetch, isRefetching } = usePositions(tab);
@@ -333,11 +335,12 @@ export default function PositionsScreen() {
       keyExtractor={(item) => String(item.id)}
       refreshControl={
         <RefreshControl
-          refreshing={isRefetching || acctRefetching || mt5Refetching}
+          refreshing={isRefetching || acctRefetching || mt5Refetching || reviewQuery.isRefetching}
           onRefresh={() => {
             void refetch();
             void refetchAccount();
             void refetchMt5();
+            if (tab === "CLOSED") void reviewQuery.refetch();
           }}
           tintColor={colors.accent}
         />
@@ -370,6 +373,11 @@ export default function PositionsScreen() {
             onChange={(id) => setTab(id as "OPEN" | "CLOSED")}
           />
           <View style={{ height: spacing.md }} />
+          {tab === "CLOSED" ? reviewQuery.data ? (
+            <DemoR10TradeReview review={reviewQuery.data.review} asOf={reviewQuery.data.asOf} />
+          ) : reviewQuery.isError ? (
+            <SoftCard><Text style={styles.dim}>R_10 DEMO review unavailable. Pull to refresh.</Text></SoftCard>
+          ) : <Skeleton height={120} /> : null}
         </>
       }
       ListEmptyComponent={
