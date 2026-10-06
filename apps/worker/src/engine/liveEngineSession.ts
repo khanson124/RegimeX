@@ -245,6 +245,55 @@ export class LiveEngineSession {
     return this.deps.logger.child({ userId: this.userId, engineId: this.engineId, symbol: this.symbol });
   }
 
+  private async connectDerivClient(): Promise<void> {
+    // DEMO Gold consumes MT5 history/quotes exclusively. Do not open an unused
+    // WebSocket whose reconnect events would misrepresent its broker health.
+    // Keep R_10 and REAL connection behavior unchanged.
+    if (this.executionBackend === "broker_demo_mt5" && this.symbol === "XAUUSD") {
+      this.log.info(
+        { event: "DEMO_XAU_MT5_ONLY_MARKET_DATA", executionBackend: this.executionBackend },
+        "DEMO Gold uses MT5 market data; skipping unused Deriv connection"
+      );
+      return;
+    }
+
+    const { prisma, config, publish } = this.deps;
+    await this.setState("CONNECTING", "Connecting to Deriv");
+    const credential = await prisma.derivCredential.findFirst({
+      where: { userId: this.userId, status: "ACTIVE" },
+      orderBy: { createdAt: "desc" }
+    });
+    const apiToken = credential ? this.deps.credentialDecrypt(credential.encryptedToken) : undefined;
+
+    this.client = new DerivClient({
+      wsUrl: config.DERIV_WS_URL,
+      appId: config.DERIV_APP_ID,
+      restUrl: config.DERIV_REST_URL,
+      apiToken,
+      logger: this.log
+    });
+    this.client.on("reconnected", () => {
+      this.recentDisconnects++;
+      void prisma.liveEngine.update({
+        where: { id: this.engineId! },
+        data: { reconnectCount: { increment: 1 } }
+      });
+      void publish(this.userId, "deriv.connected", { reconnected: true });
+    });
+    this.client.on("error", () => {
+      this.recentApiErrors++;
+    });
+    this.client.on("stateChange", (state) => {
+      if (state === "DISCONNECTED" && !this.paused) {
+        void publish(this.userId, "deriv.disconnected", {});
+        void this.logDecision("DERIV_DISCONNECTED", ["Deriv connection lost"]);
+      }
+    });
+
+    if (apiToken) await this.setState("AUTHENTICATING", "Authorizing Deriv token");
+    await this.client.connect();
+  }
+
   async start(options: {
     allowTradingResume: boolean;
     configurationId?: string;
@@ -367,41 +416,7 @@ export class LiveEngineSession {
       };
     });
 
-    // Deriv connection (token if available; public otherwise).
-    await this.setState("CONNECTING", "Connecting to Deriv");
-    const credential = await prisma.derivCredential.findFirst({
-      where: { userId: this.userId, status: "ACTIVE" },
-      orderBy: { createdAt: "desc" }
-    });
-    const apiToken = credential ? this.deps.credentialDecrypt(credential.encryptedToken) : undefined;
-
-    this.client = new DerivClient({
-      wsUrl: config.DERIV_WS_URL,
-      appId: config.DERIV_APP_ID,
-      restUrl: config.DERIV_REST_URL,
-      apiToken,
-      logger: this.log
-    });
-    this.client.on("reconnected", () => {
-      this.recentDisconnects++;
-      void prisma.liveEngine.update({
-        where: { id: this.engineId! },
-        data: { reconnectCount: { increment: 1 } }
-      });
-      void publish(this.userId, "deriv.connected", { reconnected: true });
-    });
-    this.client.on("error", () => {
-      this.recentApiErrors++;
-    });
-    this.client.on("stateChange", (state) => {
-      if (state === "DISCONNECTED" && !this.paused) {
-        void publish(this.userId, "deriv.disconnected", {});
-        void this.logDecision("DERIV_DISCONNECTED", ["Deriv connection lost"]);
-      }
-    });
-
-    if (apiToken) await this.setState("AUTHENTICATING", "Authorizing Deriv token");
-    await this.client.connect();
+    await this.connectDerivClient();
 
     // Legacy binary requires Deriv virtual account; paper CFD uses separate PaperAccount.
     if (this.mode === "DEMO_TRADING" && this.executionBackend === "legacy_binary") {
@@ -619,7 +634,9 @@ export class LiveEngineSession {
     }
 
     if (shouldSubscribeDerivTicks(this.executionBackend)) {
-      await this.client.subscribeTicks(this.symbol, (tick) => {
+      const client = this.client;
+      if (!client) throw new Error("DERIV_TICK_CLIENT_REQUIRED");
+      await client.subscribeTicks(this.symbol, (tick) => {
         this.lastTickAt = tick.epochMs;
         void this.paperCfd?.onQuote(this.symbol, tick.quote, tick.epochMs);
         if (shouldFeedDerivTicksToAggregator(this.executionBackend)) {
