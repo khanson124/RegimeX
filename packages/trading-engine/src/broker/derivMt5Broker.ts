@@ -1,3 +1,4 @@
+import { isDemoGoldRiskTestActive } from "../risk/demoGoldRiskTest.js";
 import { randomUUID } from "node:crypto";
 import {
   type BrokerAdapter,
@@ -53,7 +54,7 @@ import { resolveMt5EngineRiskCap, type ResolveMt5EngineRiskCapInput } from "./mt
 export type Mt5EngineOrderScope = Pick<
   ResolveMt5EngineRiskCapInput,
   "executionMode" | "symbol" | "interval" | "strategyId"
->;
+> & { sessionMode?: string };
 
 export interface DerivMt5BrokerConfig {
   /**
@@ -71,6 +72,7 @@ export interface DerivMt5BrokerConfig {
   maxTestRiskPercent: number;
   /** Existing DEMO Gold cap; only honored for an explicitly scoped engine order. */
   demoXauMaxRiskPercent?: number | null;
+  demoXauRiskTestUntil?: string;
   magic: number;
   expectedBroker?: string | null;
   expectedServer?: string | null;
@@ -492,8 +494,19 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
         equity
       }, "XAU execution risk cap");
     }
+    const readGoldRiskTest = () => isDemoGoldRiskTestActive({
+      executionMode: this.executionEnvironment === "demo" ? engineScope?.executionMode ?? "" : "broker_real_mt5",
+      sessionMode: engineScope?.sessionMode ?? "", symbol: engineScope?.symbol ?? "",
+      interval: engineScope?.interval ?? "", strategyId: engineScope?.strategyId ?? "",
+      verifiedDemoAccount: this.account?.tradeMode === "DEMO", expiresAt: this.config.demoXauRiskTestUntil
+    }, Date.now());
+    const goldRiskTest = readGoldRiskTest();
+    // The experiment permits only the broker's minimum lot, never arbitrary volume.
+    if (goldRiskTest && Math.abs(normalized.lots - live.volumeMin) > 1e-12) {
+      return this.reject(null, ["DEMO_XAU_RISK_TEST_MINIMUM_LOT_REQUIRED"]);
+    }
     const maxRisk = (equity * executionRiskCap.selectedRiskCap) / 100;
-    if (maxRisk > 0 && lossAtStop > maxRisk + 1e-6) {
+    if (!goldRiskTest && maxRisk > 0 && lossAtStop > maxRisk + 1e-6) {
       return this.reject(null, ["RISK_EXCEEDS_MT5_MAX_TEST_RISK_PERCENT"]);
     }
     if (!(request.stopLoss > 0)) return this.reject(null, ["STOP_LOSS_REQUIRED"]);
@@ -568,6 +581,7 @@ export class DerivMT5BrokerAdapter implements BrokerAdapter {
 
     this.inFlightOpens.add(request.idempotencyKey);
     try {
+      if (goldRiskTest && !readGoldRiskTest()) return this.reject(null, ["DEMO_XAU_RISK_TEST_EXPIRED"]);
       const comment = regimeXOrderComment(request.idempotencyKey);
       const reply = await this.requireTransport().request<Mt5OpenMarketResult>(
         "openMarket",

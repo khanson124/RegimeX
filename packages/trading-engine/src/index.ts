@@ -170,3 +170,5 @@ export * from "./deriv/researchHistorySymbols.js";
 
 // Test fixtures (deterministic synthetic data)
 export * from "./testing/fixtures.js";
+
+export * from "./risk/demoGoldRiskTest.js";

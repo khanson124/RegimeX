@@ -258,3 +258,28 @@ describe("temporary DEMO daily cap preserves the remaining risk checks", () => {
     }
   });
 });
+
+const goldScope = { executionMode: "broker_demo_mt5", sessionMode: "DEMO_TRADING", symbol: "XAUUSD",
+ interval: "15m", strategyId: "xau-trend-pullback-v1", verifiedDemoAccount: true, expiresAt: "2026-01-03T13:00:00Z" };
+describe("Gold DEMO risk test", () => {
+ const blocked = { totalOpenRiskAmount: 10000, dailyRealizedLoss: -200, dailyTradeCount: 20,
+  consecutiveLosses: 10, lastLossClosedAt: BASE_NOW - 1000 };
+ it("allows exact DEMO Gold despite shared monetary/loss counters without rewriting them", () => {
+  const input = baseInput({ ...blocked, demoGoldRiskTest: goldScope });
+  expect(rm.evaluate(input).approved).toBe(true); expect(input.dailyRealizedLoss).toBe(-200);
+ });
+ it.each([{ executionMode: "broker_real_mt5" }, { sessionMode: "REAL_TRADING" }, { symbol: "R_10" },
+  { interval: "1m" }, { strategyId: "xau-trend-breakout-v2" }, { verifiedDemoAccount: false },
+  { expiresAt: undefined }, { expiresAt: "invalid" }, { expiresAt: "2026-01-02T13:00:00Z" }])("fails closed outside scope: %j", other => {
+  expect(rm.evaluate(baseInput({ ...blocked, demoGoldRiskTest: { ...goldScope, ...other } })).approved).toBe(false);
+ });
+ it.each([
+  [{ emergencyStop: true }, "EMERGENCY_STOP"], [{ tradingEnabled: false }, "TRADING_DISABLED"],
+  [{ marketDataFresh: false }, "MARKET_DATA_STALE"], [{ stopLossPresent: false }, "STOP_LOSS_REQUIRED"],
+  [{ idempotencyKeyExists: true }, "DUPLICATE_TRADE"], [{ equity: 0 }, "ACCOUNT_INVALID"],
+  [{ openPositionCount: 100 }, "MAX_OPEN_POSITIONS"], [{ riskRewardRatio: .1 }, "MIN_RISK_REWARD"],
+  [{ lastTradeAt: BASE_NOW - 1000, minCooldownSeconds: 120 }, "COOLDOWN_ACTIVE"]
+ ] as [Partial<CfdRiskEvaluationInput>, string][])("keeps operational controls: %j", (other, code) => {
+  expect(rm.evaluate(baseInput({ ...blocked, demoGoldRiskTest: goldScope, ...other })).rejectionCode).toBe(code);
+ });
+});

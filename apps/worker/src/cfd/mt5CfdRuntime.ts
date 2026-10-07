@@ -49,6 +49,7 @@ import {
   resolveMt5EngineVolume,
   resolveMt5EngineRiskCap,
   resolveMt5FixedVolumeOverride,
+  isDemoGoldRiskTestActive,
   applyStopLossDistanceOverride,
   toAutonomousMt5DecisionCode,
   adaptMt5BrokerStops,
@@ -307,7 +308,7 @@ export class Mt5CfdRuntime {
     const profile = await this.deps.prisma.riskProfile.findFirst({
       where: { userId: this.userId, isActive: true }
     });
-    const volumeOverrideLots =
+    let volumeOverrideLots =
       profile?.volumeOverrideLots != null ? Number(profile.volumeOverrideLots) : null;
     const effectiveMaxConcurrentPositions = resolveMt5EffectiveMaxConcurrentPositions(
       profile?.maxConcurrentPositions,
@@ -413,6 +414,26 @@ export class Mt5CfdRuntime {
       };
     }
     const instrument = liveInstrument;
+    const readGoldRiskTest = () => ({
+      executionMode: this.deps.config.EXECUTION_MODE, sessionMode: input.sessionMode ?? "",
+      symbol: input.symbol, interval: input.interval, strategyId: input.strategyId,
+      verifiedDemoAccount: this.adapter?.getStatus?.().isDemo === true,
+      expiresAt: this.deps.config.MT5_DEMO_XAUUSD_RISK_TEST_UNTIL
+    });
+    const demoGoldRiskTest = readGoldRiskTest();
+    const goldRiskTestActive = isDemoGoldRiskTestActive(demoGoldRiskTest, Date.now());
+    const goldRiskTestTag = goldRiskTestActive ? {
+      expiresAt: demoGoldRiskTest.expiresAt, sizing: "broker_minimum_lot",
+      bypassedChecks: ["PERCENTAGE_RISK_BUDGET", "MAX_TOTAL_OPEN_RISK", "DAILY_LOSS_LIMIT",
+        "DAILY_TRADE_LIMIT", "CONSECUTIVE_LOSS_LIMIT"]
+    } : null;
+    if (goldRiskTestActive) {
+      volumeOverrideLots = instrument.minVolume;
+      this.log.info({ correlationId: input.correlationId, symbol: input.symbol,
+        strategyId: input.strategyId, volume: volumeOverrideLots, ...goldRiskTestTag },
+        "DEMO_XAU_RISK_TEST_ACTIVE");
+    }
+
     this.registry.register(instrument);
 
     const entryPrice = input.candle.close;
@@ -598,6 +619,7 @@ export class Mt5CfdRuntime {
       selectedRiskCap: engineRiskCap.selectedRiskCap,
       profileRisk,
       effectiveRiskPercent: riskPct,
+      ...(goldRiskTestTag ? { demoGoldRiskTest: goldRiskTestTag, percentageBudgetEnforced: false } : {}),
       demoXauRiskOverrideApplied: engineRiskCap.demoXauRiskOverrideApplied
     };
     this.log.info(
@@ -784,6 +806,7 @@ export class Mt5CfdRuntime {
     }
     const volume = volumeDecision.finalVolume;
     const riskAmount = roundMoney((rawSizing.perUnitLoss ?? 0) * volume);
+    const positionRiskPercent = goldRiskTestActive ? riskAmount / account.equity * 100 : limits.riskPerTradePercent;
     const executionTelemetry = buildPendingMt5ExecutionTelemetry({
       direction: proposal.direction,
       strategyEntryPrice: strategyAtCandleClose.entryPrice,
@@ -951,6 +974,7 @@ export class Mt5CfdRuntime {
     }
     const riskDecision = this.cfdRisk.evaluate({
       demoLossBypass,
+      demoGoldRiskTest,
       limits,
       emergencyStop: engine?.emergencyStop ?? false,
       tradingEnabled:
@@ -1017,7 +1041,7 @@ export class Mt5CfdRuntime {
     let submitDirection = proposal.direction;
     let submitBrokerSymbol = brokerSymbol;
     let submitRiskAmount = riskAmount;
-    let submitRiskPercent = limits.riskPerTradePercent;
+    let submitRiskPercent = positionRiskPercent;
     let submitInitialRiskReward = intendedTargetRMultiple;
     let submitQuote = preflightQuote;
     let submitRequestedVolume = volumeDecision.riskSizedVolume;
@@ -1037,7 +1061,7 @@ export class Mt5CfdRuntime {
         takeProfit: proposal.takeProfit!,
         strategyId: input.strategyId,
         riskAmount,
-        riskPercent: limits.riskPerTradePercent,
+        riskPercent: positionRiskPercent,
         initialRiskReward: intendedTargetRMultiple
       };
       const paramCheck = compareProposedToFrozenExecutionParams(frozen, proposed);
@@ -1142,7 +1166,7 @@ export class Mt5CfdRuntime {
           stopLoss: proposal.stopLoss,
           takeProfit: proposal.takeProfit,
           riskAmount,
-          riskPercent: limits.riskPerTradePercent,
+          riskPercent: positionRiskPercent,
           initialRiskReward: intendedTargetRMultiple,
           maxConcurrentPositions: maxConcurrentForReserve,
           reasoning: {
@@ -1151,7 +1175,7 @@ export class Mt5CfdRuntime {
             stopMethod: proposal.stopMethod,
             targetMethod: proposal.targetMethod,
             requestedVolume: volumeDecision.riskSizedVolume,
-            riskPercent: limits.riskPerTradePercent,
+            riskPercent: positionRiskPercent,
             volumePreflight: preflight
           },
           metadata: {
@@ -1163,6 +1187,7 @@ export class Mt5CfdRuntime {
             ownedByRegimeX: true,
             engineSymbol: input.symbol,
             ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
+            ...(goldRiskTestTag ? { demoGoldRiskTest: goldRiskTestTag } : {}),
             ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
             ...symbolAudit,
             volumePreflight: preflight,
@@ -1410,6 +1435,7 @@ export class Mt5CfdRuntime {
 
       submitVolume = finalVolumeDecision.finalVolume;
       submitRiskAmount = roundMoney((finalRawSizing.perUnitLoss ?? 0) * submitVolume);
+      if (goldRiskTestActive) submitRiskPercent = submitRiskAmount / account.equity * 100;
       submitInitialRiskReward = intendedTargetRMultiple;
       submitExecutionTelemetry = buildPendingMt5ExecutionTelemetry({
         direction: submitDirection,
@@ -1582,6 +1608,7 @@ export class Mt5CfdRuntime {
         brokerSymbol: submitBrokerSymbol,
         frozenResume: resumeBeforeSubmit,
         ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
+        ...(goldRiskTestTag ? { demoGoldRiskTest: goldRiskTestTag } : {}),
         ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
         volumePreflight: submitPreflight,
         executionTelemetry: submitExecutionTelemetry,
@@ -1706,6 +1733,12 @@ export class Mt5CfdRuntime {
         correlationId: input.correlationId, demoLossBypass: demoLossBypassTag, lifecycle, consecutiveLosses },
         "DEMO_R10_LOSS_BYPASS_SUBMISSION");
 
+      if (goldRiskTestActive && !isDemoGoldRiskTestActive(readGoldRiskTest(), Date.now())) {
+        await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,
+          executionIntentId: executionIntent.id, code: "DEMO_XAU_RISK_TEST_EXPIRED",
+          message: "Gold DEMO risk test expired or account verification changed before submit", logger: this.log });
+        return { opened: false, reasons: ["DEMO_XAU_RISK_TEST_EXPIRED"], decisionCode: "NO_TRADE", preflight };
+      }
       await markExecutionIntentSubmitted(this.deps.prisma, executionIntent.id, this.log);
       const openRequest = buildOpenRequest();
       (openRequest.metadata.finalExecution as { invalidStopsResubmits?: number }).invalidStopsResubmits =
@@ -1714,7 +1747,8 @@ export class Mt5CfdRuntime {
         executionMode: this.deps.config.EXECUTION_MODE,
         symbol: input.symbol,
         interval: input.interval,
-        strategyId: input.strategyId
+        strategyId: input.strategyId,
+        sessionMode: input.sessionMode
       });
 
       if (result.accepted && result.position) {
@@ -2039,6 +2073,7 @@ export class Mt5CfdRuntime {
       submitVolume = retryVolumeDecision.finalVolume;
       submitRequestedVolume = retryVolumeDecision.riskSizedVolume;
       submitRiskAmount = roundMoney((retryRawSizing.perUnitLoss ?? 0) * submitVolume);
+      if (goldRiskTestActive) submitRiskPercent = submitRiskAmount / account.equity * 100;
       submitInitialRiskReward = intendedTargetRMultiple;
       const retryStopDistance =
         retryFinalized.stopDistance ?? Math.abs(retryFillPrice - submitStopLoss);

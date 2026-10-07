@@ -1,3 +1,4 @@
+import { isDemoGoldRiskTestActive, type DemoGoldRiskTestScope } from "./demoGoldRiskTest.js";
 import {
   DEFAULT_CFD_RISK_LIMITS,
   isDemoR10LossBypassActive,
@@ -34,6 +35,8 @@ export interface CfdRiskEvaluationInput {
   consecutiveLossCooldownMs?: number;
   /** Narrow, expiring DEMO exception; all other risk checks remain active. */
   demoLossBypass?: DemoR10LossBypassScope;
+  /** Gold-only monetary/loss exception; operational checks still apply. */
+  demoGoldRiskTest?: DemoGoldRiskTestScope;
   idempotencyKeyExists: boolean;
   stopLossPresent: boolean;
   riskRewardRatio: number | null;
@@ -60,6 +63,7 @@ export interface CfdRiskEvaluationResult {
 export class CfdRiskManager {
   evaluate(input: CfdRiskEvaluationInput): CfdRiskEvaluationResult {
     const reasons: string[] = [];
+    const goldRiskTest = isDemoGoldRiskTestActive(input.demoGoldRiskTest, input.now);
     const limits = input.limits ?? DEFAULT_CFD_RISK_LIMITS;
 
     if (!input.tradingEnabled) {
@@ -91,16 +95,16 @@ export class CfdRiskManager {
 
     const maxTotalRisk = (input.equity * limits.maxTotalOpenRiskPercent) / 100;
     const proposedRisk = input.volume !== null ? (input.equity * limits.riskPerTradePercent) / 100 : 0;
-    if (input.totalOpenRiskAmount + proposedRisk > maxTotalRisk + 0.01) {
+    if (!goldRiskTest && input.totalOpenRiskAmount + proposedRisk > maxTotalRisk + 0.01) {
       return reject("MAX_TOTAL_OPEN_RISK", [
         `Total open risk would exceed ${limits.maxTotalOpenRiskPercent}% of equity`
       ]);
     }
 
-    if (input.dailyRealizedLoss <= -input.maxDailyLoss) {
+    if (!goldRiskTest && input.dailyRealizedLoss <= -input.maxDailyLoss) {
       return reject("DAILY_LOSS_LIMIT", ["Daily loss limit reached"]);
     }
-    if (input.dailyTradeCount >= input.maxDailyTrades) {
+    if (!goldRiskTest && input.dailyTradeCount >= input.maxDailyTrades) {
       return reject("DAILY_TRADE_LIMIT", ["Daily trade limit reached"]);
     }
 
@@ -118,7 +122,7 @@ export class CfdRiskManager {
       consecutiveLossCooldownMs,
       now: input.now
     });
-    if (consecutiveLossGate.blocked &&
+    if (!goldRiskTest && consecutiveLossGate.blocked &&
       !(input.demoLossBypass && isDemoR10LossBypassActive(input.demoLossBypass, input.now))) {
       if (consecutiveLossGate.decisionCode === "CONSECUTIVE_LOSS_COOLDOWN") {
         const remainingMinutes = Math.ceil((consecutiveLossGate.cooldownRemainingMs ?? 0) / 60_000);

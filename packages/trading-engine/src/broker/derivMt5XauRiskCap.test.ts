@@ -1,14 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DerivMT5BrokerAdapter, type Mt5EngineOrderScope } from "./derivMt5Broker.js";
 import { defaultVolatilitySymbol, MockMt5BridgeTransport } from "./mt5/mockTransport.js";
 import { mapMt5SymbolToInstrument } from "./mt5/symbolMap.js";
 import { DEFAULT_MT5_MAGIC } from "./mt5/types.js";
 
+afterEach(() => vi.restoreAllMocks());
+
 const goldScope: Mt5EngineOrderScope = {
   executionMode: "broker_demo_mt5", symbol: "XAUUSD", interval: "15m", strategyId: "xau-trend-pullback-v1"
 };
 
-async function setup(options: { live?: boolean; cap?: number | null; symbol?: string } = {}) {
+async function setup(options: { live?: boolean; cap?: number | null; symbol?: string; until?: string } = {}) {
   const symbol = {
     ...defaultVolatilitySymbol(), name: options.symbol ?? "XAUUSD",
     digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, contractSize: 100,
@@ -25,6 +27,7 @@ async function setup(options: { live?: boolean; cap?: number | null; symbol?: st
     bridgeSecret: "mock-only", timeoutMs: 1000, maxQuoteAgeMs: 30000,
     maxTestVolume: 0.5, maxTestRiskPercent: 0.1,
     demoXauMaxRiskPercent: options.cap === undefined ? 0.2 : options.cap,
+    demoXauRiskTestUntil: options.until,
     magic: DEFAULT_MT5_MAGIC, transport
   });
   await adapter.connect();
@@ -93,4 +96,42 @@ describe("Gold engine execution cap", () => {
     expect(later.rejectionReasons).toContain("RISK_EXCEEDS_MT5_MAX_TEST_RISK_PERCENT");
     expect(transport.submitCount).toBe(1);
   });
+});
+
+describe("minimum-lot Gold DEMO risk experiment at broker boundary", () => {
+ const until = () => new Date(Date.now() + 86400000).toISOString();
+ const scope = { ...goldScope, sessionMode: "DEMO_TRADING" };
+ it("allows minimum lot above the percentage ceiling and records actual loss", async () => {
+  const { adapter, transport, request } = await setup({ until: until() });
+  expect((await adapter.openMarketPosition({ ...request, stopLoss: 4207.8, riskAmount: 35.07 }, scope)).accepted).toBe(true);
+  expect(transport.submitCount).toBe(1);
+ });
+ it("cannot submit larger lots under the experiment", async () => {
+  const { adapter, transport, request } = await setup({ until: until() });
+  expect((await adapter.openMarketPosition({ ...request, volume: .02 }, scope)).rejectionReasons).toContain("DEMO_XAU_RISK_TEST_MINIMUM_LOT_REQUIRED");
+  expect(transport.submitCount).toBe(0);
+ });
+ it.each([ { executionMode: "broker_real_mt5" }, { symbol: "R_10" }, { interval: "1m" },
+  { strategyId: "other" }, { sessionMode: undefined } ])("does not weaken other scopes: %j", async other => {
+  const { adapter, transport, request } = await setup({ until: until() });
+  expect((await adapter.openMarketPosition({ ...request, stopLoss: 4207.8 }, { ...scope, ...other })).accepted).toBe(false);
+  expect(transport.submitCount).toBe(0);
+ });
+ it("REAL account cannot bypass even with forged DEMO scope", async () => {
+  const { adapter, transport, request } = await setup({ live: true, until: until() });
+  expect((await adapter.openMarketPosition(request, scope)).accepted).toBe(false); expect(transport.submitCount).toBe(0);
+ });
+ it("rechecks expiry after asynchronous adoption lookup", async () => {
+  const expiry = until(); const { adapter, transport, request } = await setup({ until: expiry });
+  vi.spyOn(adapter, "tryAdoptOpenByIdempotency").mockImplementation(async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(expiry)); return null;
+  });
+  expect((await adapter.openMarketPosition({ ...request, stopLoss: 4207.8 }, scope)).rejectionReasons).toContain("DEMO_XAU_RISK_TEST_EXPIRED");
+  expect(transport.submitCount).toBe(0);
+ });
+ it("expired deadline restores normal cap", async () => {
+  const { adapter, transport, request } = await setup({ until: new Date(Date.now() - 1).toISOString() });
+  expect((await adapter.openMarketPosition({ ...request, stopLoss: 4207.8 }, scope)).accepted).toBe(false);
+  expect(transport.submitCount).toBe(0);
+ });
 });

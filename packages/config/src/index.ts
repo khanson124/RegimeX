@@ -203,6 +203,12 @@ const envSchema = z.object({
     if (!Number.isFinite(n) || n <= 0) return undefined;
     return n;
   }, z.number().positive().optional()),
+  /** Expiring minimum-lot Gold DEMO experiment. Missing/invalid means OFF. */
+  MT5_DEMO_XAUUSD_RISK_TEST_UNTIL: z.preprocess((val) => {
+    if (typeof val !== "string") return undefined;
+    const text = val.trim();
+    return z.string().datetime().safeParse(text).success ? text : undefined;
+  }, z.string().datetime().optional()),
   /** Paired override, used only for DEMO XAUUSD 15m xau-trend-pullback-v1. */
   MT5_DEMO_XAUUSD_SESSION_START_UTC: optionalUtcSessionHour,
   MT5_DEMO_XAUUSD_SESSION_END_UTC: optionalUtcSessionHour,

@@ -102,6 +102,7 @@ it("passes engine scope to the adapter without changing the request risk or sizi
         executionMode: this.deps.config.EXECUTION_MODE,
         symbol: input.symbol,
         interval: input.interval,
-        strategyId: input.strategyId
+        strategyId: input.strategyId,
+        sessionMode: input.sessionMode
       })`);
 });
