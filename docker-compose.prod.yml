@@ -25,6 +25,7 @@ services:
     environment:
       MT5_DEMO_XAUUSD_SESSION_START_UTC: "0"
       MT5_DEMO_XAUUSD_SESSION_END_UTC: "24"
+      MT5_DEMO_XAUUSD_RISK_TEST_UNTIL: "${MT5_DEMO_XAUUSD_RISK_TEST_UNTIL:-}"
       DATABASE_URL: postgresql://regimex:${POSTGRES_PASSWORD}@postgres:5432/regimex
       REDIS_URL: redis://redis:6379
     volumes:
