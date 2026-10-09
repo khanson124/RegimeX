@@ -10,7 +10,7 @@ function fixture() {
     origin: 'ENGINE', metadata: { executionModel: 'broker_demo_mt5' }, status: 'OPEN', direction: 'SELL',
     entryPrice: 100, initialStopLoss: 110, stopLoss: 110, takeProfit: 80, currentPrice: 90, brokerPositionId: '42' };
   const update = vi.fn().mockResolvedValue({}); const create = vi.fn().mockResolvedValue({});
-  const adapter = { getStatus: vi.fn(() => ({ isDemo: true })),
+  const adapter = { getPosition: vi.fn(async () => ({ ...broker })), getStatus: vi.fn(() => ({ isDemo: true })),
     getQuote: vi.fn(async () => ({ symbol: 'XAUUSD', bid: 89.75, ask: 90, mid: 89.875, timestamp: Date.now() })),
     getLiveSymbol: vi.fn(async () => ({ tickSize: 0.01, point: 0.01, stopsLevel: 20, freezeLevel: 3 })),
     modifyPosition: vi.fn(async () => ({ ...broker, stopLoss: 99 })) };
@@ -64,6 +64,33 @@ describe('active Gold DEMO reconciliation', () => {
   it('rejects unexpected TP changes in the acknowledgement', async () => {
     const f=fixture();f.adapter.modifyPosition.mockResolvedValue({...f.broker,stopLoss:99,takeProfit:79});
     await applyDemoGoldProfitLocks(f.input);expect(f.update).not.toHaveBeenCalled();
+  });
+  it('re-reads the broker stop rather than loosening from a stale snapshot', async () => {
+    const f=fixture();f.adapter.getPosition.mockResolvedValue({...f.broker,stopLoss:95});
+    await applyDemoGoldProfitLocks(f.input);
+    expect(f.adapter.modifyPosition).not.toHaveBeenCalled();expect(f.broker.stopLoss).toBe(95);
+  });
+  it('allows only one overlapping modification per Gold ticket', async () => {
+    const f=fixture();let release!: () => void;
+    f.adapter.modifyPosition.mockImplementation(async () => {
+      await new Promise<void>(resolve => { release=resolve; });return {...f.broker,stopLoss:99};
+    });
+    const first=applyDemoGoldProfitLocks(f.input);
+    await vi.waitFor(() => expect(f.adapter.modifyPosition).toHaveBeenCalledTimes(1));
+    const second={...f.input,brokerOpen:[{...f.broker}],localOpen:[{...f.local}]};
+    await applyDemoGoldProfitLocks(second);release();await first;
+    expect(f.adapter.modifyPosition).toHaveBeenCalledTimes(1);
+    f.adapter.getPosition.mockResolvedValue({...f.broker});
+    await applyDemoGoldProfitLocks(second);expect(f.adapter.modifyPosition).toHaveBeenCalledTimes(1);
+  });
+  it('releases the overlap guard after a failed modification', async () => {
+    const f=fixture();f.adapter.modifyPosition.mockRejectedValueOnce(Error('failure'));
+    await applyDemoGoldProfitLocks(f.input);await applyDemoGoldProfitLocks(f.input);
+    expect(f.adapter.modifyPosition).toHaveBeenCalledTimes(2);expect(f.update).toHaveBeenCalledTimes(1);
+  });
+  it('skips a position that closed since the snapshot', async () => {
+    const f=fixture();f.adapter.getPosition.mockResolvedValue({...f.broker,status:'CLOSED'});
+    await applyDemoGoldProfitLocks(f.input);expect(f.adapter.modifyPosition).not.toHaveBeenCalled();
   });
   it('leaves absent TP absent', async () => {
     const f=fixture();f.broker.takeProfit=null;f.adapter.modifyPosition.mockResolvedValue({...f.broker,stopLoss:99});

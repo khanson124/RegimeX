@@ -5,6 +5,9 @@ import type { ProfitLockLocalPosition } from './r10ProfitLockReconcile.js';
 import { recordPositionEvent } from './paperPersistence.js';
 import { goldProtectedStop } from './goldProfitLock.js';
 
+// Shared across both DEMO sessions; overlapping checks retry on the next reconcile.
+const modifyingGoldTickets = new Set<string>();
+
 type GoldPosition = ProfitLockLocalPosition & {
   strategyId: string; interval: string | null; origin: string; metadata: unknown;
 };
@@ -13,6 +16,7 @@ export async function applyDemoGoldProfitLocks(input: {
   executionMode: string; prisma: PrismaClient; logger: Logger;
   adapter: {
     getStatus(): { isDemo: boolean | null };
+    getPosition(brokerPositionId: string): Promise<BrokerOpenPosition | null>;
     getQuote(symbol: string): Promise<BrokerQuote | null>;
     getLiveSymbol(symbol: string): Promise<SymbolSpec | null>;
     modifyPosition(request: { brokerPositionId: string; stopLoss: number; takeProfit: number | null }): Promise<BrokerOpenPosition>;
@@ -28,7 +32,13 @@ export async function applyDemoGoldProfitLocks(input: {
       || metadata?.executionModel !== 'broker_demo_mt5' || !local.brokerPositionId) continue;
     const broker = input.brokerOpen.find(p => p.brokerPositionId === local.brokerPositionId);
     if (!broker || broker.symbol !== 'XAUUSD' || broker.status !== 'OPEN' || broker.direction !== local.direction) continue;
+    if (modifyingGoldTickets.has(broker.brokerPositionId)) continue;
+    modifyingGoldTickets.add(broker.brokerPositionId);
     try {
+      const fresh = await adapter.getPosition(broker.brokerPositionId);
+      if (!fresh || fresh.brokerPositionId !== broker.brokerPositionId || fresh.symbol !== broker.symbol
+        || fresh.direction !== broker.direction || fresh.status !== 'OPEN') continue;
+      Object.assign(broker, fresh);
       const spec = await adapter.getLiveSymbol(broker.symbol);
       const quote = await adapter.getQuote(broker.symbol);
       const age = quote ? Date.now() - quote.timestamp : Infinity;
@@ -66,6 +76,8 @@ export async function applyDemoGoldProfitLocks(input: {
         protectedR: decision.protectedR }, 'DEMO Gold profit protection applied');
     } catch (err) {
       logger.warn({ err, event: 'DEMO_GOLD_PROFIT_LOCK_FAILED', positionId: local.id }, 'Gold profit protection failed; continuing reconcile');
+    } finally {
+      modifyingGoldTickets.delete(broker.brokerPositionId);
     }
   }
 }

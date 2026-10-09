@@ -11,7 +11,9 @@ At +1R, protect approximately +0.1R; at +1.5R, protect approximately +0.5R.
 Round to the broker tick away from the market. Use fresh BUY bid / SELL ask,
 broker stop/freeze distances and the adapter's existing modification checks.
 Unknown specifications or stale/invalid quotes skip modification. Never loosen a
-stop. Retain the actual broker take-profit, including null. No partial closures,
+stop. A shared per-ticket guard skips overlapping checks across DEMO sessions;
+re-read the broker position under that guard before calculating any modification.
+The next regular reconciliation retries a skipped check. Retain the actual broker take-profit, including null. No partial closures,
 market closures or entry changes are made.
 
 A returned broker position must confirm identity, direction, stop and unchanged
