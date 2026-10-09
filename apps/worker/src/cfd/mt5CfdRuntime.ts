@@ -76,6 +76,7 @@ import {
 import { type EventPublisher } from "../lib/events.js";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
 import { recordPositionEvent } from "./paperPersistence.js";
+import { applyDemoGoldProfitLocks } from "./goldProfitLockReconcile.js";
 import { applyR10ProfitLocks } from "./r10ProfitLockReconcile.js";
 import {
   evidenceThresholdsFromConfig,
@@ -2522,6 +2523,15 @@ export class Mt5CfdRuntime {
 
       // R_10 progressive profit-lock before ordinary SL/TP sync can overwrite local state.
       await applyR10ProfitLocks({
+        prisma: this.deps.prisma,
+        adapter: this.adapter,
+        logger: this.log,
+        brokerOpen,
+        localOpen
+      });
+
+      await applyDemoGoldProfitLocks({
+        executionMode: this.deps.config.EXECUTION_MODE,
         prisma: this.deps.prisma,
         adapter: this.adapter,
         logger: this.log,
