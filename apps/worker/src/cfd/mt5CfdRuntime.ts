@@ -77,6 +77,7 @@ import { type EventPublisher } from "../lib/events.js";
 import { getOrConnectMt5Adapter } from "./mt5AdapterFactory.js";
 import { recordPositionEvent } from "./paperPersistence.js";
 import { applyDemoGoldProfitLocks } from "./goldProfitLockReconcile.js";
+import { applyDemoGoldProfitTargets } from "./goldProfitTargetReconcile.js";
 import { applyR10ProfitLocks } from "./r10ProfitLockReconcile.js";
 import {
   evidenceThresholdsFromConfig,
@@ -181,6 +182,15 @@ export class Mt5CfdRuntime {
         return;
       }
       this.adapter = await getOrConnectMt5Adapter(this.deps.config);
+      if (this.deps.config.EXECUTION_MODE === "broker_demo_mt5"
+        && this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD !== undefined) {
+        const status = this.adapter.getStatus();
+        this.log.info({ event: "DEMO_GOLD_PROFIT_TARGET_CONFIGURED",
+          targetUsd: this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD,
+          scope: "XAUUSD:15m:xau-trend-pullback-v1",
+          verifiedDemoUsdAccount: status.isDemo === true && status.currency === "USD",
+          movingStopUpdatesEnabled: false }, "Gold DEMO dollar exit configured");
+      }
       await recoverUnresolvedMt5ExecutionIntents({
         prisma: this.deps.prisma,
         adapter: this.adapter,
@@ -2530,7 +2540,13 @@ export class Mt5CfdRuntime {
         localOpen
       });
 
-      await applyDemoGoldProfitLocks({
+      if (this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD !== undefined) {
+        await applyDemoGoldProfitTargets({
+          executionMode: this.deps.config.EXECUTION_MODE,
+          targetUsd: this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD,
+          prisma: this.deps.prisma, adapter: this.adapter, logger: this.log, brokerOpen, localOpen
+        });
+      } else await applyDemoGoldProfitLocks({
         executionMode: this.deps.config.EXECUTION_MODE,
         prisma: this.deps.prisma,
         adapter: this.adapter,

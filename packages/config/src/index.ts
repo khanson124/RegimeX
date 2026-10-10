@@ -212,6 +212,12 @@ const envSchema = z.object({
   /** Paired override, used only for DEMO XAUUSD 15m xau-trend-pullback-v1. */
   MT5_DEMO_XAUUSD_SESSION_START_UTC: optionalUtcSessionHour,
   MT5_DEMO_XAUUSD_SESSION_END_UTC: optionalUtcSessionHour,
+  /** Optional USD profit exit for the exact Gold DEMO strategy; absent/invalid is OFF. */
+  MT5_DEMO_XAUUSD_PROFIT_TARGET_USD: z.preprocess((val) => {
+    if (val === undefined || val === null || String(val).trim() === "") return undefined;
+    const n = Number(val);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, z.number().positive().optional()),
   /**
    * After maxConsecutiveLosses (RiskProfile) is reached, block new CFD trades for this
    * many minutes from the last loss close time. Durable CLOSED position timestamps —

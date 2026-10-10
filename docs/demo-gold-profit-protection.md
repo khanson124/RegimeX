@@ -1,5 +1,35 @@
 # Active DEMO Gold profit protection
 
+## Selected dollar exit
+
+The shared DEMO worker sets `MT5_DEMO_XAUUSD_PROFIT_TARGET_USD=10`.
+For the exact scope below, a verified USD DEMO account closes the entire position
+when a fresh broker position reports floating P&L at or above $10 and a fresh,
+valid Gold quote is available. This is a per-position early market exit, not a
+portfolio target or a guaranteed $10 net fill. Fees, swaps, polling delays and
+price changes can make realized profit differ. Normal history reconciliation
+persists the final close, refreshes evidence and sends the existing notification.
+No profit or CLOSED state is fabricated from the trigger price.
+
+While a positive target is configured, Gold moving-stop updates are disabled.
+Initial stops and existing broker targets remain in place. Already tightened
+stops are never restored or loosened. Consequently, existing broker stops or
+targets can close a position before the dollar trigger. Entry sizing and original
+strategy RR validation are unchanged; no lower-RR broker TP is installed.
+Other Gold strategies, intervals, manual positions, R_10 and REAL are excluded.
+Non-USD or unverified accounts skip the dollar close. Missing/invalid configuration
+uses the previous moving-stop policy described below.
+
+Shared per-ticket guards prevent concurrent sessions closing the same position.
+Every attempt re-reads broker identity, direction, volume and floating P&L. Failed
+or mismatched close acknowledgements are logged and reconciled before retry;
+the existing adapter uses ticket-based close idempotency. Confirmed closes record
+`PROFIT_TARGET_CLOSE_CONFIRMED` with `scope: DEMO_GOLD`, threshold and actual broker
+result. Logs use `DEMO_GOLD_PROFIT_TARGET_CONFIGURED` and
+`DEMO_GOLD_PROFIT_TARGET_CLOSED`.
+
+## Previous moving-stop policy (when no dollar target is configured)
+
 Applies during MT5 open-position reconciliation only when execution mode is
 `broker_demo_mt5`, the adapter verifies a DEMO account, and the stored position is
 an OPEN ENGINE XAUUSD / 15m / xau-trend-pullback-v1 position tagged
