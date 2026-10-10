@@ -6,8 +6,8 @@ it.each([undefined,'',' ','bad','0','-10','Infinity','NaN'])('missing/invalid pr
  const c=loadConfig({...required,MT5_DEMO_XAUUSD_PROFIT_TARGET_USD:value});
  expect(c.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD).toBeUndefined();expect(c.MT5_ENGINE_MAX_RISK_PERCENT).toBe(.1);
 });
-it('parses 10 without changing Gold risk or default sessions',()=>{
- const c=loadConfig({...required,MT5_DEMO_XAUUSD_PROFIT_TARGET_USD:'10',MT5_DEMO_XAUUSD_MAX_RISK_PERCENT:'.35'});
+it('parses 10 without changing Gold risk or selected sessions',()=>{
+ const c=loadConfig({...required,MT5_DEMO_XAUUSD_PROFIT_TARGET_USD:'10',MT5_DEMO_XAUUSD_MAX_RISK_PERCENT:'.35',MT5_DEMO_XAUUSD_SESSION_START_UTC:'0',MT5_DEMO_XAUUSD_SESSION_END_UTC:'24'});
  expect(c.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD).toBe(10);expect(c.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBe(.35);
- expect(c.MT5_DEMO_XAUUSD_SESSION_START_UTC).toBeUndefined();expect(c.MT5_ENGINE_MAX_RISK_PERCENT).toBe(.1);
+ expect(c.MT5_DEMO_XAUUSD_SESSION_START_UTC).toBe(0);expect(c.MT5_DEMO_XAUUSD_SESSION_END_UTC).toBe(24);expect(c.MT5_ENGINE_MAX_RISK_PERCENT).toBe(.1);
 });
