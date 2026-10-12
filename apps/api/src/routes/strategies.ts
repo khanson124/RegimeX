@@ -39,6 +39,7 @@ export function registerStrategyRoutes(app: FastifyInstance, ctx: AppContext): v
     const impl = createStrategy(definition.kind as StrategyKind);
     return {
       id: definition.id,
+      strategyId: impl.id,
       kind: definition.kind,
       name: definition.name,
       description: definition.description,

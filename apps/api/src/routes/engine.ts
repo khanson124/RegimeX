@@ -8,9 +8,10 @@ import {
   resolveEngineConfigurationScope,
   selectEngineConfigsToDeactivate,
   ValidationError,
+  type StrategyKind,
   type EngineControlMessage
 } from "@regimex/shared";
-import { resolveLiveTradingArmState, resolveLiveTradingCapability } from "@regimex/trading-engine";
+import { createStrategy, strategyAppliesToSession, resolveLiveTradingArmState, resolveLiveTradingCapability } from "@regimex/trading-engine";
 import { type AppContext } from "../context.js";
 import { requireAuth } from "../plugins/auth.js";
 import { registerLiveGoldEntryRoutes } from "./liveGoldEntries.js";
@@ -117,20 +118,40 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
     const symbol = await prisma.symbol.findUnique({ where: { derivSymbol: body.symbol } });
     if (!symbol || !symbol.enabled) throw new NotFoundError("Enabled symbol");
 
+    const existingEngine = await prisma.liveEngine.findUnique({ where: { userId: request.userId } });
+    const activeRows = existingEngine ? await prisma.liveEngineConfiguration.findMany({
+      where: { liveEngineId: existingEngine.id, isActive: true },
+      select: { id: true, symbol: true, isActive: true, selectionMode: true, fixedStrategyId: true, riskProfileId: true, resumeTradingAfterRestart: true, createdAt: true },
+      orderBy: { createdAt: "asc" }
+    }) : [];
+
+    /** Same-symbol prior only — never inherit XAUUSD settings into an R_10 update (or vice versa). */
+    const priorSameSymbol = [...activeRows].reverse().find((r) => r.symbol === body.symbol) ?? null;
+
+    const selectionMode = body.selectionMode ?? priorSameSymbol?.selectionMode ?? "AUTO";
+    const fixedStrategyId = body.fixedStrategyId !== undefined
+      ? body.fixedStrategyId : (priorSameSymbol?.fixedStrategyId ?? null);
+    if (selectionMode === "SINGLE") {
+      if (!fixedStrategyId) throw new ValidationError("Single selection requires a fixed strategy");
+      const definitions = await prisma.strategyDefinition.findMany({
+        where: { enabled: true, deletedAt: null, OR: [{ userId: null }, { userId: request.userId }] },
+        select: { kind: true }
+      });
+      const fixed = definitions.flatMap(def => {
+        try { return [createStrategy(def.kind as StrategyKind)]; }
+        catch { return []; }
+      }).find(strategy => strategy?.id === fixedStrategyId);
+      if (!fixed || !strategyAppliesToSession(fixed, body)) {
+        throw new ValidationError(`Fixed strategy ${fixedStrategyId} is unavailable or incompatible with ${body.symbol}/${body.interval}`);
+      }
+    }
+
+    // Validate before creating an engine or deactivating any existing configuration.
     const engine = await prisma.liveEngine.upsert({
       where: { userId: request.userId },
       create: { userId: request.userId, engineVersion: config.ENGINE_VERSION },
       update: {}
     });
-
-    const activeRows = await prisma.liveEngineConfiguration.findMany({
-      where: { liveEngineId: engine.id, isActive: true },
-      select: { id: true, symbol: true, isActive: true, selectionMode: true, fixedStrategyId: true, riskProfileId: true, resumeTradingAfterRestart: true, createdAt: true },
-      orderBy: { createdAt: "asc" }
-    });
-
-    /** Same-symbol prior only — never inherit XAUUSD settings into an R_10 update (or vice versa). */
-    const priorSameSymbol = [...activeRows].reverse().find((r) => r.symbol === body.symbol) ?? null;
 
     const scope = resolveEngineConfigurationScope({
       retainOtherActiveConfigurations: body.retainOtherActiveConfigurations,
@@ -154,11 +175,8 @@ export function registerEngineRoutes(app: FastifyInstance, ctx: AppContext): voi
         symbol: body.symbol,
         interval: body.interval,
         mode: body.mode,
-        selectionMode: body.selectionMode ?? priorSameSymbol?.selectionMode ?? "AUTO",
-        fixedStrategyId:
-          body.fixedStrategyId !== undefined
-            ? body.fixedStrategyId
-            : (priorSameSymbol?.fixedStrategyId ?? null),
+        selectionMode,
+        fixedStrategyId: selectionMode === "SINGLE" ? fixedStrategyId : null,
         riskProfileId:
           body.riskProfileId !== undefined
             ? body.riskProfileId

@@ -154,6 +154,8 @@ export interface SymbolRow {
 
 export interface StrategyRow {
   id: string;
+  strategyId?: string;
+  eligibility?: { allowedSymbols?: string[]; allowedIntervals?: string[] };
   kind: string;
   name: string;
   description: string;
@@ -284,6 +286,7 @@ export const useEngine = () =>
           emergencyStop: boolean;
           lastTickAt: string | null;
           configuration: Record<string, unknown> | null;
+          configurations?: Array<Record<string, unknown>>;
           demoTradingGloballyEnabled: boolean;
           liveTradingGloballyEnabled?: boolean;
           liveTradingSupported?: boolean;

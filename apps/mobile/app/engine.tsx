@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { ApiError } from "../src/api/client";
 import {
@@ -26,6 +26,7 @@ import {
   StatusChip,
   TicketField
 } from "../src/components/design";
+import { configurationForSymbol, engineStrategyChoices } from "../src/lib/engineConfiguration";
 import { colors, font, spacing } from "../src/theme";
 
 const INTERVALS = ["1m", "5m", "15m"] as const;
@@ -75,19 +76,14 @@ export default function EngineScreen() {
   const [selectionMode, setSelectionMode] = useState<"AUTO" | "SINGLE" | "ENSEMBLE" | null>(null);
   const [fixedStrategyId, setFixedStrategyId] = useState<string | null>(null);
   const [resumeAfterRestart, setResumeAfterRestart] = useState<boolean | null>(null);
-  const [advancedHydrated, setAdvancedHydrated] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const engine = data?.engine ?? null;
-  const config = (engine?.configuration ?? {}) as Record<string, string | boolean | null>;
-
-  useEffect(() => {
-    if (!engine?.configuration || advancedHydrated) return;
-    setSelectionMode((config.selectionMode as "AUTO" | "SINGLE" | "ENSEMBLE" | null) ?? "AUTO");
-    setFixedStrategyId((config.fixedStrategyId as string | null) ?? null);
-    setResumeAfterRestart(Boolean(config.resumeTradingAfterRestart));
-    setAdvancedHydrated(true);
-  }, [engine?.configuration, advancedHydrated]);
+  const activeSymbol = symbol ?? (engine?.configuration?.symbol as string | undefined) ??
+    symbolsData?.symbols.find(s => s.enabled)?.derivSymbol ?? null;
+  const config = (configurationForSymbol(
+    engine?.configurations ?? [], engine?.configuration, activeSymbol
+  ) ?? {}) as Record<string, string | boolean | null>;
 
   if (isLoading) {
     return (
@@ -104,14 +100,12 @@ export default function EngineScreen() {
   const enabledSymbols = symbolsData?.symbols.filter((s) => s.enabled) ?? [];
   const strategies = strategiesData?.strategies ?? [];
 
-  const activeSymbol = symbol ?? (config.symbol as string | null) ?? enabledSymbols[0]?.derivSymbol ?? null;
   const activeInterval = interval ?? (config.interval as (typeof INTERVALS)[number] | null) ?? "1m";
   const activeMode = mode ?? (config.mode as string | null) ?? "ANALYSIS_ONLY";
-  const activeSelection = selectionMode ?? "AUTO";
-  const activeFixedId =
-    fixedStrategyId !== null
-      ? fixedStrategyId
-      : ((config.fixedStrategyId as string | null) ?? null);
+  const activeSelection = selectionMode ?? (config.selectionMode as "AUTO" | "SINGLE" | "ENSEMBLE" | null) ?? "AUTO";
+  const activeFixedId = selectionMode !== null ? fixedStrategyId :
+    ((config.fixedStrategyId as string | null) ?? null);
+  const strategyChoices = engineStrategyChoices(strategies, activeSymbol, activeInterval);
   const activeResume =
     resumeAfterRestart != null
       ? resumeAfterRestart
@@ -284,7 +278,14 @@ export default function EngineScreen() {
         <SegmentedChips
           options={enabledSymbols.map((sym) => ({ id: sym.derivSymbol, label: sym.derivSymbol }))}
           value={activeSymbol}
-          onChange={setSymbol}
+          onChange={(nextSymbol) => {
+            setSymbol(nextSymbol);
+            setInterval(null);
+            setMode(null);
+            setSelectionMode(null);
+            setFixedStrategyId(null);
+            setResumeAfterRestart(null);
+          }}
         />
         <Text style={[styles.fieldLabel, { marginTop: spacing.lg }]}>Interval</Text>
         <SegmentedChips
@@ -334,14 +335,14 @@ export default function EngineScreen() {
           <>
             <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>Fixed strategy</Text>
             <SegmentedChips
-              options={strategies.slice(0, 12).map((s) => ({ id: s.id, label: s.name }))}
+              options={strategyChoices.slice(0, 12).map((s) => ({ id: s.strategyId!, label: s.name }))}
               value={activeFixedId}
-              onChange={setFixedStrategyId}
+              onChange={(id) => { setSelectionMode("SINGLE"); setFixedStrategyId(id); }}
             />
             <TicketField
               label="Or paste strategy ID"
               value={activeFixedId ?? ""}
-              onChangeText={(t) => setFixedStrategyId(t.trim() || null)}
+              onChangeText={(t) => { setSelectionMode("SINGLE"); setFixedStrategyId(t.trim() || null); }}
               keyboardType="default"
               hint="Required when selection is Single"
             />
