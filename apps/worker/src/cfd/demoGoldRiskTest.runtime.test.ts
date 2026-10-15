@@ -57,6 +57,26 @@ describe("Gold DEMO full submission", () => {
   expect(request.volume).toBe(.01); expect(request.riskAmount).toBe(5); expect(request.riskPercent).toBe(.5);
   expect(request.metadata).toHaveProperty("demoGoldRiskTest.sizing", "broker_minimum_lot");
  });
+ it.each([false, true])("counts Gold's own daily quota without bypassing normal sizing (Gold quota full=%s)", async full => {
+  vi.spyOn(Date, "now").mockReturnValue(now); const f = fixture(false);
+  f.adapter.getAccount.mockResolvedValue({ equity: 10000, balance: 10000, freeMargin: 10000 });
+  f.prisma.riskProfile.findFirst.mockResolvedValue({ maxDailyLoss: 50, riskPerTradePercent: .25,
+    minCooldownSeconds: 0, maxDailyTrades: 10, maxConsecutiveLosses: 3, volumeOverrideLots: .01 });
+  f.prisma.position.findMany.mockImplementation(async args => args.where.status === "CLOSED" ?
+    [...Array.from({ length: 12 }, () => ({ symbol: "R_10", metadata: { executionModel: "broker_demo_mt5" },
+      realizedPnl: 0, closedAt: new Date(now - 1000) })),
+     ...Array.from({ length: full ? 10 : 1 }, () => ({ symbol: "XAUUSD", metadata: { executionModel: "broker_demo_mt5" },
+       realizedPnl: 0, closedAt: new Date(now - 1000) }))] : []);
+  const result = await f.runtime.executeCfdSignal(f.input);
+  if (full) {
+    expect(result).toMatchObject({ opened: false, reasons: ["Daily trade limit reached"] });
+    expect(f.adapter.openMarketPosition).not.toHaveBeenCalled();
+  } else {
+    expect(result, JSON.stringify(result)).toMatchObject({ opened: true });
+    expect(f.adapter.openMarketPosition).toHaveBeenCalledOnce();
+    expect(f.adapter.openMarketPosition.mock.calls[0]![0].metadata).not.toHaveProperty("demoGoldRiskTest");
+  }
+ });
  it("keeps normal percentage sizing with flag OFF", async () => {
   vi.spyOn(Date, "now").mockReturnValue(now); const f = fixture(false);
   // Remove the ordinary user volume override, which is independent of the experiment.

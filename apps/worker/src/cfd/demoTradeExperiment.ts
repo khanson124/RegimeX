@@ -5,8 +5,16 @@ export async function resolveDemoTradeExperiment(input: {
   userId: string; executionMode: string; sessionMode: string; symbol: string;
   maxDailyTrades: number; closedToday: CountedPosition[]; openPositions: CountedPosition[];
 }, read?: (userId: string) => Promise<string | null>, onError?: (err: unknown) => void) {
+  // Gold keeps its existing cap, but DEMO R_10 and known non-DEMO positions do not consume it.
+  // Count unclassified Gold conservatively; never hide an unknown Gold execution model.
+  const goldOnly = input.executionMode === "broker_demo_mt5" && input.sessionMode === "DEMO_TRADING" &&
+    input.symbol === "XAUUSD";
+  const countGold = (positions: CountedPosition[]) => positions.filter(p => p.symbol === "XAUUSD" &&
+    (p.metadata == null || typeof p.metadata !== "object" || !("executionModel" in p.metadata) ||
+      !["broker_real_mt5", "paper_cfd"].includes(String(p.metadata.executionModel)))).length;
   const defaults = { active: false, maxDailyTrades: input.maxDailyTrades,
-    dailyTradeCount: input.closedToday.length + input.openPositions.length, expiresAtMs: null as number | null };
+    dailyTradeCount: goldOnly ? countGold(input.closedToday) + countGold(input.openPositions) :
+      input.closedToday.length + input.openPositions.length, expiresAtMs: null as number | null };
   if (input.executionMode !== "broker_demo_mt5" || input.sessionMode !== "DEMO_TRADING" || input.symbol !== "R_10") return defaults;
   let raw: string | null | undefined;
   try { raw = await read?.(input.userId); } catch (err) { onError?.(err); return defaults; }

@@ -55,7 +55,7 @@ type Internals = {
   logDecision: ReturnType<typeof vi.fn>;
   logAutonomousDecision: ReturnType<typeof vi.fn>;
   recordCandidate: ReturnType<typeof vi.fn>;
-  mt5Cfd: { executeCfdSignal: ReturnType<typeof vi.fn>; getHealthSnapshot: ReturnType<typeof vi.fn> };
+  mt5Cfd: { getHistoricalBarsForWarmup: ReturnType<typeof vi.fn>; executeCfdSignal: ReturnType<typeof vi.fn>; getHealthSnapshot: ReturnType<typeof vi.fn> };
   lastSignalCandle: Map<string, number>;
   shadowLastSignalCandle: Map<string, number>;
   mt5QuoteHealth: Parameters<typeof recordMt5QuotePollSuccess>[0];
@@ -83,9 +83,11 @@ function fixture(options: {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => logger };
   const signal = { create: vi.fn().mockResolvedValue({ id: "signal" }), update: vi.fn() };
   const candleRead = vi.fn().mockResolvedValue([]);
+  const candleInsert = vi.fn().mockResolvedValue({ count: 26 });
   const publish = vi.fn();
   const session = new LiveEngineSession("user", { config, logger, publish,
-    prisma: { signal, candle: { findMany: candleRead } }, credentialDecrypt: (value: string) => value } as unknown as SessionDeps) as unknown as Internals;
+    prisma: { signal, symbol: { findUnique: vi.fn().mockResolvedValue({ id: "r10" }) },
+      candle: { findMany: candleRead, createMany: candleInsert } }, credentialDecrypt: (value: string) => value } as unknown as SessionDeps) as unknown as Internals;
   const original = strategy(originalId, () => options.originalAction ?? "HOLD");
   const fallback = strategy(fallbackId, options.fallbackAction ?? (() => "BUY"));
   const third = strategy(thirdId, () => "SELL");
@@ -112,7 +114,8 @@ function fixture(options: {
       expectancyR: 0.3, profitFactor: 1.4, maxDrawdownPercent: 1, winRate: 0.6, netRealizedPnl: 1,
       lifecycle: id === fallbackId ? "SUSPENDED" : "EXPERIMENTAL" })),
     logDecision: vi.fn(), logAutonomousDecision: vi.fn(), recordCandidate: vi.fn(),
-    mt5Cfd: { executeCfdSignal: vi.fn().mockResolvedValue({ opened: options.opened ?? true,
+    mt5Cfd: { getHistoricalBarsForWarmup: vi.fn().mockResolvedValue({ ok: false, reason: "NO_TEST_HISTORY" }),
+      executeCfdSignal: vi.fn().mockResolvedValue({ opened: options.opened ?? true,
       decisionCode: options.resultCode ?? "TRADE_OPENED", reasons: ["test"] }),
       getHealthSnapshot: vi.fn().mockReturnValue({}) },
     lastSignalCandle: new Map([[originalId, 70], [fallbackId, 80]]),
@@ -123,7 +126,7 @@ function fixture(options: {
   // Existing fallback/shadow tests isolate their own behavior. Gate integration cases below
   // retain the actual production gate and replace only its database I/O.
   if (!options.realTrendGate) session.checkDemoR10EntryTrend = vi.fn().mockResolvedValue({ applied: false, allowed: true });
-  return { session, original, fallback, third, signal, publish, logger, candleRead,
+  return { session, original, fallback, third, signal, publish, logger, candleRead, candleInsert,
     run: () => session.analyze(candles.at(-1)!) };
 }
 afterEach(() => { resetConfigCache(); resetSharedMt5BridgeCircuit(); });
@@ -266,6 +269,31 @@ describe("production M15 gate after normal and AUTO fallback selection", () => {
     expect(f.session.lastSignalCandle.get(fallbackId)).toBe(100);
     expect(f.candleRead).toHaveBeenCalledWith(expect.objectContaining({ take: 316,
       where: expect.objectContaining({ closeTime: { lte: new Date(90 * 60_000) } }) }));
+  });
+  it("recovers the deployment gap through verified broker history and inserts missing rows only", async () => {
+    const f = fixture({ realTrendGate: true }); const rows = trendRows(1);
+    f.candleRead.mockResolvedValueOnce(rows.filter((_, i) => i < 63 || i > 88)).mockResolvedValue(rows);
+    f.session.mt5Cfd.getHistoricalBarsForWarmup.mockResolvedValue({ ok: true, isDemo: true,
+      brokerSymbol: "Volatility 10 Index", bars: rows.map(r => ({ ...r, source: "MT5", timeframe: "1m",
+        symbol: "Volatility 10 Index", openTimeMs: r.openTime.getTime(), closeTimeMs: r.closeTime.getTime(),
+        tickVolume: r.tickCount })) });
+    await f.run();
+    expect(f.session.mt5Cfd.getHistoricalBarsForWarmup).toHaveBeenCalledWith({ engineSymbol: "R_10", timeframe: "1m", count: 330 });
+    expect(f.candleInsert).toHaveBeenCalledWith({ skipDuplicates: true, data: expect.any(Array) });
+    const inserted = f.candleInsert.mock.calls[0]![0].data;
+    expect(inserted).toHaveLength(26);
+    expect(inserted[0]).toMatchObject({ symbolId: "r10", interval: "1m", source: "MT5_HISTORY", isComplete: true });
+    expect(f.session.mt5Cfd.executeCfdSignal).toHaveBeenCalledWith(expect.objectContaining({ strategyId: fallbackId }));
+  });
+  it.each(["wrong-account", "wrong-symbol", "forming"])("does not recover %s broker bars", async kind => {
+    const f = fixture({ realTrendGate: true });
+    const rows = trendRows(1); f.candleRead.mockResolvedValue(rows.slice(26));
+    f.session.mt5Cfd.getHistoricalBarsForWarmup.mockResolvedValue({ ok: true, isDemo: kind !== "wrong-account",
+      brokerSymbol: "Volatility 10 Index", bars: rows.map(r => ({ ...r, source: "MT5", timeframe: "1m",
+        symbol: kind === "wrong-symbol" ? "Gold" : "Volatility 10 Index", isComplete: kind !== "forming",
+        openTimeMs: r.openTime.getTime(), closeTimeMs: r.closeTime.getTime(), tickVolume: 1 })) });
+    await f.run(); expect(f.candleInsert).not.toHaveBeenCalled();
+    expect(f.signal.create).not.toHaveBeenCalled(); expect(f.session.mt5Cfd.executeCfdSignal).not.toHaveBeenCalled();
   });
   it("passes an aligned original selection through the same existing execution checks", async () => {
     const f = fixture({ realTrendGate: true, originalAction: "BUY", opened: false, resultCode: "RISK_BLOCKED" });

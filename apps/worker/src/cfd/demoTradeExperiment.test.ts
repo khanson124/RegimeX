@@ -16,7 +16,7 @@ describe("R_10 DEMO daily cap experiment", () => {
     expect(input.maxDailyTrades).toBe(10);
   });
   it.each([{ executionMode: "broker_real_mt5" }, { executionMode: "paper_cfd" },
-    { sessionMode: "LIVE_TRADING" }, { sessionMode: "DEMO" }, { symbol: "XAUUSD" }])("leaves other scopes unchanged: %s", async (override) => {
+    { sessionMode: "LIVE_TRADING" }, { sessionMode: "DEMO" }])("leaves other scopes unchanged: %s", async (override) => {
     const read = vi.fn().mockResolvedValue(String(now + 1000));
     expect(await resolveDemoTradeExperiment({ ...input, ...override }, read)).toMatchObject({ active: false, maxDailyTrades: 10, dailyTradeCount: 10 });
     expect(read).not.toHaveBeenCalled();
@@ -50,4 +50,30 @@ describe("R_10 DEMO daily cap experiment", () => {
     vi.spyOn(Date, "now").mockReturnValue(now + DEMO_R10_TRADE_EXPERIMENT_DURATION_MS);
     expect((await resolveDemoTradeExperiment(input, read)).active).toBe(false);
   });
+});
+
+
+describe("Gold DEMO daily quota isolation", () => {
+  it("retains the configured cap and counts only DEMO Gold, across strategies and including open positions", async () => {
+    const read = vi.fn();
+    const result = await resolveDemoTradeExperiment({ ...input, symbol: "XAUUSD",
+      closedToday: [...input.closedToday, position("XAUUSD"), position("XAUUSD", "broker_real_mt5"),
+        position("XAUUSD", "paper_cfd"), position("XAUUSD", "unknown"),
+        { symbol: "XAUUSD", metadata: { executionModel: null } }, { symbol: "XAUUSD" }],
+      openPositions: [position(), position("XAUUSD")] }, read);
+    expect(result).toEqual({ active: false, maxDailyTrades: 10, dailyTradeCount: 5, expiresAtMs: null });
+    expect(read).not.toHaveBeenCalled();
+  });
+  it("Gold reaches its own limit at ten and R_10 cannot exhaust it", async () => {
+    const result = await resolveDemoTradeExperiment({ ...input, symbol: "XAUUSD",
+      closedToday: [...input.closedToday, ...Array.from({ length: 9 }, () => position("XAUUSD"))],
+      openPositions: [position("XAUUSD")] });
+    expect(result).toMatchObject({ maxDailyTrades: 10, dailyTradeCount: 10 });
+  });
+  it.each([{ executionMode: "broker_real_mt5" }, { executionMode: "paper_cfd" },
+    { sessionMode: "LIVE_TRADING" }, { sessionMode: "ANALYSIS_ONLY" }, { symbol: "R_25" }])(
+    "preserves the shared counter outside Gold DEMO: %s", async override => {
+      expect(await resolveDemoTradeExperiment({ ...input, symbol: "XAUUSD", ...override }))
+        .toMatchObject({ dailyTradeCount: 10, maxDailyTrades: 10 });
+    });
 });

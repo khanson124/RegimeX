@@ -46,6 +46,7 @@ import {
   validateIncomingMt5Candle,
   countMt5ProvenanceSources,
   assembleMt5HistoricalWarmup,
+  mt5BarToHistoryCandle,
   planMt5HistoricalWarmup,
   mtfWarmupReadiness,
   resolveSessionMtfWarmupSpec,
@@ -86,6 +87,7 @@ import {
 } from "@regimex/trading-engine";
 import { resolveMt5DemoXauSession } from "./mt5DemoXauSession.js";
 import { DemoR10HtfShadowObserver, DEMO_R10_HTF_HISTORY_LIMIT } from "./demoR10HtfShadow.js";
+import { DemoR10EntryTrendHistory } from "./demoR10EntryTrendHistory.js";
 import { checkDemoR10EntryTrend, DEMO_R10_ENTRY_TREND_MINUTES } from "./demoR10EntryTrend.js";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
 import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
@@ -205,6 +207,7 @@ export class LiveEngineSession {
   private mt5ContextCandles = new Map<string, Candle[]>();
   private mt5MtfSpec: MultiTimeframeWarmupSpec | null = null;
   private readonly demoR10HtfShadow: DemoR10HtfShadowObserver;
+  private readonly demoR10EntryTrendHistory = new DemoR10EntryTrendHistory();
   /** Retention for execution candles; derived from session warm-up requirement. */
   private candleBufferCapacity = CANDLE_BUFFER_BASE;
 
@@ -2992,18 +2995,42 @@ export class LiveEngineSession {
   }) {
     return checkDemoR10EntryTrend({ ...input, executionBackend: this.executionBackend,
       mode: this.mode, symbol: this.symbol, interval: this.interval }, async (fromMs, toMs) => {
-      const rows = await this.deps.prisma.candle.findMany({
-        where: { symbol: { derivSymbol: "R_10" }, interval: "1m", isComplete: true,
-          source: { in: ["MT5_HISTORY", "MT5_LIVE_TICKS"] },
-          openTime: { gte: new Date(fromMs), lt: new Date(toMs) }, closeTime: { lte: new Date(toMs) } },
-        orderBy: { openTime: "desc" }, take: DEMO_R10_ENTRY_TREND_MINUTES + 1,
-        select: { openTime: true, closeTime: true, open: true, high: true, low: true, close: true,
-          tickCount: true, isComplete: true, source: true }
+      const read = async () => {
+        const rows = await this.deps.prisma.candle.findMany({
+          where: { symbol: { derivSymbol: "R_10" }, interval: "1m", isComplete: true,
+            source: { in: ["MT5_HISTORY", "MT5_LIVE_TICKS"] },
+            openTime: { gte: new Date(fromMs), lt: new Date(toMs) }, closeTime: { lte: new Date(toMs) } },
+          orderBy: { openTime: "desc" }, take: DEMO_R10_ENTRY_TREND_MINUTES + 1,
+          select: { openTime: true, closeTime: true, open: true, high: true, low: true, close: true,
+            tickCount: true, isComplete: true, source: true }
+        });
+        return rows.map(row => ({ symbol: "R_10", interval: "1m" as const,
+          openTime: row.openTime.getTime(), closeTime: row.closeTime.getTime(),
+          open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close),
+          tickCount: row.tickCount, isComplete: row.isComplete, source: row.source as Candle["source"] }));
+      };
+      return this.demoR10EntryTrendHistory.read(fromMs, toMs, {
+        read,
+        fetch: async () => {
+          if (!this.mt5Cfd) return [];
+          const result = await this.mt5Cfd.getHistoricalBarsForWarmup({ engineSymbol: "R_10",
+            timeframe: "1m", count: DEMO_R10_ENTRY_TREND_MINUTES + 15 });
+          if (!result.ok || !result.isDemo) return [];
+          return result.bars.filter(bar => bar.symbol === result.brokerSymbol && bar.timeframe === "1m" &&
+            bar.source === "MT5" && bar.isComplete && bar.closeTimeMs <= toMs && bar.closeTimeMs <= Date.now())
+            .map(bar => mt5BarToHistoryCandle({ bar, engineSymbol: "R_10", interval: "1m" }));
+        },
+        insertMissing: async candles => {
+          const symbol = await this.deps.prisma.symbol.findUnique({ where: { derivSymbol: "R_10" } });
+          if (!symbol) throw new Error("R_10 symbol missing");
+          const inserted = await this.deps.prisma.candle.createMany({ skipDuplicates: true,
+            data: candles.map(c => ({ symbolId: symbol.id, interval: "1m", openTime: new Date(c.openTime),
+              closeTime: new Date(c.closeTime), open: c.open, high: c.high, low: c.low, close: c.close,
+              tickCount: c.tickCount, isComplete: true, source: "MT5_HISTORY" })) });
+          this.log.info({ event: "DEMO_R10_TREND_HISTORY_RECOVERED", fromMs, toMs,
+            inserted: inserted.count, correlationId: input.correlationId }, "DEMO_R10_TREND_HISTORY_RECOVERED");
+        }
       });
-      return rows.map(row => ({ symbol: "R_10", interval: "1m" as const,
-        openTime: row.openTime.getTime(), closeTime: row.closeTime.getTime(),
-        open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close),
-        tickCount: row.tickCount, isComplete: row.isComplete, source: row.source as Candle["source"] }));
     });
   }
 
