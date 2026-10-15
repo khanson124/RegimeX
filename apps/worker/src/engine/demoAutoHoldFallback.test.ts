@@ -62,12 +62,13 @@ type Internals = {
   lastTickAt: number;
   mt5ContextCandles: Map<string, Candle[]>;
   runAutoShadowEval: (...args: unknown[]) => Promise<AutoShadowEvaluationReport>;
+  checkDemoR10EntryTrend: ReturnType<typeof vi.fn>;
 };
 function fixture(options: {
   backend?: ExecutionBackend; mode?: Internals["mode"]; selectionMode?: Internals["engineSelectionMode"];
   symbol?: string; interval?: CandleInterval; originalAction?: StrategyDecision["action"];
   fallbackAction?: (ctx: StrategyContext) => StrategyDecision["action"]; shadowEnabled?: boolean;
-  resultCode?: string; opened?: boolean; htfShadowEnabled?: boolean;
+  resultCode?: string; opened?: boolean; htfShadowEnabled?: boolean; realTrendGate?: boolean;
 } = {}) {
   resetConfigCache(); resetSharedMt5BridgeCircuit();
   const config = loadConfig({
@@ -119,6 +120,9 @@ function fixture(options: {
     lastTickAt: Date.now()
   });
   recordMt5QuotePollSuccess(session.mt5QuoteHealth, Date.now(), Date.now());
+  // Existing fallback/shadow tests isolate their own behavior. Gate integration cases below
+  // retain the actual production gate and replace only its database I/O.
+  if (!options.realTrendGate) session.checkDemoR10EntryTrend = vi.fn().mockResolvedValue({ applied: false, allowed: true });
   return { session, original, fallback, third, signal, publish, logger, candleRead,
     run: () => session.analyze(candles.at(-1)!) };
 }
@@ -225,6 +229,74 @@ describe("R_10 DEMO AUTO HOLD fallback", () => {
     expect(f.session.recordCandidate).toHaveBeenCalledWith(expect.anything(), expect.any(String),
       expect.objectContaining({ strategyId: fallbackId, rejectionCode: "R10_SQUEEZE_FORWARD_TRIAL_1M_ONLY" }));
     expect(f.session.lastSignalCandle.get(fallbackId)).toBe(80);
+  });
+});
+
+describe("production M15 gate after normal and AUTO fallback selection", () => {
+  function trendRows(direction: number) {
+    const boundary = 90 * 60_000; // fixture decision is minute 100
+    return Array.from({ length: 315 }, (_, i) => ({
+      openTime: new Date(boundary + (i - 315) * 60_000), closeTime: new Date(boundary + (i - 314) * 60_000),
+      open: 100 + direction * i / 10000, close: 100 + direction * (i + 1) / 10000,
+      high: 101 + direction * i / 10000, low: 99 + direction * i / 10000,
+      tickCount: 10, isComplete: true, source: "MT5_HISTORY"
+    }));
+  }
+  it.each([false, true])("blocks an opposed BUY before signal creation (fallback=%s)", async fallback => {
+    const f = fixture({ realTrendGate: true, originalAction: fallback ? "HOLD" : "BUY" });
+    f.candleRead.mockResolvedValue(trendRows(-1));
+    const cooldown = new Map(f.session.lastSignalCandle);
+    await f.run();
+    expect(f.signal.create).not.toHaveBeenCalled();
+    expect(f.session.mt5Cfd.executeCfdSignal).not.toHaveBeenCalled();
+    expect(f.session.lastSignalCandle).toEqual(cooldown);
+    expect(f.session.recordCandidate).toHaveBeenCalledWith(expect.anything(), expect.any(String),
+      expect.objectContaining({ strategyId: fallback ? fallbackId : originalId, direction: "BUY",
+        rejectionCode: "R10_DEMO_TREND_OPPOSED_OR_NEUTRAL" }));
+    expect(f.session.logAutonomousDecision).toHaveBeenCalledWith("NO_TRADE", expect.anything(),
+      expect.objectContaining({ featureSummary: expect.objectContaining({ entryTrend: expect.objectContaining({
+        trend: expect.objectContaining({ bias: "BEARISH" }), allowed: false }) }) }));
+  });
+  it.each([["BUY", 1], ["SELL", -1]] as const)("passes aligned fallback %s with its effective ID", async (action, direction) => {
+    const f = fixture({ realTrendGate: true, fallbackAction: () => action });
+    f.candleRead.mockResolvedValue(trendRows(direction)); await f.run();
+    expect(f.signal.create).toHaveBeenCalledWith({ data: expect.objectContaining({ strategyId: fallbackId, action }) });
+    expect(f.session.mt5Cfd.executeCfdSignal).toHaveBeenCalledWith(expect.objectContaining({ strategyId: fallbackId,
+      decision: expect.objectContaining({ action }) }));
+    expect(f.session.lastSignalCandle.get(fallbackId)).toBe(100);
+    expect(f.candleRead).toHaveBeenCalledWith(expect.objectContaining({ take: 316,
+      where: expect.objectContaining({ closeTime: { lte: new Date(90 * 60_000) } }) }));
+  });
+  it("passes an aligned original selection through the same existing execution checks", async () => {
+    const f = fixture({ realTrendGate: true, originalAction: "BUY", opened: false, resultCode: "RISK_BLOCKED" });
+    f.candleRead.mockResolvedValue(trendRows(1)); await f.run();
+    expect(f.session.mt5Cfd.executeCfdSignal).toHaveBeenCalledWith(expect.objectContaining({ strategyId: originalId }));
+    expect(f.session.logAutonomousDecision).toHaveBeenCalledWith("RISK_BLOCKED", expect.anything(),
+      expect.objectContaining({ strategyId: originalId }));
+    expect(f.session.lastSignalCandle.get(originalId)).toBe(70);
+  });
+  it("also blocks an opposed SELL and a fixed-strategy DEMO entry", async () => {
+    for (const selectionMode of ["AUTO", "SINGLE"] as const) {
+      const f = fixture({ realTrendGate: true, selectionMode, originalAction: "SELL" });
+      f.candleRead.mockResolvedValue(trendRows(1)); await f.run();
+      expect(f.signal.create).not.toHaveBeenCalled();
+      expect(f.session.mt5Cfd.executeCfdSignal).not.toHaveBeenCalled();
+    }
+  });
+  it.each(["missing", "invalid", "read-error"])("blocks %s context without consuming cooldown", async kind => {
+    const f = fixture({ realTrendGate: true });
+    if (kind === "invalid") { const rows = trendRows(1); rows[0]!.high = 0; f.candleRead.mockResolvedValue(rows); }
+    if (kind === "read-error") f.candleRead.mockRejectedValue(Error("DB unavailable"));
+    await f.run();
+    expect(f.signal.create).not.toHaveBeenCalled();
+    expect(f.session.mt5Cfd.executeCfdSignal).not.toHaveBeenCalled();
+    expect(f.session.lastSignalCandle.get(fallbackId)).toBe(80);
+    expect(f.session.recordCandidate).toHaveBeenCalledWith(expect.anything(), expect.any(String),
+      expect.objectContaining({ rejectionCode: "R10_DEMO_TREND_UNAVAILABLE" }));
+  });
+  it("never reads trend history for REAL even when its selected strategy signals", async () => {
+    const f = fixture({ realTrendGate: true, backend: "broker_real_mt5", mode: "LIVE_TRADING", originalAction: "BUY" });
+    await f.run(); expect(f.candleRead).not.toHaveBeenCalled();
   });
 });
 

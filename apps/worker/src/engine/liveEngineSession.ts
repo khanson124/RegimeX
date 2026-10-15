@@ -86,6 +86,7 @@ import {
 } from "@regimex/trading-engine";
 import { resolveMt5DemoXauSession } from "./mt5DemoXauSession.js";
 import { DemoR10HtfShadowObserver, DEMO_R10_HTF_HISTORY_LIMIT } from "./demoR10HtfShadow.js";
+import { checkDemoR10EntryTrend, DEMO_R10_ENTRY_TREND_MINUTES } from "./demoR10EntryTrend.js";
 import { PaperCfdRuntime } from "../cfd/paperCfdRuntime.js";
 import { Mt5CfdRuntime } from "../cfd/mt5CfdRuntime.js";
 import { closeMt5LocalPosition, emergencyCloseOwnedMt5Positions } from "../cfd/mt5CloseRuntime.js";
@@ -1664,6 +1665,27 @@ export class LiveEngineSession {
       return;
     }
 
+    // Gate the effective production decision, including an adopted AUTO fallback, before
+    // creating a signal or consuming production cooldown. Never execute a shadow decision.
+    const entryTrend = await this.checkDemoR10EntryTrend({ action: decision.action,
+      decisionCloseTimeMs: candle.closeTime, strategyId: chosen.strategy.id, correlationId });
+    if (entryTrend.applied) {
+      const trendSummary = { ...entryTrend, symbol: this.symbol, interval: this.interval,
+        strategyId: chosen.strategy.id, action: decision.action, correlationId,
+        decisionCloseTimeMs: candle.closeTime, model: "UTC_COMPLETED_EMA_8_21_LAST_21", trendInterval: "15m" };
+      this.log.info({ event: "DEMO_R10_ENTRY_TREND_GATE", ...trendSummary }, "DEMO_R10_ENTRY_TREND_GATE");
+      if (!entryTrend.allowed) {
+        const reasons = [entryTrend.reasonCode!];
+        await this.recordCandidate(latest, correlationId, { decisionCode: "NO_SIGNAL",
+          rejectionCode: entryTrend.reasonCode!, reasons, strategyId: chosen.strategy.id, direction: decision.action });
+        await this.logAutonomousDecision("NO_TRADE", reasons, { strategyId: chosen.strategy.id,
+          action: decision.action, regime: regime.regime, regimeConfidence: regime.confidence,
+          correlationId, featureSummary: { entryTrend: trendSummary, evidence: evidenceSummary } });
+        await publish(this.userId, "strategy.noTrade", { strategyId: chosen.strategy.id, reasons });
+        return;
+      }
+    }
+
     const signal = await this.deps.prisma.signal.create({
       data: {
         userId: this.userId,
@@ -2963,6 +2985,26 @@ export class LiveEngineSession {
     );
 
     return report;
+  }
+
+  private async checkDemoR10EntryTrend(input: {
+    action: string; decisionCloseTimeMs: number; strategyId: string; correlationId: string;
+  }) {
+    return checkDemoR10EntryTrend({ ...input, executionBackend: this.executionBackend,
+      mode: this.mode, symbol: this.symbol, interval: this.interval }, async (fromMs, toMs) => {
+      const rows = await this.deps.prisma.candle.findMany({
+        where: { symbol: { derivSymbol: "R_10" }, interval: "1m", isComplete: true,
+          source: { in: ["MT5_HISTORY", "MT5_LIVE_TICKS"] },
+          openTime: { gte: new Date(fromMs), lt: new Date(toMs) }, closeTime: { lte: new Date(toMs) } },
+        orderBy: { openTime: "desc" }, take: DEMO_R10_ENTRY_TREND_MINUTES + 1,
+        select: { openTime: true, closeTime: true, open: true, high: true, low: true, close: true,
+          tickCount: true, isComplete: true, source: true }
+      });
+      return rows.map(row => ({ symbol: "R_10", interval: "1m" as const,
+        openTime: row.openTime.getTime(), closeTime: row.closeTime.getTime(),
+        open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close),
+        tickCount: row.tickCount, isComplete: row.isComplete, source: row.source as Candle["source"] }));
+    });
   }
 
   private async recordCandidate(
