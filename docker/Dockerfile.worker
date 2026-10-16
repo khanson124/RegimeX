@@ -4,15 +4,31 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 WORKDIR /app
 
+# Cache dependencies independently of application and library source edits.
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY packages/config/package.json ./packages/config/package.json
+COPY packages/database/package.json ./packages/database/package.json
+COPY packages/eslint-config/package.json ./packages/eslint-config/package.json
+COPY packages/indicators/package.json ./packages/indicators/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/trading-engine/package.json ./packages/trading-engine/package.json
+COPY packages/tsconfig/package.json ./packages/tsconfig/package.json
+COPY apps/worker/package.json ./apps/worker/package.json
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Only schema changes invalidate client generation, not ordinary source changes.
+COPY packages/database/prisma ./packages/database/prisma
+RUN pnpm db:generate
+
 COPY packages ./packages
 COPY apps/worker ./apps/worker
 
-RUN pnpm install --frozen-lockfile --prod=false
-RUN pnpm db:generate
-
 COPY docker/entrypoint-worker.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+ARG REGIMEX_SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.revision=$REGIMEX_SOURCE_REVISION
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["pnpm", "--filter", "@regimex/worker", "start"]

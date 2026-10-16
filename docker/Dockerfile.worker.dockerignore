@@ -1,0 +1,20 @@
+# Worker builds need only this workspace subset; omit research, secrets and other apps.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!packages/
+!packages/**
+!apps/
+!apps/worker/
+!apps/worker/**
+!docker/
+!docker/entrypoint-worker.sh
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.test.ts
+**/*.spec.ts
+**/*.md

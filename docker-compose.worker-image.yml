@@ -1,0 +1,7 @@
+# Opt-in only. Append AFTER the base and production files after deployment approval.
+services:
+  worker:
+    image: "${REGIMEX_WORKER_IMAGE:?Set REGIMEX_WORKER_IMAGE to the approved worker image digest}"
+    build: !reset null
+    # Pull and validate while DEMO still runs, before the graceful engine stop.
+    pull_policy: never

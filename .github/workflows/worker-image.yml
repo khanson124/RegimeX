@@ -1,0 +1,94 @@
+name: Worker image (build only)
+
+on:
+  push:
+    branches: [main, codex/demo-lifecycle-bypass]
+    paths:
+      - '.github/workflows/worker-image.yml'
+      - 'docker/Dockerfile.worker'
+      - 'docker/Dockerfile.worker.dockerignore'
+      - 'docker/entrypoint-worker.sh'
+      - '.dockerignore'
+      - '.npmrc'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'packages/**'
+      - 'apps/worker/**'
+  workflow_dispatch:
+    inputs:
+      export_image:
+        description: 'Also export a Docker archive for transfer without server registry credentials'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Validate image preflight safeguards
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
+      - name: Image identity
+        shell: bash
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-worker:sha-${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - name: Build AMD worker using persistent layer cache
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: REGIMEX_SOURCE_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=worker-amd64
+          cache-to: type=gha,mode=max,scope=worker-amd64
+      - name: Typecheck built production source
+        run: docker run --rm --entrypoint "" --workdir /app "$IMAGE" pnpm --filter @regimex/worker typecheck
+      - name: Test connection and market-data routing in the built image
+        run: |
+          docker run --rm --entrypoint "" --workdir /app/apps/worker \
+            --volume "$PWD/apps/worker/src/engine/demoGoldMarketDataConnection.test.ts:/app/apps/worker/src/engine/demoGoldMarketDataConnection.test.ts:ro" \
+            --volume "$PWD/apps/worker/src/engine/liveEngineMarketData.test.ts:/app/apps/worker/src/engine/liveEngineMarketData.test.ts:ro" \
+            "$IMAGE" pnpm exec vitest run src/engine/demoGoldMarketDataConnection.test.ts src/engine/liveEngineMarketData.test.ts --maxWorkers=1 --minWorkers=1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested image and record immutable reference
+        shell: bash
+        run: |
+          docker push "$IMAGE"
+          mkdir -p worker-release
+          docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE" > worker-release/image-digest.txt
+          printf '%s\n' "$GITHUB_SHA" > worker-release/source-commit.txt
+          cat worker-release/image-digest.txt >> "$GITHUB_STEP_SUMMARY"
+          printf '\nBuild and tests only. No server connection or deployment.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Optional offline-transfer archive
+        if: ${{ inputs.export_image == true }}
+        shell: bash
+        run: |
+          docker save "$IMAGE" | gzip -1 > worker-release/worker-image.tar.gz
+          (cd worker-release && sha256sum worker-image.tar.gz > worker-image.tar.gz.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: worker-release-${{ github.sha }}
+          path: worker-release/
+          retention-days: 3
+          if-no-files-found: error
