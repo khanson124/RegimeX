@@ -81,12 +81,14 @@ function buildCapacityPrisma() {
       }
       return null;
     }),
-    count: vi.fn(async ({ where }: { where: { userId: string; origin: string; status: { in: string[] } } }) =>
+    count: vi.fn(async ({ where }: { where: { userId: string; origin: string; status: { in: string[] }; symbol?: string; direction?: string; metadata?: { equals?: string; path?: string[] } } }) =>
       [...positions.values()].filter(
         (p) =>
           p.userId === where.userId &&
           p.origin === where.origin &&
-          where.status.in.includes(String(p.status))
+          where.status.in.includes(String(p.status)) &&
+          (!where.symbol || p.symbol === where.symbol) && (!where.direction || p.direction === where.direction) &&
+          (!where.metadata || (p.metadata as { executionModel?: string })?.executionModel === where.metadata.equals)
       ).length
     ),
     updateMany: vi.fn(
@@ -130,7 +132,7 @@ function buildCapacityPrisma() {
           $executeRaw: vi.fn(async () => undefined),
           position: {
             findUnique: positionApi.findUnique,
-            count: vi.fn(async ({ where }: { where: { userId: string } }) => countConsuming(where.userId)),
+            count: positionApi.count,
             create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
               if ([...positions.values()].some((p) => p.idempotencyKey === data.idempotencyKey)) {
                 throw Object.assign(new Error("Unique"), { code: "P2002" });
@@ -412,4 +414,44 @@ describe("mt5 capacity reservation", () => {
     expect(decideCapacityReservation({ consumedBefore: 2, maxConcurrent: 2 }).allowed).toBe(false);
     expect(decideCapacityReservation({ consumedBefore: 1, maxConcurrent: 2 }).allowed).toBe(true);
   });
+});
+
+describe("DEMO overlapping setup reservation", () => {
+  const demo = { interval: "1m", metadata: { executionModel: "broker_demo_mt5" }, demoSetupGuard: true };
+  it("atomically allows only one of two same-symbol/direction submissions below global capacity", async () => {
+    const db = buildCapacityPrisma();
+    const results = await Promise.all(["one", "two"].map(id => createPendingPositionWithExecutionIntent(db as never,
+      baseInput(id, demo), mockLogger())));
+    expect(results.filter(r => r.ok)).toHaveLength(1);
+    expect(results.find(r => !r.ok)).toMatchObject({ reason: "DEMO_SETUP_ALREADY_OPEN" });
+  });
+  it("allows another direction or symbol while preserving the global cap", async () => {
+    const db = buildCapacityPrisma();
+    const reserve = (id: string, patch = {}) => createPendingPositionWithExecutionIntent(db as never,
+      baseInput(id, { ...demo, maxConcurrentPositions: 3, ...patch }), mockLogger());
+    expect((await reserve("one")).ok).toBe(true);
+    expect((await reserve("opposite", { direction: "BUY" })).ok).toBe(true);
+    expect((await reserve("gold", { internalSymbol: "XAUUSD", interval: "15m", strategyId: "xau-trend-pullback-v1" })).ok).toBe(true);
+    expect((await reserve("fourth", { internalSymbol: "OTHER" })).ok).toBe(false);
+  });
+  it.each([{ demoSetupGuard: false }, { metadata: { executionModel: "broker_real_mt5" } }, { interval: "5m" },
+    { internalSymbol: "XAUUSD", interval: "15m", strategyId: "another" }])("does not apply outside its opt-in scope: %j", async patch => {
+    const db = buildCapacityPrisma();
+    for (const id of ["one", "two"]) expect((await createPendingPositionWithExecutionIntent(db as never,
+      baseInput(id, { ...demo, ...patch }), mockLogger())).ok).toBe(true);
+  });
+  it("keeps replay of the same signal idempotent", async () => {
+    const db = buildCapacityPrisma();
+    const first = await createPendingPositionWithExecutionIntent(db as never, baseInput("same", demo), mockLogger());
+    const again = await createPendingPositionWithExecutionIntent(db as never, baseInput("same", demo), mockLogger());
+    expect(first.ok && again.ok && first.position.id === again.position.id).toBe(true);
+  });
+});
+
+it("blocks a second scoped Gold reservation independently of the global cap",async()=>{
+ const db=buildCapacityPrisma();const patch={internalSymbol:"XAUUSD",interval:"15m",strategyId:"xau-trend-pullback-v1",
+  demoSetupGuard:true,metadata:{executionModel:"broker_demo_mt5"}};
+ expect((await createPendingPositionWithExecutionIntent(db as never,baseInput("gold1",patch),mockLogger())).ok).toBe(true);
+ expect(await createPendingPositionWithExecutionIntent(db as never,baseInput("gold2",patch),mockLogger()))
+  .toMatchObject({ok:false,reason:"DEMO_SETUP_ALREADY_OPEN"});
 });

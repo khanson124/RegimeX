@@ -11,3 +11,13 @@ it('parses 10 without changing Gold risk or selected sessions',()=>{
  expect(c.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD).toBe(10);expect(c.MT5_DEMO_XAUUSD_MAX_RISK_PERCENT).toBe(.35);
  expect(c.MT5_DEMO_XAUUSD_SESSION_START_UTC).toBe(0);expect(c.MT5_DEMO_XAUUSD_SESSION_END_UTC).toBe(24);expect(c.MT5_ENGINE_MAX_RISK_PERCENT).toBe(.1);
 });
+
+it('defaults to legacy exits and leaves the new entry rules off',()=>{
+ const c=loadConfig(required);expect(c.MT5_DEMO_XAUUSD_EXIT_MODE).toBe('FIXED_USD');expect(c.MT5_DEMO_ENTRY_QUALITY_ENABLED).toBe(false);
+});
+it('parses the explicit new DEMO policy without increasing risk',()=>{
+ const c=loadConfig({...required,MT5_DEMO_XAUUSD_EXIT_MODE:'RISK_BASED',MT5_DEMO_ENTRY_QUALITY_ENABLED:'true'});
+ expect(c.MT5_DEMO_XAUUSD_EXIT_MODE).toBe('RISK_BASED');expect(c.MT5_DEMO_ENTRY_QUALITY_ENABLED).toBe(true);
+ expect(c.MT5_ENGINE_MAX_RISK_PERCENT).toBe(.1);
+});
+it('rejects an unknown exit mode',()=>expect(()=>loadConfig({...required,MT5_DEMO_XAUUSD_EXIT_MODE:'UNLIMITED'})).toThrow());

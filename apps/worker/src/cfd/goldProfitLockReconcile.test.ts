@@ -97,3 +97,21 @@ describe('active Gold DEMO reconciliation', () => {
     await applyDemoGoldProfitLocks(f.input);expect(f.adapter.modifyPosition).toHaveBeenCalledWith({brokerPositionId:'42',stopLoss:99,takeProfit:null});
   });
 });
+
+it('runs the new risk-based ladder while retaining the original target',async()=>{
+ const f=fixture();Object.assign(f.local,{volume:.01});Object.assign(f.broker,{volume:.01});
+ Object.assign(f.local.metadata,{demoGoldExitPolicy:'RISK_BASED_V1'});
+ f.adapter.modifyPosition.mockResolvedValue({...f.broker,stopLoss:95});
+ await applyDemoGoldProfitLocks(f.input);
+ expect(f.adapter.modifyPosition).toHaveBeenCalledWith({brokerPositionId:'42',stopLoss:95,takeProfit:80});
+ expect(f.create).toHaveBeenCalledWith({data:expect.objectContaining({payload:expect.objectContaining({exitPolicy:'RISK_BASED_V1',protectedR:.5})})});
+});
+it('does not apply new protection to changed-volume positions',async()=>{
+ const f=fixture();Object.assign(f.local,{volume:.01});Object.assign(f.broker,{volume:.02});
+ Object.assign(f.local.metadata,{demoGoldExitPolicy:'RISK_BASED_V1'});
+ await applyDemoGoldProfitLocks(f.input);expect(f.adapter.modifyPosition).not.toHaveBeenCalled();
+});
+it('rechecks DEMO identity immediately before a modification',async()=>{
+ const f=fixture();f.adapter.getStatus.mockReturnValueOnce({isDemo:true}).mockReturnValue({isDemo:false});
+ await applyDemoGoldProfitLocks(f.input);expect(f.adapter.modifyPosition).not.toHaveBeenCalled();
+});

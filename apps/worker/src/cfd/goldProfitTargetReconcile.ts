@@ -24,10 +24,10 @@ export async function applyDemoGoldProfitTargets(input: {
   if (input.executionMode !== 'broker_demo_mt5' || status.isDemo !== true || status.currency !== 'USD'
     || targetUsd === undefined || !Number.isFinite(targetUsd) || targetUsd <= 0) return;
   for (const local of input.localOpen) {
-    const meta = local.metadata as { executionModel?: string; ownedByRegimeX?: boolean } | null;
+    const meta = local.metadata as { executionModel?: string; ownedByRegimeX?: boolean; demoGoldExitPolicy?: string } | null;
     if (local.symbol !== 'XAUUSD' || local.interval !== '15m' || local.strategyId !== 'xau-trend-pullback-v1'
       || local.origin !== 'ENGINE' || local.status !== 'OPEN' || meta?.executionModel !== 'broker_demo_mt5'
-      || meta.ownedByRegimeX === false || !local.brokerPositionId) continue;
+      || meta.ownedByRegimeX === false || meta.demoGoldExitPolicy === 'RISK_BASED_V1' || !local.brokerPositionId) continue;
     const ticket = local.brokerPositionId;
     if (!input.brokerOpen.some(p => p.brokerPositionId === ticket) || closingGoldTickets.has(ticket)) continue;
     closingGoldTickets.add(ticket);

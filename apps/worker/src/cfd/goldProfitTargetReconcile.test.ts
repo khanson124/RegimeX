@@ -24,3 +24,9 @@ describe('Gold DEMO dollar exit',()=>{
  it('rejects bad close acknowledgement',async()=>{const f=fixture();f.adapter.closePosition.mockResolvedValue({...await f.adapter.closePosition(),brokerPositionId:'other'});f.adapter.closePosition.mockClear();await applyDemoGoldProfitTargets(f.input);expect(f.event).not.toHaveBeenCalled();expect(f.input.brokerOpen).toHaveLength(1);});
  it('serializes concurrent sessions',async()=>{const f=fixture();let release!:()=>void;const reply=await f.adapter.closePosition();f.adapter.closePosition.mockClear();f.adapter.closePosition.mockImplementation(async()=>{await new Promise<void>(r=>release=r);return reply;});const first=applyDemoGoldProfitTargets(f.input);await vi.waitFor(()=>expect(f.adapter.closePosition).toHaveBeenCalledTimes(1));await applyDemoGoldProfitTargets({...f.input,brokerOpen:[{...f.broker}]});release();await first;expect(f.adapter.closePosition).toHaveBeenCalledTimes(1);});
 });
+
+it('does not close risk-based positions at the legacy dollar target',async()=>{
+ const f=fixture();Object.assign(f.local.metadata,{demoGoldExitPolicy:'RISK_BASED_V1'});
+ await applyDemoGoldProfitTargets(f.input);expect(f.adapter.getQuote).not.toHaveBeenCalled();
+ expect(f.adapter.closePosition).not.toHaveBeenCalled();
+});

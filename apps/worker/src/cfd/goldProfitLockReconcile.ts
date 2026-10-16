@@ -9,7 +9,7 @@ import { goldProtectedStop } from './goldProfitLock.js';
 const modifyingGoldTickets = new Set<string>();
 
 type GoldPosition = ProfitLockLocalPosition & {
-  strategyId: string; interval: string | null; origin: string; metadata: unknown;
+  strategyId: string; interval: string | null; origin: string; metadata: unknown; volume?: unknown;
 };
 type SymbolSpec = { tickSize: number; point: number; stopsLevel?: number | null; freezeLevel?: number | null };
 export async function applyDemoGoldProfitLocks(input: {
@@ -26,10 +26,10 @@ export async function applyDemoGoldProfitLocks(input: {
   const { adapter, prisma, logger } = input;
   if (input.executionMode !== 'broker_demo_mt5' || adapter.getStatus().isDemo !== true) return;
   for (const local of input.localOpen) {
-    const metadata = local.metadata as { executionModel?: string } | null;
+    const metadata = local.metadata as { executionModel?: string; ownedByRegimeX?: boolean; demoGoldExitPolicy?: string } | null;
     if (local.symbol !== 'XAUUSD' || local.interval !== '15m' || local.origin !== 'ENGINE'
       || local.strategyId !== 'xau-trend-pullback-v1' || local.status !== 'OPEN'
-      || metadata?.executionModel !== 'broker_demo_mt5' || !local.brokerPositionId) continue;
+      || metadata?.executionModel !== 'broker_demo_mt5' || metadata.ownedByRegimeX === false || !local.brokerPositionId) continue;
     const broker = input.brokerOpen.find(p => p.brokerPositionId === local.brokerPositionId);
     if (!broker || broker.symbol !== 'XAUUSD' || broker.status !== 'OPEN' || broker.direction !== local.direction) continue;
     if (modifyingGoldTickets.has(broker.brokerPositionId)) continue;
@@ -46,10 +46,14 @@ export async function applyDemoGoldProfitLocks(input: {
         || !Number.isFinite(quote.bid) || !Number.isFinite(quote.ask) || quote.bid <= 0 || quote.ask < quote.bid
         || Math.abs(Number(local.entryPrice) - broker.entryPrice) > spec.tickSize) continue;
       const market = broker.direction === 'BUY' ? quote.bid : quote.ask;
-      const decision = goldProtectedStop({ direction: broker.direction, entry: Number(local.entryPrice),
+      const decision = goldProtectedStop({ riskBased: metadata.demoGoldExitPolicy === 'RISK_BASED_V1', direction: broker.direction, entry: Number(local.entryPrice),
         initialStop: Number(local.initialStopLoss), currentStop: broker.stopLoss, market,
         tickSize: spec.tickSize, point: spec.point, stopsLevel: spec.stopsLevel ?? NaN, freezeLevel: spec.freezeLevel ?? NaN });
       if (!decision) continue;
+      if (adapter.getStatus().isDemo !== true) continue;
+      if (metadata.demoGoldExitPolicy === 'RISK_BASED_V1' &&
+        (!Number.isFinite(Number(local.volume)) || Number(local.volume) <= 0 || !Number.isFinite(broker.volume) ||
+          Math.abs(Number(local.volume) - broker.volume) > 1e-8)) continue;
       const confirmed = await adapter.modifyPosition({ brokerPositionId: broker.brokerPositionId,
         stopLoss: decision.stop, takeProfit: broker.takeProfit });
       // Persist the returned broker stop, never an unacknowledged proposal.
@@ -67,7 +71,7 @@ export async function applyDemoGoldProfitLocks(input: {
       local.stopLoss = confirmed.stopLoss;
       await prisma.position.update({ where: { id: local.id }, data: { stopLoss: confirmed.stopLoss } });
       await recordPositionEvent(prisma, local.id, 'PROFIT_LOCK_UPDATED', {
-        scope: 'DEMO_GOLD', favorableR: decision.favorableR, protectedR: decision.protectedR,
+        scope: 'DEMO_GOLD', exitPolicy: metadata.demoGoldExitPolicy ?? 'LEGACY_LOCK', favorableR: decision.favorableR, protectedR: decision.protectedR,
         oldStopLoss, newStopLoss: confirmed.stopLoss, entryPrice: Number(local.entryPrice),
         initialStopLoss: Number(local.initialStopLoss), currentPrice: market, brokerPositionId: broker.brokerPositionId
       });

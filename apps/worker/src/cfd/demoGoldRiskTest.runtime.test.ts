@@ -16,12 +16,13 @@ const now = Date.parse("2026-10-06T20:00:00Z");
 const instrument = { symbol: "XAUUSD", enabled: true, verified: true, contractSize: 100, volumeStep: .01,
   minVolume: .01, maxVolume: 400, tickSize: .01, tickValue: 1, marginRate: .01, spreadBps: 0,
   slippageBps: 0, pricePrecision: 3, currency: "USD", source: "mt5_live_discovery" };
-function fixture(enabled: boolean, lifecycle = "EXPERIMENTAL", emergencyStop = false) {
+function fixture(enabled: boolean, lifecycle = "EXPERIMENTAL", emergencyStop = false, exitMode = "FIXED_USD", quality = false) {
   resetConfigCache();
   const config = loadConfig({ DATABASE_URL: "postgresql://test:test@localhost:5432/test", JWT_ACCESS_SECRET: "a".repeat(32),
     JWT_REFRESH_SECRET: "b".repeat(32), CREDENTIAL_ENCRYPTION_KEY: "c".repeat(32), EXECUTION_MODE: "broker_demo_mt5",
     MT5_BRIDGE_SECRET: "s".repeat(32), MT5_BRIDGE_URL: "http://fixture", MT5_ENGINE_ENABLED: "true", DEMO_TRADING_ENABLED: "true", MT5_ENGINE_SYMBOL_ALLOWLIST: "XAUUSD",
     MT5_ENGINE_STRATEGY_ALLOWLIST: "xau-trend-pullback-v1", MT5_ENGINE_MAX_VOLUME: ".5",
+    MT5_DEMO_XAUUSD_EXIT_MODE: exitMode, MT5_DEMO_ENTRY_QUALITY_ENABLED: String(quality),
     MT5_DEMO_XAUUSD_RISK_TEST_UNTIL: enabled ? "2026-10-08T20:00:00Z" : undefined });
   const logger = { child: vi.fn(), warn: vi.fn(), info: vi.fn() }; logger.child.mockReturnValue(logger);
   const adapter = { getStatus: vi.fn().mockReturnValue({ isDemo: true }), getQuote: vi.fn().mockResolvedValue({ symbol: instrument.symbol, bid: 98, ask: 100, timestamp: now }),
@@ -118,4 +119,31 @@ describe("Gold DEMO full submission", () => {
   vi.spyOn(Date, "now").mockReturnValue(now); const f = fixture(true, "EXPERIMENTAL", true);
   expect(await f.runtime.executeCfdSignal(f.input)).toMatchObject({ opened: false }); expect(f.adapter.openMarketPosition).not.toHaveBeenCalled();
  });
+});
+
+it('freezes risk-based exits on new orders and pending reservations without raising volume or risk',async()=>{
+ vi.spyOn(Date,'now').mockReturnValue(now);const f=fixture(true,'EXPERIMENTAL',false,'RISK_BASED');
+ expect(await f.runtime.executeCfdSignal(f.input)).toMatchObject({opened:true});
+ expect(saga.create.mock.calls[0]![1]).toMatchObject({metadata:{demoGoldExitPolicy:'RISK_BASED_V1'}});
+ expect(f.adapter.openMarketPosition.mock.calls[0]![0]).toMatchObject({volume:.01,stopLoss:95,takeProfit:110,
+  metadata:{demoGoldExitPolicy:'RISK_BASED_V1'}});
+});
+it('blocks entry on unavailable broker structure history before reserving or submitting',async()=>{
+ vi.spyOn(Date,'now').mockReturnValue(now);const f=fixture(true,'EXPERIMENTAL',false,'RISK_BASED',true);
+ Object.assign(f.input.candle,{closeTime:now});
+ vi.spyOn(f.runtime,'getHistoricalBarsForWarmup').mockResolvedValue({ok:false,reason:'HISTORY_UNAVAILABLE'});
+ expect(await f.runtime.executeCfdSignal(f.input)).toMatchObject({opened:false,reasons:['DEMO_STRUCTURE_HISTORY_UNAVAILABLE']});
+ expect(saga.create).not.toHaveBeenCalled();expect(f.adapter.openMarketPosition).not.toHaveBeenCalled();
+});
+it('rechecks structural room at the refreshed executable price before sending an order',async()=>{
+ vi.spyOn(Date,'now').mockReturnValue(now);const f=fixture(true,'EXPERIMENTAL',false,'RISK_BASED',true);
+ Object.assign(f.input.candle,{closeTime:now});
+ const bars=Array.from({length:48},(_,i)=>{const p=100+5*Math.sin(i*Math.PI/4);return {symbol:'XAUUSD',timeframe:'15m',
+  source:'MT5',isComplete:true,openTimeMs:now+(i-48)*900000,closeTimeMs:now+(i-47)*900000,
+  brokerServerOpenTimeMs:now+(i-48)*900000,open:p,close:p,high:p+1,low:p-1,tickVolume:1,realVolume:null,spreadPoints:null}});
+ vi.spyOn(f.runtime,'getHistoricalBarsForWarmup').mockResolvedValue({ok:true,isDemo:true,brokerSymbol:'XAUUSD',bars:bars as never,requestedCount:63});
+ f.adapter.getQuote.mockResolvedValueOnce({symbol:'XAUUSD',bid:98,ask:100,timestamp:now})
+  .mockResolvedValue({symbol:'XAUUSD',bid:105.75,ask:106,timestamp:now});
+ expect(await f.runtime.executeCfdSignal(f.input)).toMatchObject({opened:false,reasons:['DEMO_STRUCTURE_INSIDE_ZONE']});
+ expect(saga.create).toHaveBeenCalledOnce();expect(f.adapter.openMarketPosition).not.toHaveBeenCalled();
 });

@@ -212,7 +212,11 @@ const envSchema = z.object({
   /** Paired override, used only for DEMO XAUUSD 15m xau-trend-pullback-v1. */
   MT5_DEMO_XAUUSD_SESSION_START_UTC: optionalUtcSessionHour,
   MT5_DEMO_XAUUSD_SESSION_END_UTC: optionalUtcSessionHour,
-  /** Optional USD profit exit for the exact Gold DEMO strategy; absent/invalid is OFF. */
+  /** Additional exact-scope DEMO overlap and structural-room entry checks. */
+  MT5_DEMO_ENTRY_QUALITY_ENABLED: envBoolean.default(false),
+  /** Freeze the selected exit policy on new exact-scope DEMO Gold reservations. */
+  MT5_DEMO_XAUUSD_EXIT_MODE: z.enum(["FIXED_USD", "RISK_BASED"]).default("FIXED_USD"),
+  /** Optional legacy USD exit; absent/invalid retains legacy stop protection. */
   MT5_DEMO_XAUUSD_PROFIT_TARGET_USD: z.preprocess((val) => {
     if (val === undefined || val === null || String(val).trim() === "") return undefined;
     const n = Number(val);

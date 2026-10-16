@@ -49,6 +49,7 @@ export interface PendingPositionWithIntentInput {
   metadata: object;
   /** Hard capacity limit; reservation is atomic with create. */
   maxConcurrentPositions: number;
+  demoSetupGuard?: boolean;
 }
 
 export type CreatePendingWithIntentResult =
@@ -252,6 +253,17 @@ export async function createPendingPositionWithExecutionIntent(
           status: { in: [...MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED] }
         }
       });
+      const meta = input.metadata as { executionModel?: string };
+      const guardScope = input.demoSetupGuard === true && meta.executionModel === "broker_demo_mt5" &&
+        ((input.internalSymbol === "R_10" && input.interval === "1m") ||
+          (input.internalSymbol === "XAUUSD" && input.interval === "15m" && input.strategyId === "xau-trend-pullback-v1"));
+      if (guardScope && await tx.position.count({ where: { userId: input.userId, origin: "ENGINE",
+        symbol: input.internalSymbol, direction: input.direction,
+        status: { in: [...MT5_CAPACITY_CONSUMING_STATUSES_EXTENDED] },
+        metadata: { path: ["executionModel"], equals: "broker_demo_mt5" } } }) > 0) {
+        return { kind: "blocked" as const, reason: "DEMO_SETUP_ALREADY_OPEN",
+          consumedSlotsBefore: consumedBefore, consumedSlotsAfter: consumedBefore };
+      }
       const decision = decideCapacityReservation({
         consumedBefore,
         maxConcurrent: maxConcurrentPositions
@@ -325,7 +337,7 @@ export async function createPendingPositionWithExecutionIntent(
           maxConcurrentPositions,
           consumedSlotsBefore: result.consumedSlotsBefore,
           consumedSlotsAfter: result.consumedSlotsAfter,
-          reason: MT5_CAPACITY_BLOCKED
+          reason: ("reason" in result ? result.reason : MT5_CAPACITY_BLOCKED) as string
         },
         "MT5 capacity blocked — concurrent reservation loser"
       );
@@ -335,7 +347,7 @@ export async function createPendingPositionWithExecutionIntent(
         consumedSlotsBefore: result.consumedSlotsBefore,
         consumedSlotsAfter: result.consumedSlotsAfter,
         maxConcurrentPositions,
-        reason: MT5_CAPACITY_BLOCKED
+        reason: ("reason" in result ? result.reason : MT5_CAPACITY_BLOCKED) as string
       };
     }
 

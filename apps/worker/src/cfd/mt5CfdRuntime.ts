@@ -1,3 +1,6 @@
+import { demoGoldExitPolicy } from "./demoGoldExitPolicy.js";
+import { assessDemoEntryRoom, demoEntryQualityApplies } from "./demoEntryQuality.js";
+import { mt5BarToHistoryCandle } from "@regimex/trading-engine";
 import { livePositionFilter, positionMatchesLiveScope } from "./livePositionScope.js";
 import { observeDemoR10SpreadShadow, type SpreadShadowPhase } from "./demoR10SpreadShadow.js";
 import { liveGoldEntriesAllowed } from "./liveGoldEntries.js";
@@ -185,11 +188,12 @@ export class Mt5CfdRuntime {
       if (this.deps.config.EXECUTION_MODE === "broker_demo_mt5"
         && this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD !== undefined) {
         const status = this.adapter.getStatus();
-        this.log.info({ event: "DEMO_GOLD_PROFIT_TARGET_CONFIGURED",
-          targetUsd: this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD,
+        this.log.info({ event: "DEMO_GOLD_EXIT_POLICY_CONFIGURED",
+          newPositionExitMode: this.deps.config.MT5_DEMO_XAUUSD_EXIT_MODE,
+          legacyPositionTargetUsd: this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD,
           scope: "XAUUSD:15m:xau-trend-pullback-v1",
           verifiedDemoUsdAccount: status.isDemo === true && status.currency === "USD",
-          movingStopUpdatesEnabled: false }, "Gold DEMO dollar exit configured");
+          movingStopUpdatesEnabledForNewRiskBasedPositions: this.deps.config.MT5_DEMO_XAUUSD_EXIT_MODE === "RISK_BASED" }, "Gold DEMO exit policy configured");
       }
       await recoverUnresolvedMt5ExecutionIntents({
         prisma: this.deps.prisma,
@@ -1033,6 +1037,29 @@ export class Mt5CfdRuntime {
       return { opened: false, reasons: riskDecision.reasons, decisionCode: "RISK_BLOCKED", preflight };
     }
 
+    const entryQualityEnabled = demoEntryQualityApplies({ enabled: this.deps.config.MT5_DEMO_ENTRY_QUALITY_ENABLED,
+      executionMode: this.deps.config.EXECUTION_MODE, sessionMode: input.sessionMode, symbol: input.symbol,
+      interval: input.interval, strategyId: input.strategyId });
+    let entryRoom: ReturnType<typeof assessDemoEntryRoom> | null = null;
+    let entryRoomBars: Candle[] = [];
+    if (entryQualityEnabled) {
+      try {
+        const history = await this.getHistoricalBarsForWarmup({ engineSymbol: input.symbol, timeframe: "15m", count: 63 });
+        const bars = history.ok && history.isDemo ? history.bars.filter(b => b.symbol === history.brokerSymbol &&
+          b.timeframe === "15m" && b.source === "MT5" && b.isComplete && b.closeTimeMs <= Date.now())
+          .map(bar => mt5BarToHistoryCandle({ bar, engineSymbol: input.symbol, interval: "15m" })) : [];
+        entryRoomBars = bars;
+        entryRoom = assessDemoEntryRoom({ symbol: input.symbol, action: proposal.direction, entry: fillPrice,
+          stop: proposal.stopLoss, decisionCloseMs: input.candle.closeTime }, bars);
+      } catch { entryRoom = { allowed: false, reason: "DEMO_STRUCTURE_HISTORY_UNAVAILABLE", roomR: null }; }
+      this.log.info({ event: "DEMO_ENTRY_STRUCTURE_CHECK", symbol: input.symbol, strategyId: input.strategyId,
+        correlationId: input.correlationId, ...entryRoom }, "DEMO_ENTRY_STRUCTURE_CHECK");
+      if (!entryRoom.allowed) return { opened: false, reasons: [entryRoom.reason], decisionCode: "RISK_BLOCKED", preflight };
+    }
+    const goldExitPolicy = demoGoldExitPolicy({ executionMode: this.deps.config.EXECUTION_MODE,
+      sessionMode: input.sessionMode, symbol: input.symbol, interval: input.interval, strategyId: input.strategyId,
+      configuredMode: this.deps.config.MT5_DEMO_XAUUSD_EXIT_MODE, existing: existing ?? undefined });
+
     const symbolAudit = {
       internalSymbol: input.symbol,
       brokerSymbol
@@ -1180,6 +1207,7 @@ export class Mt5CfdRuntime {
           riskPercent: positionRiskPercent,
           initialRiskReward: intendedTargetRMultiple,
           maxConcurrentPositions: maxConcurrentForReserve,
+          demoSetupGuard: entryQualityEnabled,
           reasoning: {
             entry: input.decision.entryReason,
             stop: proposal.reasons,
@@ -1198,6 +1226,8 @@ export class Mt5CfdRuntime {
             ownedByRegimeX: true,
             engineSymbol: input.symbol,
             ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
+            ...goldExitPolicy,
+            ...(entryRoom ? { demoEntryQuality: { model: "NATIVE_M15_ROOM_1R_V1", ...entryRoom } } : {}),
             ...(goldRiskTestTag ? { demoGoldRiskTest: goldRiskTestTag } : {}),
             ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
             ...symbolAudit,
@@ -1226,8 +1256,8 @@ export class Mt5CfdRuntime {
         );
         return {
           opened: false,
-          reasons: [created.reason, MT5_CAPACITY_BLOCKED],
-          decisionCode: "MAX_CONCURRENT_POSITIONS",
+          reasons: created.reason === "DEMO_SETUP_ALREADY_OPEN" ? [created.reason] : [created.reason, MT5_CAPACITY_BLOCKED],
+          decisionCode: created.reason === "DEMO_SETUP_ALREADY_OPEN" ? "RISK_BLOCKED" : "MAX_CONCURRENT_POSITIONS",
           preflight
         };
       }
@@ -1619,6 +1649,8 @@ export class Mt5CfdRuntime {
         brokerSymbol: submitBrokerSymbol,
         frozenResume: resumeBeforeSubmit,
         ...(demoLossBypassTag ? { demoLossBypass: demoLossBypassTag } : {}),
+        ...goldExitPolicy,
+        ...(entryRoom ? { demoEntryQuality: { model: "NATIVE_M15_ROOM_1R_V1", ...entryRoom } } : {}),
         ...(goldRiskTestTag ? { demoGoldRiskTest: goldRiskTestTag } : {}),
         ...(tradeExperiment.active ? { demoTradeExperiment: tradeExperiment } : {}),
         volumePreflight: submitPreflight,
@@ -1749,6 +1781,19 @@ export class Mt5CfdRuntime {
           executionIntentId: executionIntent.id, code: "DEMO_XAU_RISK_TEST_EXPIRED",
           message: "Gold DEMO risk test expired or account verification changed before submit", logger: this.log });
         return { opened: false, reasons: ["DEMO_XAU_RISK_TEST_EXPIRED"], decisionCode: "NO_TRADE", preflight };
+      }
+      if (entryQualityEnabled) {
+        entryRoom = assessDemoEntryRoom({ symbol: input.symbol, action: submitDirection,
+          entry: submitDirection === "BUY" ? submitQuote.ask : submitQuote.bid, stop: submitStopLoss,
+          decisionCloseMs: input.candle.closeTime }, entryRoomBars);
+        const stale = Date.now() - input.candle.closeTime > (profile?.maxSignalAgeSeconds ?? 30) * 1000;
+        if (!entryRoom.allowed || stale || this.adapter.getStatus().isDemo !== true) {
+          const reason = stale ? "DEMO_STRUCTURE_SIGNAL_STALE" : this.adapter.getStatus().isDemo !== true
+            ? "DEMO_STRUCTURE_ACCOUNT_MISMATCH" : entryRoom.reason;
+          await failClosedPendingExecution({ prisma: this.deps.prisma, positionId: pending.id,
+            executionIntentId: executionIntent.id, code: reason, message: reason, logger: this.log });
+          return { opened: false, reasons: [reason], decisionCode: "RISK_BLOCKED", preflight };
+        }
       }
       await markExecutionIntentSubmitted(this.deps.prisma, executionIntent.id, this.log);
       const openRequest = buildOpenRequest();
@@ -2546,13 +2591,15 @@ export class Mt5CfdRuntime {
           targetUsd: this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD,
           prisma: this.deps.prisma, adapter: this.adapter, logger: this.log, brokerOpen, localOpen
         });
-      } else await applyDemoGoldProfitLocks({
+      }
+      await applyDemoGoldProfitLocks({
         executionMode: this.deps.config.EXECUTION_MODE,
         prisma: this.deps.prisma,
         adapter: this.adapter,
         logger: this.log,
         brokerOpen,
-        localOpen
+        localOpen: this.deps.config.MT5_DEMO_XAUUSD_PROFIT_TARGET_USD === undefined ? localOpen :
+          localOpen.filter(p => (p.metadata as { demoGoldExitPolicy?: string } | null)?.demoGoldExitPolicy === "RISK_BASED_V1")
       });
 
       const plan = planBrokerPositionReconciliation({
