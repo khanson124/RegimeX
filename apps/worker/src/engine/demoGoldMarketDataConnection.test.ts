@@ -36,9 +36,9 @@ function fixture(backend: ExecutionBackend, symbol = "XAUUSD") {
 }
 
 beforeEach(() => { vi.clearAllMocks(); socket.connect.mockResolvedValue(undefined); });
-describe("DEMO Gold market-data connection", () => {
-  it("starts without reading Deriv credentials or opening a WebSocket", async () => {
-    const f = fixture("broker_demo_mt5");
+describe("DEMO MT5 market-data connection", () => {
+  it.each(["XAUUSD", "R_10"])("%s starts without reading Deriv credentials or opening a WebSocket", async (symbol) => {
+    const f = fixture("broker_demo_mt5", symbol);
     f.credential.mockRejectedValue(new Error("Deriv credentials unavailable"));
     socket.connect.mockRejectedValue(new Error("Deriv unavailable"));
     await expect(f.internal.connectDerivClient()).resolves.toBeUndefined();
@@ -49,13 +49,14 @@ describe("DEMO Gold market-data connection", () => {
     expect(socket.connect).not.toHaveBeenCalled();
     expect(f.internal.client).toBeNull();
     expect(f.info).toHaveBeenCalledWith(
-      expect.objectContaining({ event: "DEMO_XAU_MT5_ONLY_MARKET_DATA" }), expect.any(String)
+      expect.objectContaining({ event: symbol === "XAUUSD" ? "DEMO_XAU_MT5_ONLY_MARKET_DATA" : "DEMO_R10_MT5_ONLY_MARKET_DATA" }), expect.any(String)
     );
   });
 
   it.each([
-    ["broker_real_mt5", "XAUUSD"], ["broker_demo_mt5", "R_10"],
-    ["legacy_binary", "XAUUSD"], ["paper_cfd", "XAUUSD"]
+    ["broker_real_mt5", "XAUUSD"], ["broker_real_mt5", "R_10"], ["broker_demo_mt5", "R_25"],
+    ["legacy_binary", "XAUUSD"], ["paper_cfd", "XAUUSD"],
+    ["legacy_binary", "R_10"], ["paper_cfd", "R_10"]
   ] as const)("preserves %s/%s credential, connection and event handling", async (backend, symbol) => {
     const f = fixture(backend, symbol);
     await f.internal.connectDerivClient();
@@ -66,7 +67,7 @@ describe("DEMO Gold market-data connection", () => {
     expect(socket.on.mock.calls.map(c => c[0])).toEqual(["reconnected", "error", "stateChange"]);
   });
 
-  it("does not swallow connection failures outside DEMO Gold", async () => {
+  it("does not swallow REAL connection failures", async () => {
     const f = fixture("broker_real_mt5");
     socket.connect.mockRejectedValue(new Error("connection failed"));
     await expect(f.internal.connectDerivClient()).rejects.toThrow("connection failed");

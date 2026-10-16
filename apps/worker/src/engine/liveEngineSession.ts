@@ -250,13 +250,14 @@ export class LiveEngineSession {
   }
 
   private async connectDerivClient(): Promise<void> {
-    // DEMO Gold consumes MT5 history/quotes exclusively. Do not open an unused
+    // These DEMO sessions consume MT5 history/quotes exclusively. Do not open an unused
     // WebSocket whose reconnect events would misrepresent its broker health.
-    // Keep R_10 and REAL connection behavior unchanged.
-    if (this.executionBackend === "broker_demo_mt5" && this.symbol === "XAUUSD") {
+    // Keep REAL and other symbols' connection behavior unchanged.
+    if (this.executionBackend === "broker_demo_mt5" && (this.symbol === "XAUUSD" || this.symbol === "R_10")) {
       this.log.info(
-        { event: "DEMO_XAU_MT5_ONLY_MARKET_DATA", executionBackend: this.executionBackend },
-        "DEMO Gold uses MT5 market data; skipping unused Deriv connection"
+        { event: this.symbol === "XAUUSD" ? "DEMO_XAU_MT5_ONLY_MARKET_DATA" : "DEMO_R10_MT5_ONLY_MARKET_DATA",
+          executionBackend: this.executionBackend },
+        "DEMO session uses MT5 market data; skipping unused Deriv connection"
       );
       return;
     }
